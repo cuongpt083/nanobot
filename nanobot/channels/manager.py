@@ -122,8 +122,17 @@ class ChannelManager:
         self._dispatch_task: asyncio.Task[None] | None = None
         self._started = False
         self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
+        self.presentation_leak_prevented_total = 0
+
+        from nanobot.pilot.presentation import PresentationPolicy
+        self.presentation_policy = PresentationPolicy(
+            on_leak_prevented=self._on_leak_prevented
+        )
 
         self._init_channels()
+
+    def _on_leak_prevented(self) -> None:
+        self.presentation_leak_prevented_total += 1
 
     def _channel_section(
         self,
@@ -797,10 +806,16 @@ class ChannelManager:
             **kwargs,
         )
 
-    @staticmethod
-    async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
+    async def _send_once(self, channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
+        res = self.presentation_policy.sanitize(msg.content, msg.metadata or {})
+        msg.content = res.content
+        msg.metadata = res.metadata
+        
         event = outbound_event_from_message(msg)
+        if not self.presentation_policy.permits_event(event, getattr(channel, 'show_reasoning', True)):
+            return
+
         if isinstance(event, ProgressEvent) and event.reasoning_end:
             await ChannelManager._send_reasoning_end(channel, msg, event)
         elif isinstance(event, ProgressEvent) and event.reasoning_delta:
