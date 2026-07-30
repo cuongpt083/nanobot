@@ -175,13 +175,13 @@ git commit -m "feat(pilot): enforce outbound presentation policy"
 - Modify: `nanobot/channels/websocket/tests/test_websocket_channel.py`
 - Create: `tests/pilot/test_reasoning_client_canaries.py`
 
-- [ ] Write failing WebUI tests that feed legacy `reasoning_delta`, `reasoning_end`, and `kind="reasoning"` frames and assert no message field or rendered DOM contains the canary. Keep a neutral pre-token “Đang xử lý…” state that contains no model text.
+- [x] Write failing WebUI tests that feed legacy `reasoning_delta`, `reasoning_end`, and `kind="reasoning"` frames and assert no message field or rendered DOM contains the canary. Keep a neutral pre-token “Đang xử lý…” state that contains no model text.
 
-- [ ] Make WebSocket and Telegram reasoning send methods no-op under the pilot policy, without including the reasoning value in logs or metadata.
+- [x] Make WebSocket and Telegram reasoning send methods no-op under the pilot policy, without including the reasoning value in logs or metadata.
 
-- [ ] Remove WebUI reasoning fields, transcript folding, reducers, activity-cluster branches, and visible components. Treat legacy reasoning frames as ignored compatibility input so stale servers and historical transcript records cannot expose content.
+- [x] Remove WebUI reasoning fields, transcript folding, reducers, activity-cluster branches, and visible components. Treat legacy reasoning frames as ignored compatibility input so stale servers and historical transcript records cannot expose content.
 
-- [ ] Search production client code for residual render paths:
+- [x] Search production client code for residual render paths:
 
 ```bash
 rg -n "reasoning_delta|reasoning_end|reasoningStreaming|ReasoningBubble|thinking_blocks|reasoning_content" webui/src nanobot/channels/websocket nanobot/channels/telegram
@@ -189,14 +189,14 @@ rg -n "reasoning_delta|reasoning_end|reasoningStreaming|ReasoningBubble|thinking
 
 Expected matches are limited to explicit ignore/no-op code and tests.
 
-- [ ] Run:
+- [x] Run:
 
 ```bash
 cd webui && bun run test -- useNanobotStream message-bubble
 cd .. && uv run pytest tests/pilot/test_reasoning_client_canaries.py nanobot/channels/telegram/tests/test_telegram_channel.py -q
 ```
 
-- [ ] Commit:
+- [x] Commit:
 
 ```bash
 git add -A nanobot/channels/websocket nanobot/channels/telegram nanobot/webui/transcript.py webui/src tests/utils/test_webui_transcript.py tests/pilot/test_reasoning_client_canaries.py
