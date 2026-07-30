@@ -218,10 +218,11 @@ git commit -m "feat(pilot): remove client reasoning surfaces"
 
 - [ ] Add failing tests proving unauthorized WebSocket and Telegram senders receive an access/pairing response before attachment storage, media download, transcript write, bus publish, or teacher call.
 
-- [ ] Extend `TelegramConfig.group_policy` to `Literal["disabled", "mention", "allowlist"]` with default `"disabled"`. Define semantics:
+- [ ] Extend `TelegramConfig.group_policy` to `Literal["disabled", "mention", "allowlist"]` with default `"disabled"`. The current value is `Literal["open", "mention"]` default `"mention"` (`nanobot/channels/telegram/runtime.py`), so this is a **breaking change**: it removes `"open"` and flips the default. To avoid bricking existing configs, keep `"open"` accepted as a deprecated alias mapped to `"allowlist"` (log a one-time deprecation warning) for one release, then remove it. Define semantics:
   - `disabled`: ignore group updates;
   - `mention`: require the chat ID in a new `group_allow_from` list, an allowed sender, and a direct bot mention;
   - `allowlist`: require the chat ID in `group_allow_from` and an allowed sender, then accept messages without mention.
+  Update existing `test_telegram_channel.py` assertions that assume `default == "mention"` or the `"open"` literal.
 
 - [ ] Keep Telegram DM pairing behavior. Re-check authorization immediately before `_handle_message`, as WebSocket already does after async hydration.
 
@@ -246,6 +247,7 @@ git commit -m "feat(pilot): enforce invite-only channel ingress"
 - Create: `nanobot/pilot/turns.py`
 - Create: `tests/pilot/test_turn_ids.py`
 - Modify: `nanobot/agent/loop.py`
+- Modify: `nanobot/agent/turn_delivery.py`
 - Modify: `nanobot/session/manager.py`
 - Modify: `nanobot/bus/events.py`
 - Modify: `nanobot/channels/websocket/runtime.py`
@@ -254,7 +256,7 @@ git commit -m "feat(pilot): enforce invite-only channel ingress"
 
 - [ ] Write failing tests for uniqueness across 20 concurrent turns, stable propagation to final outbound metadata, WebSocket completion frames, and Telegram send metadata. Assert IDs fit Telegram callback data when prefixed with `fb:x:`.
 
-- [ ] Implement `new_turn_id() -> str` as lowercase UUID4 hex and replace `f"{session_key}:{time.time_ns()}"`; never encode channel, chat, or user identifiers in a turn ID.
+- [ ] Implement `new_turn_id() -> str` as lowercase UUID4 hex and replace **both** current ID sites: `f"{key}:{time.time_ns()}"` in `AgentLoop` (`nanobot/agent/loop.py`, turn creation) and the stream base id `f"{self.session_key}:{time.time_ns()}"` in `nanobot/agent/turn_delivery.py`; never encode channel, chat, or user identifiers in a turn ID.
 
 - [ ] Add the accepted `turn_id` to `TurnContext.attributes`, `RequestContext`, `OutboundMessage.metadata`, WebSocket final frames, and Telegram message bookkeeping. Persist `_pilot_turn_id` only on the internal assistant session record and add a scoped `SessionManager` lookup for the preceding user message; strip the private key from WebUI hydration and provider request payloads. Preserve the WebUI client request ID separately as `client_turn_id`.
 
@@ -267,7 +269,7 @@ uv run pytest tests/pilot/test_turn_ids.py tests/agent/test_turn_delivery.py tes
 - [ ] Commit:
 
 ```bash
-git add nanobot/pilot/turns.py tests/pilot/test_turn_ids.py nanobot/agent/loop.py nanobot/session/manager.py nanobot/bus/events.py nanobot/channels/websocket/runtime.py nanobot/channels/telegram/runtime.py webui/src/lib/types.ts
+git add nanobot/pilot/turns.py tests/pilot/test_turn_ids.py nanobot/agent/loop.py nanobot/agent/turn_delivery.py nanobot/session/manager.py nanobot/bus/events.py nanobot/channels/websocket/runtime.py nanobot/channels/telegram/runtime.py webui/src/lib/types.ts
 git commit -m "feat(pilot): propagate stable turn identifiers"
 ```
 
@@ -354,7 +356,7 @@ class ProviderAttempt:
 
 Store attempts on `LLMResponse.attempts`. Give every provider instance a non-secret configured provider alias in the factory, compose attempt lists in the base retry loop and `FallbackProvider`, and never put raw error content in an attempt.
 
-- [ ] Add `on_provider_attempt(context, attempt)` to `AgentHook`/`CompositeHook`; have `AgentRunner` emit response attempts before tool execution or finalization.
+- [ ] Add `on_provider_attempt(context, attempt)` to `AgentHook`/`CompositeHook`. Attempts are **composed at the call site, not by the runner**: the base provider retry loop (`LLMProvider._run_with_retry`) and `FallbackProvider` append one content-free `ProviderAttempt` per provider call onto `LLMResponse.attempts` as each call completes. The hook then reads `context.response.attempts` (per-iteration, in `AgentHookContext`) to observe them; `AgentRunner` does not fabricate attempts itself. Emit so the hook observes response attempts before tool execution or finalization of that iteration.
 
 - [ ] Replace text-first retry/fallback decisions with structured status/kind/type/code precedence. Keep legacy text matching only when structured metadata is absent.
 
@@ -551,7 +553,7 @@ git commit -m "feat(pilot): add sqlite event store"
 
 - [ ] Implement `PilotService.start()`, `hook_factory()`, `health_snapshot()`, and `stop()`. The writer consumes batches sequentially and calls `SQLitePilotStore.write_batch` through `asyncio.to_thread`. Startup migration/writer failure marks capture degraded but returns a usable service whose hook stores metrics only.
 
-- [ ] In gateway construction, create one service, pass `pilot_service.hook_factory` into `AgentLoop`, start it before channels, and stop it after channels stop accepting ingress but before loop shutdown completes. Respect configured flush timeout and report unpersisted count without logging content.
+- [ ] In gateway construction (`nanobot/cli/commands.py`), create one service and wire it at the exact bootstrap points: append `pilot_service.hook_factory` to the `hook_factories=[...]` list at the gateway `AgentLoop.from_config(...)` call (the `gateway` command's agent construction, ~line 1923, alongside `create_file_edit_activity_hook`); call `pilot_service.start()` before `channels.start_all()` (~line 2333, i.e. before the `nanobot-channels` task is created); and call `pilot_service.stop()` in the shutdown `finally` block after `await channels.stop_all()` (~line 2384) so channels stop accepting ingress first, but before loop shutdown completes. Respect configured flush timeout and report unpersisted count without logging content. Note: the gateway runs as a child process (`nanobot/gateway/runtime.py:build_gateway_command`); these anchors are inside that child's entrypoint, so no separate gateway file needs editing.
 
 - [ ] Measure enqueue-path duration in tests with a deliberately slow writer and assert the hook does not wait for persistence.
 
@@ -626,7 +628,7 @@ git commit -m "feat(pilot): add consent deletion and retention"
 - [ ] Run:
 
 ```bash
-uv run pytest tests/pilot/test_feedback.py tests/bus/test_outbound_events.py tests/agent/test_turn_continuation.py -q
+uv run pytest tests/pilot/test_feedback.py tests/bus/test_outbound_events.py tests/session/test_turn_continuation.py -q
 ```
 
 - [ ] Commit:
