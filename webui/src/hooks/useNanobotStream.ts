@@ -36,9 +36,7 @@ interface ActiveAssistantCursor {
   index: number;
 }
 
-type PendingStreamEvent =
-  | { kind: "delta"; text: string; turn: UIMessageTurnFields }
-  | { kind: "reasoning"; text: string; turn: UIMessageTurnFields };
+type PendingStreamEvent = { kind: "delta"; text: string; turn: UIMessageTurnFields };
 
 type UIMessageTurnFields = Pick<UIMessage, "turnId" | "turnPhase" | "turnSeq">;
 
@@ -1032,20 +1030,7 @@ export function useNanobotStream(
         return;
       }
 
-      if (ev.event === "reasoning_delta") {
-        if (suppressStreamUntilTurnEndRef.current) return;
-        const chunk = ev.text;
-        if (!chunk) return;
-        if (fileEditSegmentRef.current) clearActivitySegment();
-        setIsStreaming(true);
-        pendingStreamEventsRef.current.push({
-          kind: "reasoning",
-          text: chunk,
-          turn: turnFieldsFromEvent(ev, "reasoning"),
-        });
-        schedulePendingStreamFlush();
-        return;
-      }
+      if (ev.event === "reasoning_delta") return;
 
       if (ev.event === "stream_end") {
         const turn = turnFieldsFromEvent(ev, "answer");
@@ -1076,11 +1061,7 @@ export function useNanobotStream(
         );
       flushPendingStreamEvents({ closeAnswerSegment: shouldCloseAnswerBeforeEvent });
 
-      if (ev.event === "reasoning_end") {
-        if (suppressStreamUntilTurnEndRef.current) return;
-        setMessages((prev) => closeReasoningStream(prev));
-        return;
-      }
+      if (ev.event === "reasoning_end") return;
 
       if (ev.event === "goal_state") {
         setGoalState(ev.goal_state);
@@ -1110,7 +1091,7 @@ export function useNanobotStream(
         const completedAt = Date.now();
         setMessages((prev) => {
           let finalized = prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
-          finalized = pruneReasoningOnlyPlaceholders(finalized);
+          // finalized is already updated
           const latencyMs =
             typeof ev.latency_ms === "number" && ev.latency_ms >= 0
               ? Math.round(ev.latency_ms)
@@ -1137,25 +1118,11 @@ export function useNanobotStream(
       if (ev.event === "message") {
         if (
           suppressStreamUntilTurnEndRef.current &&
-          (ev.kind === "tool_hint" || ev.kind === "progress" || ev.kind === "reasoning")
+          (ev.kind === "tool_hint" || ev.kind === "progress")
         ) {
           return;
         }
-        // Back-compat: a legacy ``kind: "reasoning"`` message (no streaming
-        // partner) is treated as one complete delta + immediate end so the
-        // bubble renders identically to the streaming path.
-        if (ev.kind === "reasoning") {
-          const line = ev.text;
-          if (!line) return;
-          if (fileEditSegmentRef.current) clearActivitySegment();
-          setMessages((prev) => closeReasoningStream(attachReasoningChunk(
-            prev,
-            line,
-            { ensure: ensureActivitySegmentId },
-            turnFieldsFromEvent(ev, "reasoning"),
-          )));
-          return;
-        }
+        if (ev.kind === "reasoning") return;
         // Intermediate agent breadcrumbs (tool-call hints, raw progress).
         // Attach them to the last trace row if it was the last emitted item
         // so a sequence of calls collapses into one compact trace group.
@@ -1381,7 +1348,7 @@ export function useNanobotStream(
         }
         const base = finalizeActiveTurn ? finalizeStreamedTurn(prev) : prev;
         return [
-          ...(sideChannel || continueActiveTurn ? base : pruneReasoningOnlyPlaceholders(base)),
+          ...base,
           {
             id: userMessageId,
             role: "user",

@@ -22,7 +22,6 @@ import { AttachmentTile } from "@/components/AttachmentTile";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText } from "@/components/MarkdownText";
 import { SlashCommandText } from "@/components/SlashCommandText";
-import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
 import { UserMessageText } from "@/components/UserMessageText";
 import {
   Tooltip,
@@ -315,9 +314,6 @@ export function MessageBubble({
 
   const empty = message.content.trim().length === 0;
   const media = message.media ?? [];
-  const reasoning = message.role === "assistant" ? message.reasoning ?? "" : "";
-  const reasoningStreaming = !!(message.role === "assistant" && message.reasoningStreaming);
-  const hasReasoning = reasoning.length > 0 || reasoningStreaming;
   const automationSourceKind = message.source?.kind;
   const automationSourceName = message.source?.label?.trim();
   const automationSourceLabel = (
@@ -340,22 +336,16 @@ export function MessageBubble({
       : "";
   const showCompletedAt =
     completedAtLabel.length > 0
-    && (!empty || hasReasoning || media.length > 0);
+    && (!empty || media.length > 0);
   const completedAtTitle = showCompletedAt ? fmtDateTime(completedAt) : "";
   const showAssistantFooterRow = showCopyButton || showForkButton || showCompletedAt;
   const showAssistantFooterSlot =
     message.role === "assistant"
-    && (!empty || hasReasoning || media.length > 0);
+    && (!empty || media.length > 0);
   return (
     <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-      {hasReasoning ? (
-        <ReasoningBubble
-          text={reasoning}
-          streaming={reasoningStreaming}
-          hasBodyBelow={!empty}
-        />
-      ) : null}
-      {empty && message.isStreaming && !hasReasoning ? (
+
+      {empty && message.isStreaming ? (
         <ThinkingState />
       ) : empty && message.isStreaming ? null : (
         <>
@@ -747,28 +737,6 @@ export function StreamingLabelSheen({
   );
 }
 
-interface ReasoningBubbleProps {
-  text: string;
-  streaming: boolean;
-  hasBodyBelow: boolean;
-}
-
-export function ReasoningBubble({
-  text,
-  streaming,
-  hasBodyBelow,
-}: ReasoningBubbleProps) {
-  return (
-    <ReasoningRow
-      text={text}
-      streaming={streaming}
-      className={cn(
-        "animate-in fade-in-0 slide-in-from-top-1 duration-200",
-        hasBodyBelow && "mb-2",
-      )}
-    />
-  );
-}
 
 interface TraceGroupProps {
   message: UIMessage;

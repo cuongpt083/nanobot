@@ -1096,28 +1096,7 @@ class WebSocketChannel(BaseChannel):
         rendered above the active assistant bubble with a shimmer header
         until the matching ``reasoning_end`` arrives.
         """
-        conns = list(self._subs.get(chat_id, ()))
-        if not delta:
-            return
-        meta = metadata or {}
-        body: dict[str, Any] = {
-            "event": "reasoning_delta",
-            "chat_id": chat_id,
-            "text": delta,
-        }
-        if stream_id is not None:
-            body["stream_id"] = stream_id
-        self._persist_turn_transcript_event(
-            chat_id,
-            body,
-            metadata=meta,
-            phase="reasoning",
-        )
-        raw = json.dumps(body, ensure_ascii=False)
-        if not conns:
-            return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning ")
+        pass
 
     async def send_reasoning_end(
         self,
@@ -1127,25 +1106,7 @@ class WebSocketChannel(BaseChannel):
         stream_id: str | None = None,
     ) -> None:
         """Close the current reasoning stream segment for in-place renderers."""
-        conns = list(self._subs.get(chat_id, ()))
-        meta = metadata or {}
-        body: dict[str, Any] = {
-            "event": "reasoning_end",
-            "chat_id": chat_id,
-        }
-        if stream_id is not None:
-            body["stream_id"] = stream_id
-        self._persist_turn_transcript_event(
-            chat_id,
-            body,
-            metadata=meta,
-            phase="reasoning",
-        )
-        raw = json.dumps(body, ensure_ascii=False)
-        if not conns:
-            return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning_end ")
+        pass
 
     async def send_file_edit_events(
         self,

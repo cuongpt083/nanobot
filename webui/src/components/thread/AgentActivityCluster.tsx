@@ -26,9 +26,7 @@ import {
   type GenericToolStatus,
   parseGenericToolTrace,
 } from "@/components/thread/activity/generic-tool-model";
-import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
 import { describeMcpActivity } from "@/components/thread/activity/mcp-activity-model";
-import { ThinkingReasoningShell } from "@/components/thread/activity/ThinkingReasoningShell";
 import { WebActivityRow } from "@/components/thread/activity/WebActivityRow";
 import {
   describeTraceLine,
@@ -38,7 +36,6 @@ import { WebSearchRun } from "@/components/thread/activity/WebSearchRun";
 import { webSearchRunsByTraceLine } from "@/components/thread/activity/web-search-model";
 import {
   isAgentActivityMember,
-  isReasoningOnlyAssistant,
 } from "@/lib/activity-timeline";
 import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
@@ -50,10 +47,9 @@ import type { CliAppInfo, McpPresetInfo, ToolProgressEvent, UIFileEdit, UIMessag
 
 const ACTIVITY_SCROLL_NEAR_BOTTOM_PX = 24;
 
-export { isAgentActivityMember, isReasoningOnlyAssistant };
+export { isAgentActivityMember };
 
 interface ActivityCounts {
-  reasoningSteps: number;
   toolCalls: number;
   cliCount: number;
   mcpCount: number;
@@ -89,15 +85,10 @@ function countActivity(
   cliRuns: CliRunSummary[],
   mcpRuns: McpRunSummary[],
 ): ActivityCounts {
-  let reasoningSteps = 0;
   let toolCalls = 0;
   const cliCount = cliRuns.length;
   const mcpCount = mcpRuns.length;
   for (const m of messages) {
-    if (isReasoningOnlyAssistant(m)) {
-      reasoningSteps += 1;
-      continue;
-    }
     if (m.kind === "trace") {
       const lines = traceLines(m);
       for (const line of lines) {
@@ -108,7 +99,6 @@ function countActivity(
     }
   }
   return {
-    reasoningSteps,
     toolCalls,
     cliCount,
     mcpCount,
@@ -131,7 +121,6 @@ interface AgentActivityClusterProps {
 }
 
 /**
- * Outer fold wrapping interleaved reasoning-only assistant rows and tool-trace rows.
  * Fixed max height with inner scroll and a single flat list of activity rows.
  */
 export function AgentActivityCluster({
@@ -163,7 +152,6 @@ export function AgentActivityCluster({
     [mcpPresets],
   );
   const {
-    reasoningSteps,
     toolCalls,
     cliCount,
     mcpCount,
@@ -185,9 +173,9 @@ export function AgentActivityCluster({
     ? outerOpenLocal
     : isTurnStreaming || completionHoldOpen || (wasTurnStreaming && !isTurnStreaming);
 
-  const hasVisibleActivity = reasoningSteps > 0 || toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
+  const hasVisibleActivity = toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
   const hasOnlyFileActivity = fileCount > 0 && activityMessages.every(messageHasOnlyFileActivity);
-  const hasNonReasoningActivity = toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
+  const hasVisibleActivity = toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
   const durationMs = activityDurationMs(
     activityMessages,
     isTurnStreaming,
@@ -196,7 +184,7 @@ export function AgentActivityCluster({
     startedAtMs,
   );
   const activityDuration = formatActivityDuration(durationMs);
-  const thoughtLabel = hasNonReasoningActivity
+  const thoughtLabel = hasVisibleActivity
     ? isTurnStreaming
       ? t("message.activityWorkingFor", {
           duration: activityDuration,
@@ -316,15 +304,7 @@ export function AgentActivityCluster({
 
   return (
     <div className={cn("w-full", hasBodyBelow && "mb-2")}>
-      <ThinkingReasoningShell
-        active={isTurnStreaming}
-        expanded={outerExpanded}
-        label={thoughtLabel}
-        viewportRef={activityScrollRef}
-        contentRef={activityContentRef}
-        onToggle={toggleOuter}
-        onScroll={onActivityScroll}
-      >
+      
         <ActivityMessageTimeline
           messages={activityMessages}
           active={isTurnStreaming}
@@ -338,7 +318,7 @@ export function AgentActivityCluster({
             onOpenFilePreview={onOpenFilePreview}
           />
         ) : null}
-      </ThinkingReasoningShell>
+      
     </div>
   );
 }
@@ -398,11 +378,7 @@ function ActivityMessageTimeline({
   const items: ReactNode[] = [];
 
   messages.forEach((message, index) => {
-    if (isReasoningOnlyAssistant(message)) {
-      items.push(
-        <ReasoningRow
-          key={message.id}
-          text={message.reasoning ?? ""}
+              text={message.reasoning ?? ""}
           streaming={active && !!message.reasoningStreaming}
         />,
       );

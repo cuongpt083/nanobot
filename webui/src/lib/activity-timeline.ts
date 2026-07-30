@@ -13,14 +13,8 @@ interface NormalizeActivityTimelineOptions {
   preserveTrailingActivity?: boolean;
 }
 
-export function isReasoningOnlyAssistant(message: UIMessage): boolean {
-  if (message.role !== "assistant" || message.kind === "trace") return false;
-  if (message.content.trim().length > 0) return false;
-  return !!(message.reasoning?.length || message.reasoningStreaming || message.isStreaming);
-}
-
 export function isAgentActivityMember(message: UIMessage): boolean {
-  return isReasoningOnlyAssistant(message) || message.kind === "trace";
+  return message.kind === "trace";
 }
 
 export function hasPendingAgentActivity(messages: UIMessage[]): boolean {
