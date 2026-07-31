@@ -9,8 +9,6 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
-
 import { cliAppInitials, mcpPresetInitials } from "@/components/CliAppMentionText";
 import { ActivityStep } from "@/components/thread/activity/ActivityStep";
 import { coalesceActivityMessages } from "@/components/thread/activity/activity-message-model";
@@ -38,6 +36,9 @@ import {
   isAgentActivityMember,
 } from "@/lib/activity-timeline";
 import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
+import { canonicalToolTrace, formatToolCallTrace } from "@/lib/tool-traces";
+import { logoFallbackUrls } from "@/lib/provider-brand";
+import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { cn } from "@/lib/utils";
 import type { CliAppInfo, McpPresetInfo, ToolProgressEvent, UIFileEdit, UIMessage } from "@/lib/types";
 

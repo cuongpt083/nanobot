@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from nanobot.agent.hook import AgentHook, AgentHookContext
-from nanobot.agent.runner import AgentRunResult, AgentRunner, AgentRunSpec
+from nanobot.agent.runner import AgentRunner, AgentRunResult, AgentRunSpec
 from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse, ProviderAttempt
 from nanobot.providers.fallback_provider import FallbackProvider
 from nanobot.utils.llm_runtime import LLMRuntime

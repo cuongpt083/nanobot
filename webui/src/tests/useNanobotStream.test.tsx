@@ -1238,7 +1238,7 @@ describe("useNanobotStream", () => {
       { wrapper: wrap(fake.client) },
     );
 
-    let submitted: ReturnType<typeof result.current.send> = null;
+    let submitted: any = null;
     act(() => {
       submitted = result.current.send("bind the camera");
     });

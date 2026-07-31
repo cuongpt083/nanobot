@@ -116,7 +116,7 @@ function absorbCompleteAssistantMessage(
   message: Omit<UIMessage, "id" | "role" | "createdAt">,
 ): UIMessage[] {
   const last = prev[prev.length - 1];
-  if (!last || !isReasoningOnlyPlaceholder(last) || !matchesTurn(last, message)) {
+  if (!last || !matchesTurn(last, message)) {
     return [
       ...prev,
       {
@@ -645,9 +645,6 @@ export function useNanobotStream(
       let next = prev;
       let targetIndex = resolveActiveAssistantIndex(next, turn);
 
-      if (targetIndex === null) {
-        targetIndex = findActiveAssistantPlaceholderIndex(next, turn);
-      }
       if (targetIndex === null) {
         targetIndex = findStreamingAssistantIndex(next, closedAssistantStreamIdsRef.current, turn);
       }

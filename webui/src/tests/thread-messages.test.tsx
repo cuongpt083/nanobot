@@ -65,7 +65,7 @@ describe("ThreadMessages", () => {
         content: "question",
         createdAt: 1,
         turnId,
-        turnPhase: "prompt",
+        turnPhase: "user",
       },
       {
         id: "live-answer",
@@ -118,7 +118,7 @@ describe("ThreadMessages", () => {
             content: "next question",
             createdAt: 3,
             turnId: "turn-2",
-            turnPhase: "prompt",
+            turnPhase: "user",
           },
         ]}
         isStreaming
@@ -176,7 +176,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("groups consecutive reasoning and tool rows into one timeline before the answer", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "r1",
         role: "assistant",
@@ -275,7 +275,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("keeps file edits as their own activity row inside a turn", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "r1",
         role: "assistant",
@@ -322,7 +322,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("keeps ordinary tool activity in one Thought block across segment ids", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "r1",
         role: "assistant",
@@ -371,7 +371,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("moves orphan trailing activity before the completed assistant answer", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "r1",
         role: "assistant",
@@ -412,7 +412,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("only marks the current activity timeline as live while streaming", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "r1",
         role: "assistant",
@@ -462,7 +462,7 @@ describe("ThreadMessages", () => {
     vi.useFakeTimers();
     const startedAt = 1_700_000_000_000;
     vi.setSystemTime(startedAt + 230_000);
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "u1",
         role: "user",
@@ -498,7 +498,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("folds final answer reasoning into the preceding activity timeline", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "r1",
         role: "assistant",
@@ -554,7 +554,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("uses final turn latency when an earlier reasoning segment has its own latency", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "r1",
         role: "assistant",
@@ -591,7 +591,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("keeps late activity after the live assistant answer while streaming", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "t0",
         role: "tool",
@@ -640,7 +640,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("moves late activity before a completed assistant answer", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "r1",
         role: "assistant",
@@ -689,7 +689,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("does not leave a completed web-search thought below the final answer", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "user",
         role: "user",
@@ -731,7 +731,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("normalizes completed prior turns while the next user turn is streaming", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "thought",
         role: "assistant",
@@ -784,7 +784,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("orders live turn activity by causal turn sequence before the final answer", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "web-1",
         role: "tool",
@@ -832,7 +832,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("renders interrupted pre-tool text as activity before the final answer", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "prelude",
         role: "assistant",
@@ -876,7 +876,7 @@ describe("ThreadMessages", () => {
   });
 
   it.skip("passes assistant turn latency to the preceding completed activity timeline", () => {
-    const messages: UIMessage[] = [
+    const messages: any[] = [
       {
         id: "r1",
         role: "assistant",
