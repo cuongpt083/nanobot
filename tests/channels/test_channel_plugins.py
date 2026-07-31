@@ -2183,6 +2183,7 @@ def test_optional_features_payload_detects_legacy_default_weixin_state(tmp_path,
     config_path = tmp_path / "config.json"
     loader.save_config(Config(), config_path)
     monkeypatch.setattr(loader, "_current_config_path", config_path)
+    monkeypatch.setattr("nanobot.channels.weixin.state.get_config_path", lambda: config_path)
     state_dir = tmp_path / "weixin"
     state_dir.mkdir()
     (state_dir / "account.json").write_text(

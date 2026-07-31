@@ -193,6 +193,11 @@ class ChannelManager:
                 logger=logger,
             )
             kwargs["gateway"] = gateway
+            sig = inspect.signature(cls.__init__)
+            if "pilot_mode" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                kwargs["pilot_mode"] = self.config.pilot.enabled
         channel = cls(section, self.bus, **kwargs)
         if runtime_name and runtime_name != channel.name:
             channel.name = runtime_name
@@ -808,13 +813,14 @@ class ChannelManager:
 
     async def _send_once(self, channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
+        event = outbound_event_from_message(msg)
+        show_reasoning = getattr(channel, "show_reasoning", True)
+        if not self.presentation_policy.permits_event(event, show_reasoning):
+            return
+
         res = self.presentation_policy.sanitize(msg.content, msg.metadata or {})
         msg.content = res.content
         msg.metadata = res.metadata
-        
-        event = outbound_event_from_message(msg)
-        if not self.presentation_policy.permits_event(event, getattr(channel, 'show_reasoning', True)):
-            return
 
         if isinstance(event, ProgressEvent) and event.reasoning_end:
             await ChannelManager._send_reasoning_end(channel, msg, event)

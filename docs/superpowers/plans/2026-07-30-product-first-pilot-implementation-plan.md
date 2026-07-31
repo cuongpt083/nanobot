@@ -216,19 +216,19 @@ git commit -m "feat(pilot): remove client reasoning surfaces"
 - Modify: `tests/webui/test_ingress_policy.py`
 - Modify: `tests/channels/test_channel_plugins.py`
 
-- [ ] Add failing tests proving unauthorized WebSocket and Telegram senders receive an access/pairing response before attachment storage, media download, transcript write, bus publish, or teacher call.
+- [x] Add failing tests proving unauthorized WebSocket and Telegram senders receive an access/pairing response before attachment storage, media download, transcript write, bus publish, or teacher call.
 
-- [ ] Extend `TelegramConfig.group_policy` to `Literal["disabled", "mention", "allowlist"]` with default `"disabled"`. The current value is `Literal["open", "mention"]` default `"mention"` (`nanobot/channels/telegram/runtime.py`), so this is a **breaking change**: it removes `"open"` and flips the default. To avoid bricking existing configs, keep `"open"` accepted as a deprecated alias mapped to `"allowlist"` (log a one-time deprecation warning) for one release, then remove it. Define semantics:
+- [x] Extend `TelegramConfig.group_policy` to `Literal["disabled", "mention", "allowlist"]` with default `"disabled"`. The current value is `Literal["open", "mention"]` default `"mention"` (`nanobot/channels/telegram/runtime.py`), so this is a **breaking change**: it removes `"open"` and flips the default. To avoid bricking existing configs, keep `"open"` accepted as a deprecated alias mapped to `"allowlist"` (log a one-time deprecation warning) for one release, then remove it. Define semantics:
   - `disabled`: ignore group updates;
   - `mention`: require the chat ID in a new `group_allow_from` list, an allowed sender, and a direct bot mention;
   - `allowlist`: require the chat ID in `group_allow_from` and an allowed sender, then accept messages without mention.
   Update existing `test_telegram_channel.py` assertions that assume `default == "mention"` or the `"open"` literal.
 
-- [ ] Keep Telegram DM pairing behavior. Re-check authorization immediately before `_handle_message`, as WebSocket already does after async hydration.
+- [x] Keep Telegram DM pairing behavior. Re-check authorization immediately before `_handle_message`, as WebSocket already does after async hydration.
 
-- [ ] Have `ChannelManager` pass top-level pilot mode into WebSocket construction. Require WebSocket token authentication when pilot mode is enabled, reject wildcard `allow_from=["*"]` in pilot mode, and keep the existing short-lived token flow as the invite mechanism. Do not add registration endpoints.
+- [x] Have `ChannelManager` pass top-level pilot mode into WebSocket construction. Require WebSocket token authentication when pilot mode is enabled, reject wildcard `allow_from=["*"]` in pilot mode, and keep the existing short-lived token flow as the invite mechanism. Do not add registration endpoints.
 
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run pytest nanobot/channels/telegram/tests/test_telegram_channel.py tests/webui/test_ingress_policy.py tests/channels/test_channel_validation.py -q

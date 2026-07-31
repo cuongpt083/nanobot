@@ -261,11 +261,17 @@ class WebSocketChannel(BaseChannel):
         bus: MessageBus,
         *,
         gateway: GatewayServices,
+        pilot_mode: bool = False,
     ):
         if isinstance(config, dict):
             config = WebSocketConfig.model_validate(config)
         super().__init__(config, bus)
         self.config: WebSocketConfig = config
+        self.pilot_mode = pilot_mode
+        if self.pilot_mode:
+            self.config.websocket_requires_token = True
+            if "*" in self.config.allow_from:
+                raise ValueError("Wildcard allow_from=['*'] is not allowed in pilot mode")
         # chat_id -> connections subscribed to it (fan-out target).
         self._subs: dict[str, set[ServerConnection]] = {}
         # connection -> chat_ids it is subscribed to (O(1) cleanup on disconnect).
@@ -683,6 +689,9 @@ class WebSocketChannel(BaseChannel):
             )
             return
         if t == "transcribe_audio":
+            if not self.is_allowed(client_id):
+                await self._send_event(connection, "error", detail="access_denied")
+                return
             event, payload = await webui_transcription_event(envelope)
             await self._send_event(connection, event, **payload)
             return

@@ -1106,8 +1106,8 @@ def test_get_extension_falls_back_to_original_filename() -> None:
     assert channel._get_extension("file", None, "archive.tar.gz") == ".tar.gz"
 
 
-def test_telegram_group_policy_defaults_to_mention() -> None:
-    assert TelegramConfig().group_policy == "mention"
+def test_telegram_group_policy_defaults_to_disabled() -> None:
+    assert TelegramConfig().group_policy == "disabled"
 
 
 def test_is_allowed_accepts_legacy_telegram_id_username_formats() -> None:
@@ -1256,7 +1256,7 @@ async def test_send_blocks_unsafe_remote_media_url(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_group_policy_mention_ignores_unmentioned_group_message() -> None:
     channel = TelegramChannel(
-        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="mention"),
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="mention", group_allow_from=["*"]),
         MessageBus(),
     )
     channel._app = _FakeApp(lambda: None)
@@ -1276,9 +1276,31 @@ async def test_group_policy_mention_ignores_unmentioned_group_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_group_policy_disabled_ignores_all_group_messages() -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="disabled", group_allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+
+    handled = []
+
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+
+    channel._handle_message = capture_handle
+    channel._start_typing = lambda _chat_id: None
+
+    mention = SimpleNamespace(type="mention", offset=0, length=13)
+    await channel._on_message(_make_telegram_update(text="@nanobot_test hi", entities=[mention]), None)
+
+    assert handled == []
+
+
+@pytest.mark.asyncio
 async def test_group_policy_mention_accepts_text_mention_and_caches_bot_identity() -> None:
     channel = TelegramChannel(
-        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="mention"),
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="mention", group_allow_from=["*"]),
         MessageBus(),
     )
     channel._app = _FakeApp(lambda: None)
@@ -1302,7 +1324,7 @@ async def test_group_policy_mention_accepts_text_mention_and_caches_bot_identity
 @pytest.mark.asyncio
 async def test_group_policy_mention_accepts_caption_mention() -> None:
     channel = TelegramChannel(
-        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="mention"),
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="mention", group_allow_from=["*"]),
         MessageBus(),
     )
     channel._app = _FakeApp(lambda: None)
@@ -1328,7 +1350,7 @@ async def test_group_policy_mention_accepts_caption_mention() -> None:
 @pytest.mark.asyncio
 async def test_group_policy_mention_accepts_reply_to_bot() -> None:
     channel = TelegramChannel(
-        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="mention"),
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="mention", group_allow_from=["*"]),
         MessageBus(),
     )
     channel._app = _FakeApp(lambda: None)
