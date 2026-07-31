@@ -1636,7 +1636,30 @@ class AgentLoop:
         session = ctx.require_session()
         runtime = ctx.runtime
         if runtime is None:
-            runtime = self.runtime_for_session(session)
+            pilot_config = getattr(self.config, "pilot", None) if hasattr(self, "config") and self.config is not None else None
+            if (
+                ctx.kind is TurnKind.USER
+                and not ctx.session_key.startswith("dream:")
+                and pilot_config is not None
+                and getattr(pilot_config, "enabled", False)
+            ):
+                from dataclasses import asdict
+
+                from nanobot.pilot.routing import RoutingInput, route_turn
+
+                tools_tuple = tuple(self.tools.keys()) if self.tools else ()
+                media_tuple = tuple(ctx.msg.media or ())
+                r_input = RoutingInput(
+                    channel=ctx.msg.channel,
+                    content=ctx.msg.content,
+                    media_types=media_tuple,
+                    available_tools=tools_tuple,
+                )
+                decision = route_turn(ctx.turn_id, r_input, self.config.pilot)
+                ctx.attributes["routing_decision"] = asdict(decision)
+                runtime = self.model_runtime_resolver.resolve_preset(decision.primary_preset)
+            else:
+                runtime = self.runtime_for_session(session)
             ctx.runtime = runtime
         if ctx.session_key.startswith("dream:"):
             logger.info(

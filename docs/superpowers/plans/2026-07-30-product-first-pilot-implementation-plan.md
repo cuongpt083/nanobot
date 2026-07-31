@@ -283,9 +283,9 @@ git commit -m "feat(pilot): propagate stable turn identifiers"
 - Modify: `nanobot/agent/loop.py`
 - Modify: `tests/agent/test_model_runtime_resolver.py`
 
-- [ ] Write table-driven failing tests for general, math/logic, code, explicit multi-step, tool-heavy, image/file, and long-input cases. Repeat each case to prove identical input/config/health yields identical output.
+- [x] Write table-driven failing tests for general, math/logic, code, explicit multi-step, tool-heavy, image/file, and long-input cases. Repeat each case to prove identical input/config/health yields identical output.
 
-- [ ] Implement these immutable contracts:
+- [x] Implement these immutable contracts:
 
 ```python
 RouteClass = Literal["default", "reasoning", "tool_heavy"]
@@ -307,11 +307,11 @@ class RoutingDecision:
     policy_version: str
 ```
 
-- [ ] Classify using normalized text length, deterministic keyword/shape rules, media types, and non-empty tool definitions. The `reason_code` must be a fixed enum-like code, never user content.
+- [x] Classify using normalized text length, deterministic keyword/shape rules, media types, and non-empty tool definitions. The `reason_code` must be a fixed enum-like code, never user content.
 
-- [ ] In `AgentLoop._build_turn`, after session restoration and before context construction, call the router for user turns, resolve the selected preset through `ModelRuntimeResolver.resolve_preset`, assign `ctx.runtime`, and serialize the decision into `ctx.attributes["routing_decision"]`. System, Dream, explicit SDK runtime overrides, and command-only turns bypass pilot routing.
+- [x] In `AgentLoop._build_turn`, after session restoration and before context construction, call the router for user turns, resolve the selected preset through `ModelRuntimeResolver.resolve_preset`, assign `ctx.runtime`, and serialize the decision into `ctx.attributes["routing_decision"]`. System, Dream, explicit SDK runtime overrides, and command-only turns bypass pilot routing.
 
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run pytest tests/pilot/test_routing.py tests/agent/test_model_runtime_resolver.py tests/agent/test_loop_runner_integration.py -q
