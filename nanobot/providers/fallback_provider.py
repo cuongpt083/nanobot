@@ -10,7 +10,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse
+from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse, ProviderAttempt
 
 # Circuit breaker tuned to match OpenAICompatProvider's Responses API breaker.
 _PRIMARY_FAILURE_THRESHOLD = 3
@@ -189,10 +189,31 @@ class FallbackProvider(LLMProvider):
         primary_model = kwargs.get("model") or self._primary.get_default_model()
         primary_was_attempted = False
         primary_error = "unknown error"
+        accumulated_attempts: list[Any] = []
 
         if self._primary_available():
             primary_was_attempted = True
+            setattr(self._primary, "_fallback_index", 0)
             response = await call(self._primary, kwargs)
+            primary_attempts = getattr(response, "attempts", [])
+            if not primary_attempts:
+                primary_alias = getattr(self._primary, "provider_alias", self._primary.__class__.__name__)
+                err_cls = (response.error_kind or response.error_type) if response.finish_reason == "error" else None
+                primary_attempts = [
+                    ProviderAttempt(
+                        provider=primary_alias,
+                        model=primary_model,
+                        sequence=len(accumulated_attempts) + 1,
+                        retry_index=0,
+                        fallback_index=0,
+                        latency_ms=0.0,
+                        finish_reason=response.finish_reason,
+                        error_class=err_cls,
+                        usage=response.usage,
+                    )
+                ]
+            accumulated_attempts.extend(primary_attempts)
+            response.attempts = list(accumulated_attempts)
             if response.finish_reason != "error":
                 self._primary_failures = 0
                 self._primary_tripped_at = None
@@ -280,6 +301,7 @@ class FallbackProvider(LLMProvider):
 
             await self._notify_fallback_model(fallback_model)
 
+            setattr(fallback_provider, "_fallback_index", idx + 1)
             fallback_kwargs = {
                 **kwargs,
                 "model": fallback_model,
@@ -291,6 +313,25 @@ class FallbackProvider(LLMProvider):
             else:
                 fallback_kwargs["reasoning_effort"] = fallback.reasoning_effort
             fallback_response = await call(fallback_provider, fallback_kwargs)
+            fb_attempts = getattr(fallback_response, "attempts", [])
+            if not fb_attempts:
+                fallback_alias = getattr(fallback_provider, "provider_alias", fallback_provider.__class__.__name__)
+                err_cls = (fallback_response.error_kind or fallback_response.error_type) if fallback_response.finish_reason == "error" else None
+                fb_attempts = [
+                    ProviderAttempt(
+                        provider=fallback_alias,
+                        model=fallback_model,
+                        sequence=len(accumulated_attempts) + 1,
+                        retry_index=0,
+                        fallback_index=idx + 1,
+                        latency_ms=0.0,
+                        finish_reason=fallback_response.finish_reason,
+                        error_class=err_cls,
+                        usage=fallback_response.usage,
+                    )
+                ]
+            accumulated_attempts.extend(fb_attempts)
+            fallback_response.attempts = list(accumulated_attempts)
 
             if fallback_response.finish_reason != "error":
                 logger.info(
@@ -312,12 +353,15 @@ class FallbackProvider(LLMProvider):
         )
         # Return the last error response we saw (primary or last fallback).
         if last_response is not None:
+            last_response.attempts = list(accumulated_attempts)
             return last_response
         # Primary was tripped and we have no fallbacks — synthesize an error.
-        return LLMResponse(
+        synth_resp = LLMResponse(
             content=f"Primary model '{primary_model}' circuit open and no fallbacks available",
             finish_reason="error",
         )
+        synth_resp.attempts = list(accumulated_attempts)
+        return synth_resp
 
     async def _notify_fallback_model(self, model: str) -> None:
         if self._fallback_model_observer is None:
@@ -332,40 +376,46 @@ class FallbackProvider(LLMProvider):
         if LLMProvider.is_arrearage_response(response):
             return True
         status = response.error_status_code
-        kind = (response.error_kind or "").lower()
-        error_type = (response.error_type or "").lower()
-        code = (response.error_code or "").lower()
+        kind = (response.error_kind or "").strip().lower()
+        error_type = (response.error_type or "").strip().lower()
+        code = (response.error_code or "").strip().lower()
         text = (response.content or "").lower()
         structured_values = (kind, error_type, code)
 
-        if kind in _AUTHENTICATION_ERROR_KINDS:
+        non_fallback_kinds = _NON_FALLBACK_ERROR_KINDS | {
+            "invalid_request", "invalid_parameter", "content_filter", "refusal", "safety", "policy", "context_length",
+        }
+
+        if any(v in non_fallback_kinds for v in structured_values if v):
+            return False
+
+        if kind in _AUTHENTICATION_ERROR_KINDS or error_type in _AUTHENTICATION_ERROR_KINDS:
             return True
         if any(
             token in value
             for value in structured_values
+            if value
             for token in _AUTHENTICATION_ERROR_TOKENS
         ):
             return True
-        if kind in _NON_FALLBACK_ERROR_KINDS:
-            return False
-        if any(
-            token in value
-            for value in structured_values
-            for token in _NON_FALLBACK_ERROR_KINDS
-        ):
-            return False
         if status in {401, 403}:
             return True
         if any(token in text for token in _AUTHENTICATION_ERROR_TOKENS):
             return True
-        if response.error_should_retry is False:
-            return False
+
         if status in {400, 404, 422}:
             return False
-        if response.error_should_retry is True:
-            return True
+
+        if response.error_should_retry is False:
+            return False
+
         if status is not None and (status in {408, 409, 429} or 500 <= status <= 599):
             return True
-        if kind in _FALLBACK_ERROR_KINDS:
+
+        if response.error_should_retry is True:
             return True
+
+        if any(v in _FALLBACK_ERROR_KINDS for v in structured_values if v):
+            return True
+
         return any(token in value for value in (kind, error_type, code, text) for token in _FALLBACK_ERROR_TOKENS)

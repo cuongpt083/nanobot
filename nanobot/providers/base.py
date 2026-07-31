@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -150,6 +151,21 @@ def tool_arguments_json_for_replay(arguments: Any) -> str:
     return json.dumps(tool_arguments_object_for_replay(arguments), ensure_ascii=False)
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderAttempt:
+    """Sanitized, content-free execution metrics for a single provider call attempt."""
+
+    provider: str
+    model: str
+    sequence: int
+    retry_index: int
+    fallback_index: int | None
+    latency_ms: int
+    finish_reason: str
+    error_class: str | None
+    usage: dict[str, int]
+
+
 @dataclass
 class LLMResponse:
     """Response from an LLM provider."""
@@ -167,6 +183,7 @@ class LLMResponse:
     error_code: str | None = None  # Provider/code semantic, e.g. rate_limit_exceeded.
     error_retry_after_s: float | None = None
     error_should_retry: bool | None = None
+    attempts: list[ProviderAttempt] = field(default_factory=list)
 
     @property
     def has_tool_calls(self) -> bool:
@@ -418,18 +435,33 @@ class LLMProvider(ABC):
     @classmethod
     def _is_transient_response(cls, response: LLMResponse) -> bool:
         """Prefer structured error metadata, fallback to text markers for legacy providers."""
+        kind = (response.error_kind or "").strip().lower()
+        error_type = (response.error_type or "").strip().lower()
+        error_code = (response.error_code or "").strip().lower()
+        status = int(response.error_status_code) if response.error_status_code is not None else None
+
+        non_retryable = {
+            "authentication", "auth", "permission", "invalid_api_key",
+            "invalid_request", "invalid_parameter",
+            "content_filter", "refusal", "safety", "policy",
+            "context_length", "context_window", "max_tokens", "token_limit",
+        }
+        if kind in non_retryable or error_type in non_retryable or error_code in non_retryable:
+            return False
+
+        if status in {400, 401, 403, 404, 422}:
+            return False
+
         if response.error_should_retry is not None:
             return bool(response.error_should_retry)
 
-        if response.error_status_code is not None:
-            status = int(response.error_status_code)
+        if status is not None:
             if status == 429:
                 return cls._is_retryable_429_response(response)
             if status in cls._RETRYABLE_STATUS_CODES or status >= 500:
                 return True
 
-        kind = (response.error_kind or "").strip().lower()
-        if kind in cls._TRANSIENT_ERROR_KINDS:
+        if kind in cls._TRANSIENT_ERROR_KINDS or error_type in cls._TRANSIENT_ERROR_KINDS:
             return True
 
         return cls._is_transient_error(response.content)
@@ -895,9 +927,35 @@ class LLMProvider(ABC):
         last_response: LLMResponse | None = None
         last_error_key: str | None = None
         identical_error_count = 0
+        accumulated_attempts: list[ProviderAttempt] = []
+
         while True:
             attempt += 1
+            t0 = time.perf_counter()
             response = await call(**kw)
+            latency_ms = max(0, int((time.perf_counter() - t0) * 1000))
+
+            err_class = None
+            if response.finish_reason == "error":
+                err_class = response.error_kind or response.error_type or "LLMError"
+
+            model_name = getattr(self, "model", None) or kw.get("model") or getattr(response, "model", "") or "unknown"
+            provider_alias = getattr(self, "provider_alias", self.__class__.__name__)
+
+            attempt_metric = ProviderAttempt(
+                provider=provider_alias,
+                model=model_name,
+                sequence=len(accumulated_attempts) + 1,
+                retry_index=attempt - 1,
+                fallback_index=getattr(self, "_fallback_index", 0),
+                latency_ms=latency_ms,
+                finish_reason=response.finish_reason,
+                error_class=err_class,
+                usage=dict(response.usage or {}),
+            )
+            accumulated_attempts.append(attempt_metric)
+            response.attempts = list(accumulated_attempts)
+
             if response.finish_reason != "error":
                 return response
             last_response = response

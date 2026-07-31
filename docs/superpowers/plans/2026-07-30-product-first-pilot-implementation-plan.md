@@ -336,9 +336,9 @@ git commit -m "feat(pilot): route turns deterministically"
 - Modify: `tests/providers/test_provider_retry.py`
 - Modify: `tests/agent/test_runner_fallback.py`
 
-- [ ] Write failing tests proving every primary/retry/fallback call produces one content-free `ProviderAttempt`, while authentication, invalid-request, policy/refusal, and context-length failures are not retried.
+- [x] Write failing tests proving every primary/retry/fallback call produces one content-free `ProviderAttempt`, while authentication, invalid-request, policy/refusal, and context-length failures are not retried.
 
-- [ ] Add:
+- [x] Add:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -356,17 +356,17 @@ class ProviderAttempt:
 
 Store attempts on `LLMResponse.attempts`. Give every provider instance a non-secret configured provider alias in the factory, compose attempt lists in the base retry loop and `FallbackProvider`, and never put raw error content in an attempt.
 
-- [ ] Add `on_provider_attempt(context, attempt)` to `AgentHook`/`CompositeHook`. Attempts are **composed at the call site, not by the runner**: the base provider retry loop (`LLMProvider._run_with_retry`) and `FallbackProvider` append one content-free `ProviderAttempt` per provider call onto `LLMResponse.attempts` as each call completes. The hook then reads `context.response.attempts` (per-iteration, in `AgentHookContext`) to observe them; `AgentRunner` does not fabricate attempts itself. Emit so the hook observes response attempts before tool execution or finalization of that iteration.
+- [x] Add `on_provider_attempt(context, attempt)` to `AgentHook`/`CompositeHook`. Attempts are **composed at the call site, not by the runner**: the base provider retry loop (`LLMProvider._run_with_retry`) and `FallbackProvider` append one content-free `ProviderAttempt` per provider call onto `LLMResponse.attempts` as each call completes. The hook then reads `context.response.attempts` (per-iteration, in `AgentHookContext`) to observe them; `AgentRunner` does not fabricate attempts itself. Emit so the hook observes response attempts before tool execution or finalization of that iteration.
 
-- [ ] Replace text-first retry/fallback decisions with structured status/kind/type/code precedence. Keep legacy text matching only when structured metadata is absent.
+- [x] Replace text-first retry/fallback decisions with structured status/kind/type/code precedence. Keep legacy text matching only when structured metadata is absent.
 
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run pytest tests/pilot/test_provider_attempts.py tests/providers/test_provider_retry.py tests/agent/test_runner_fallback.py -q
 ```
 
-- [ ] Commit:
+- [x] Commit:
 
 ```bash
 git add nanobot/providers/base.py nanobot/providers/fallback_provider.py nanobot/providers/factory.py nanobot/agent/hook.py nanobot/agent/runner.py tests/pilot/test_provider_attempts.py tests/providers/test_provider_retry.py tests/agent/test_runner_fallback.py
