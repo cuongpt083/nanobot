@@ -416,7 +416,6 @@ describe("useSessions", () => {
           role: "assistant",
           content: "final answer",
           createdAt: 1,
-          reasoning: "hidden but persisted reasoning",
         },
       ],
     });
@@ -430,7 +429,6 @@ describe("useSessions", () => {
     expect(result.current.messages).toHaveLength(1);
     expect(result.current.messages[0]!.role).toBe("assistant");
     expect(result.current.messages[0]!.content).toBe("final answer");
-    expect(result.current.messages[0]!.reasoning).toBe("hidden but persisted reasoning");
   });
 
   it("accepts transcript rows produced by the server replay reducer", async () => {

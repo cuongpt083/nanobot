@@ -1,17 +1,15 @@
 import pytest
 from pydantic import ValidationError
 
+from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import (
     ChannelsConfig,
     Config,
     PilotCaptureConfig,
     PilotConfig,
-    PilotModelClassConfig,
     PilotRetentionConfig,
-    PilotRoutingConfig,
 )
-from nanobot.channels.base import BaseChannel
-from nanobot.bus.queue import MessageBus
+
 
 def test_channels_config_show_reasoning_default_is_false():
     assert ChannelsConfig().show_reasoning is False
@@ -21,14 +19,14 @@ def test_base_channel_show_reasoning_default_is_false():
         async def start(self): pass
         async def stop(self): pass
         async def send(self, msg): pass
-    
+
     assert Dummy.show_reasoning is False
 
 def test_pilot_capture_and_training_eligibility_default_disabled():
     cfg = PilotConfig()
     assert cfg.capture.enabled is False
     assert cfg.capture.queue_capacity == 1000
-    
+
 def test_pilot_routing_validates_preset_names():
     # If the presets are not in model_presets, it should fail
     # The validation happens at the Config level when 'pilot' is parsed.
@@ -71,7 +69,7 @@ def test_pilot_retention_and_queue_limits_reject_unsafe_values():
         PilotRetentionConfig(session_days=0)
     with pytest.raises(ValidationError):
         PilotRetentionConfig(session_days=-1)
-    
+
     with pytest.raises(ValidationError):
         PilotCaptureConfig(queue_capacity=9)
     with pytest.raises(ValidationError):

@@ -1,10 +1,10 @@
 """Tests for server-side presentation policy."""
 
+
 import pytest
-from dataclasses import dataclass
-from typing import Any
 
 from nanobot.pilot.presentation import PresentationPolicy
+
 
 def _create_policy():
     counter = {"presentation_leak_prevented_total": 0}
@@ -52,7 +52,7 @@ def test_presentation_sanitizes_metadata(metadata, expected_dropped):
             assert "error" not in d
             for v in d.values():
                 check_dropped(v)
-    
+
     check_dropped(res.metadata)
     assert counter["presentation_leak_prevented_total"] == 1
     assert res.leak_prevented is True

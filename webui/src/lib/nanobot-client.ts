@@ -51,7 +51,7 @@ function wsInboundDebugEnabled(): boolean {
 /** Shorten streaming text fields so logging stays usable for huge deltas. */
 function summarizeInboundWsPayload(ev: InboundEvent): unknown {
   const kind = (ev as { event?: string }).event;
-  if (kind !== "delta" && kind !== "reasoning_delta") return ev;
+  if (kind !== "delta") return ev;
   const row = { ...(ev as object) } as Record<string, unknown>;
   const text = typeof row.text === "string" ? row.text : "";
   const max = 240;

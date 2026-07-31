@@ -339,13 +339,7 @@ function marginAfterPrevUnit(prev: DisplayUnit): string {
     return "mt-4";
   }
   const p = prev.message;
-  const denseP =
-    p.kind === "trace"
-    || (
-      p.role === "assistant"
-      && p.content.trim().length === 0
-      && (!!p.reasoning || !!p.reasoningStreaming)
-    );
+  const denseP = p.kind === "trace";
   if (denseP) {
     return "mt-2";
   }

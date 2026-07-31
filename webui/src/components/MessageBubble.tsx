@@ -702,7 +702,7 @@ function ThinkingState() {
       className="inline-flex min-h-7 items-center py-1 text-[13px]"
     >
       <StreamingLabelSheen active>
-        {t("message.reasoningStreaming", { defaultValue: "Thinking…" })}
+        {t("message.assistantProcessing", { defaultValue: "Đang xử lý…" })}
       </StreamingLabelSheen>
     </span>
   );

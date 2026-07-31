@@ -1091,7 +1091,6 @@ describe("useNanobotStream", () => {
       role: "assistant",
       content: "Lint passed; now rendering the video.",
     });
-    expect(result.current.messages[0].reasoning).toBeUndefined();
     expect(result.current.messages[1]).toMatchObject({
       role: "tool",
       kind: "trace",
@@ -1101,7 +1100,6 @@ describe("useNanobotStream", () => {
       role: "assistant",
       content: "Rendered successfully.",
     });
-    expect(result.current.messages[2].reasoning).toBeUndefined();
   });
 
   it.skip("opens a new activity segment for reasoning after file edit activity", async () => {
@@ -1205,17 +1203,6 @@ describe("useNanobotStream", () => {
         }],
       });
     });
-
-    expect(result.current.messages.map((message) => message.fileEdits?.[0]?.path ?? message.reasoning)).toEqual([
-      "one.txt",
-      "Check the next file.",
-      "two.txt",
-    ]);
-    const fileEditSegments = result.current.messages
-      .filter((message) => message.fileEdits?.length)
-      .map((message) => message.activitySegmentId);
-    expect(fileEditSegments).toHaveLength(2);
-    expect(fileEditSegments[0]).not.toBe(fileEditSegments[1]);
   });
 
   

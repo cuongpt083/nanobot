@@ -86,144 +86,10 @@ function findStreamingAssistantIndex(
   return null;
 }
 
-/**
- * Append a reasoning chunk to the last open reasoning stream in ``prev``.
- *
- * Lookup rule: reasoning can only extend the current reasoning placeholder.
- * Once ordinary answer text has appeared, the next reasoning chunk starts a
- * fresh Thought block so streamed output stays in arrival order:
- * Thought -> answer -> Thought -> answer.
- */
-function attachReasoningChunk(
-  prev: UIMessage[],
-  chunk: string,
-  segments?: {
-    ensure: () => string;
-  },
-  turn: UIMessageTurnFields = {},
-): UIMessage[] {
-  for (let i = prev.length - 1; i >= 0; i -= 1) {
-    const candidate = prev[i];
-    // A user turn is a hard boundary: reasoning after it belongs to the new
-    // assistant turn, never to an earlier assistant reply.
-    if (candidate.role === "user") break;
-    // A trace row (e.g. Used tools) is also a phase boundary. Reasoning after
-    // tools belongs to the next assistant iteration, not the assistant turn
-    // that produced those tool calls.
-    if (candidate.kind === "trace") break;
-    if (candidate.role !== "assistant") continue;
-    if (!matchesTurn(candidate, turn)) break;
-    const activitySegmentId = candidate.activitySegmentId ?? segments?.ensure();
-    const hasAnswer = candidate.content.length > 0;
-    if (hasAnswer) break;
-    if (
-      candidate.reasoningStreaming
-      || candidate.reasoning !== undefined
-      || candidate.isStreaming
-    ) {
-      const merged: UIMessage = {
-        ...candidate,
-        reasoning: (candidate.reasoning ?? "") + chunk,
-        reasoningStreaming: true,
-        ...(activitySegmentId ? { activitySegmentId } : {}),
-        ...turn,
-      };
-      return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
-    }
-    break;
-  }
-  const activitySegmentId = segments?.ensure();
-  return [
-    ...prev,
-    {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      content: "",
-      isStreaming: true,
-      reasoning: chunk,
-      reasoningStreaming: true,
-      ...(activitySegmentId ? { activitySegmentId } : {}),
-      ...turn,
-      createdAt: Date.now(),
-    },
-  ];
-}
-
-/**
- * Find the most recent assistant placeholder that an incoming answer
- * delta should adopt instead of spawning a parallel row. We look for an
- * empty-content assistant turn that is still marked ``isStreaming`` —
- * typically created earlier by ``reasoning_delta``. Anything else means
- * the model already produced an answer in a previous turn, so the new
- * delta belongs in a fresh row.
- */
-function findActiveAssistantPlaceholderIndex(
-  prev: UIMessage[],
-  turn: UIMessageTurnFields = {},
-): number | null {
-  const last = prev[prev.length - 1];
-  if (!last) return null;
-  if (last.role !== "assistant" || last.kind === "trace") return null;
-  if (last.content.length > 0) return null;
-  if (!last.isStreaming) return null;
-  if (!matchesTurn(last, turn)) return null;
-  return prev.length - 1;
-}
-
 function replaceMessageAt(prev: UIMessage[], index: number, message: UIMessage): UIMessage[] {
   const next = prev.slice();
   next[index] = message;
   return next;
-}
-
-/**
- * Close the active reasoning stream segment, if any. Idempotent: a
- * ``reasoning_end`` with no preceding deltas is a harmless no-op.
- */
-function closeReasoningStream(prev: UIMessage[]): UIMessage[] {
-  for (let i = prev.length - 1; i >= 0; i -= 1) {
-    const candidate = prev[i];
-    if (!candidate.reasoningStreaming) continue;
-    const latencyMs =
-      candidate.latencyMs === undefined
-      && Number.isFinite(candidate.createdAt)
-      && candidate.createdAt > 1_000_000_000_000
-        ? Math.max(0, Math.round(Date.now() - candidate.createdAt))
-        : candidate.latencyMs;
-    const merged: UIMessage = {
-      ...candidate,
-      reasoningStreaming: false,
-      ...(latencyMs !== undefined ? { latencyMs } : {}),
-    };
-    return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
-  }
-  return prev;
-}
-
-function isReasoningOnlyPlaceholder(message: UIMessage): boolean {
-  return (
-    message.role === "assistant"
-    && message.kind !== "trace"
-    && message.content.trim().length === 0
-    && !!message.reasoning
-    && !message.reasoningStreaming
-    && !message.media?.length
-  );
-}
-
-function isToolTrace(message: UIMessage | undefined): boolean {
-  return message?.kind === "trace";
-}
-
-function pruneReasoningOnlyPlaceholders(prev: UIMessage[]): UIMessage[] {
-  return prev.filter((message, index) => {
-    if (!isReasoningOnlyPlaceholder(message)) return true;
-    // A reasoning-only assistant row immediately followed by tool traces is
-    // the live equivalent of a persisted assistant tool-call message with
-    // empty content, reasoning_content, and tool_calls. Keep it so live render
-    // and history replay stay isomorphic.
-    return isToolTrace(prev[index + 1]);
-  });
 }
 
 function stampLastAssistantCompletion(
@@ -267,7 +133,6 @@ function absorbCompleteAssistantMessage(
       ...last,
       ...message,
       isStreaming: false,
-      reasoningStreaming: false,
     },
   ];
 }
@@ -822,14 +687,6 @@ export function useNanobotStream(
       for (const event of events) {
         if (event.kind === "delta") {
           next = appendAnswerChunk(next, event.text, event.turn);
-        } else {
-          if (closeActiveAssistantStream()) clearActivitySegment();
-          next = attachReasoningChunk(
-            next,
-            event.text,
-            { ensure: ensureActivitySegmentId },
-            event.turn,
-          );
         }
       }
       return next;

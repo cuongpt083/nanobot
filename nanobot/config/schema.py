@@ -488,10 +488,10 @@ class Config(BaseSettings):
         for fallback in self.agents.defaults.fallback_models:
             if isinstance(fallback, str) and fallback not in self.model_presets:
                 raise ValueError(f"fallback_models entry {fallback!r} not found in model_presets")
-        
+
         if self.pilot.capture.enabled and not self.pilot.capture.hmac_secret:
             raise ValueError("hmac_secret must be set when pilot capture is enabled")
-        
+
         if self.pilot.routing and self.pilot.routing.enabled:
             presets_to_check = [
                 self.pilot.routing.default.preset,
@@ -502,10 +502,10 @@ class Config(BaseSettings):
             for p in presets_to_check:
                 if p not in self.model_presets:
                     raise ValueError(f"Pilot routing preset {p!r} not found in model_presets")
-            
+
             if not self.pilot.routing.tool_heavy.supports_tools:
                 raise ValueError("tool_heavy must support tools")
-                
+
         return self
 
     def resolve_default_preset(self) -> ModelPresetConfig:

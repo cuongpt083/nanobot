@@ -1577,7 +1577,6 @@ describe("ThreadViewport", () => {
         id: "r0",
         role: "assistant",
         content: "",
-        reasoning: "first reasoning",
         createdAt: 38,
       },
       {
@@ -1592,7 +1591,6 @@ describe("ThreadViewport", () => {
         id: "r1",
         role: "assistant",
         content: "",
-        reasoning: "second reasoning",
         createdAt: 40,
       },
     );
