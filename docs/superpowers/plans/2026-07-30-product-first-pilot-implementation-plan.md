@@ -254,13 +254,13 @@ git commit -m "feat(pilot): enforce invite-only channel ingress"
 - Modify: `nanobot/channels/telegram/runtime.py`
 - Modify: `webui/src/lib/types.ts`
 
-- [ ] Write failing tests for uniqueness across 20 concurrent turns, stable propagation to final outbound metadata, WebSocket completion frames, and Telegram send metadata. Assert IDs fit Telegram callback data when prefixed with `fb:x:`.
+- [x] Write failing tests for uniqueness across 20 concurrent turns, stable propagation to final outbound metadata, WebSocket completion frames, and Telegram send metadata. Assert IDs fit Telegram callback data when prefixed with `fb:x:`.
 
-- [ ] Implement `new_turn_id() -> str` as lowercase UUID4 hex and replace **both** current ID sites: `f"{key}:{time.time_ns()}"` in `AgentLoop` (`nanobot/agent/loop.py`, turn creation) and the stream base id `f"{self.session_key}:{time.time_ns()}"` in `nanobot/agent/turn_delivery.py`; never encode channel, chat, or user identifiers in a turn ID.
+- [x] Implement `new_turn_id() -> str` as lowercase UUID4 hex and replace **both** current ID sites: `f"{key}:{time.time_ns()}"` in `AgentLoop` (`nanobot/agent/loop.py`, turn creation) and the stream base id `f"{self.session_key}:{time.time_ns()}"` in `nanobot/agent/turn_delivery.py`; never encode channel, chat, or user identifiers in a turn ID.
 
-- [ ] Add the accepted `turn_id` to `TurnContext.attributes`, `RequestContext`, `OutboundMessage.metadata`, WebSocket final frames, and Telegram message bookkeeping. Persist `_pilot_turn_id` only on the internal assistant session record and add a scoped `SessionManager` lookup for the preceding user message; strip the private key from WebUI hydration and provider request payloads. Preserve the WebUI client request ID separately as `client_turn_id`.
+- [x] Add the accepted `turn_id` to `TurnContext.attributes`, `RequestContext`, `OutboundMessage.metadata`, WebSocket final frames, and Telegram message bookkeeping. Persist `_pilot_turn_id` only on the internal assistant session record and add a scoped `SessionManager` lookup for the preceding user message; strip the private key from WebUI hydration and provider request payloads. Preserve the WebUI client request ID separately as `client_turn_id`.
 
-- [ ] Run:
+- [x] Run:
 
 ```bash
 uv run pytest tests/pilot/test_turn_ids.py tests/agent/test_turn_delivery.py tests/webui/test_gateway_webui_smoke.py -q

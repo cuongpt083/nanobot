@@ -472,6 +472,18 @@ class SessionManager:
         """Archive unconsolidated overflow whenever a session is persisted."""
         self._file_cap_archiver = archiver
 
+    def get_preceding_user_message(self, key: str, turn_id: str) -> dict[str, Any] | None:
+        """Find the user message preceding the turn identified by turn_id in session key."""
+        session = self.get_or_create(key)
+        for idx, msg in enumerate(session.messages):
+            if msg.get("_pilot_turn_id") == turn_id or msg.get("turn_id") == turn_id:
+                if msg.get("role") == "user":
+                    return msg
+                for prev in reversed(session.messages[:idx]):
+                    if prev.get("role") == "user":
+                        return prev
+        return None
+
     @staticmethod
     def safe_key(key: str) -> str:
         """Public helper used by HTTP handlers to map an arbitrary key to a stable filename stem."""

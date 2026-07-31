@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
@@ -142,7 +141,9 @@ class TurnDelivery:
             self.delivery_message if self.route.publish_lifecycle else self.input_message
         )
         if self.enable_stream and self.delivery_message.metadata.get("_wants_stream"):
-            self._stream_base_id = f"{self.session_key}:{time.time_ns()}"
+            from nanobot.pilot.turns import new_turn_id
+
+            self._stream_base_id = new_turn_id()
 
     @property
     def on_stream(self) -> StreamCallback | None:

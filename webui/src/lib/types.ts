@@ -73,6 +73,7 @@ export interface UIMessage {
   source?: UIMessageSource;
   /** Stable protocol metadata for grouping all activity emitted by one user turn. */
   turnId?: string;
+  clientTurnId?: string;
   turnPhase?: UITurnPhase;
   turnSeq?: number;
   /** Ephemeral delivery lifecycle for optimistic user messages. */

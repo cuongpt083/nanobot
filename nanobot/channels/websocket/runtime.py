@@ -1205,6 +1205,12 @@ class WebSocketChannel(BaseChannel):
         """Signal that the agent has fully finished processing the current turn."""
         conns = list(self._subs.get(chat_id, ()))
         body: dict[str, Any] = {"event": "turn_end", "chat_id": chat_id}
+        tid = (metadata or {}).get("turn_id") or (metadata or {}).get("_pilot_turn_id")
+        if tid:
+            body["turn_id"] = tid
+        client_tid = (metadata or {}).get("client_turn_id")
+        if client_tid:
+            body["client_turn_id"] = client_tid
         if latency_ms is not None:
             body["latency_ms"] = int(latency_ms)
         if goal_state is not None:
