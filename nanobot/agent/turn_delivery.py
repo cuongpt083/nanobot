@@ -129,6 +129,7 @@ class TurnDelivery:
     _stream_base_id: str | None = field(init=False, default=None)
     _stream_segment: int = field(init=False, default=0)
     _stream_open: bool = field(init=False, default=False)
+    _final_accepted: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         self.delivery_message = dataclasses.replace(
@@ -228,6 +229,9 @@ class TurnDelivery:
         *,
         publish_completion: bool,
     ) -> None:
+        if self._final_accepted:
+            return
+        self._final_accepted = True
         completed_channel = self.lifecycle_message.channel
         completed_chat_id = self.lifecycle_message.chat_id
         if response is not None:
@@ -252,6 +256,9 @@ class TurnDelivery:
             )
 
     async def fail(self, *, publish_completion: bool) -> None:
+        if self._final_accepted:
+            return
+        self._final_accepted = True
         await self.bus.publish_outbound(
             OutboundMessage(
                 channel=self.lifecycle_message.channel,
@@ -281,6 +288,8 @@ class TurnDelivery:
         return f"{self._stream_base_id}:{self._stream_segment}"
 
     async def _publish_stream(self, delta: str) -> None:
+        if self._final_accepted:
+            return
         await self.bus.publish_outbound(
             outbound_message_for_event(
                 channel=self.delivery_message.channel,
@@ -297,6 +306,8 @@ class TurnDelivery:
         resuming: bool = False,
         merge_next: bool = False,
     ) -> None:
+        if self._final_accepted:
+            return
         await self.bus.publish_outbound(
             outbound_message_for_event(
                 channel=self.delivery_message.channel,

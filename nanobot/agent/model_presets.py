@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from nanobot.config.schema import Config, ModelPresetConfig
 from nanobot.providers.base import LLMProvider
@@ -42,10 +43,11 @@ def load_model_preset_catalog(
 def make_preset_snapshot_loader(
     config: Config,
     provider_snapshot_loader: Callable[..., ProviderSnapshot] | None,
+    circuit: Any | None = None,
 ) -> PresetSnapshotLoader:
     if provider_snapshot_loader is not None:
         return lambda name: provider_snapshot_loader(preset_name=name)
-    return lambda name: build_provider_snapshot(config, preset_name=name)
+    return lambda name: build_provider_snapshot(config, preset_name=name, circuit=circuit)
 
 
 def build_static_preset_snapshot(

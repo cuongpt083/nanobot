@@ -388,8 +388,8 @@ class TestFallbackOnStreamStalledAfterContent:
         assert result.finish_reason == "stop"
         assert result.content == "fallback ok"
         factory.assert_called_once_with(_fallback("fallback-a"))
-        assert streamed == ["stream stalled", "fallback ok"]
-        assert recoveries == ["recover"]
+        assert streamed == ["fallback ok"]
+        assert recoveries == []
 
 
 class TestFailoverOnEmptyChoices:
@@ -688,7 +688,7 @@ class TestAllFallbacksFail:
 
         result = await fb.chat(messages=[{"role": "user", "content": "hi"}])
         assert result.finish_reason == "error"
-        assert "all fail" in result.content
+        assert result.content == "The requested model is temporarily unavailable. Please try again later."
 
 
 class TestFactoryExceptionSkipsModel:

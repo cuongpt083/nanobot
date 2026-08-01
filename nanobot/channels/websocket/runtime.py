@@ -34,6 +34,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.command.builtin import builtin_command_starts_agent_turn
 from nanobot.config.schema import Base
+from nanobot.pilot.presentation import sanitize_progress_event
 from nanobot.runtime_context import (
     RUNTIME_CONTEXT_INPUT_META,
     WEBUI_QUOTE_METADATA,
@@ -954,6 +955,7 @@ class WebSocketChannel(BaseChannel):
 
     async def send(self, msg: OutboundMessage) -> None:
         event = outbound_event_from_message(msg)
+        event = sanitize_progress_event(event)
         progress_event = event if isinstance(event, ProgressEvent) else None
         if isinstance(event, RuntimeModelUpdatedEvent):
             await self.send_runtime_model_updated(
@@ -1123,11 +1125,14 @@ class WebSocketChannel(BaseChannel):
         edits: list[dict[str, Any]],
         metadata: dict[str, Any] | None = None,
     ) -> None:
+        safe_event = sanitize_progress_event(ProgressEvent(file_edit_events=edits))
+        assert isinstance(safe_event, ProgressEvent)
+        safe_edits = safe_event.file_edit_events or []
         conns = list(self._subs.get(chat_id, ()))
         payload: dict[str, Any] = {
             "event": "file_edit",
             "chat_id": chat_id,
-            "edits": edits,
+            "edits": safe_edits,
         }
         self._persist_turn_transcript_event(
             chat_id,

@@ -4,17 +4,15 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from loguru import logger
 
+from nanobot.pilot.circuit import ALL_CANDIDATES_UNAVAILABLE, CircuitKey, CircuitRegistry
+from nanobot.pilot.presentation import PresentationPolicy
 from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse, ProviderAttempt
 
-# Circuit breaker tuned to match OpenAICompatProvider's Responses API breaker.
-_PRIMARY_FAILURE_THRESHOLD = 3
-_PRIMARY_COOLDOWN_S = 60
 _FALLBACK_ERROR_KINDS = frozenset({
     "timeout",
     "connection",
@@ -98,6 +96,7 @@ class FallbackProvider(LLMProvider):
 
     Key design:
     - Failover is request-scoped (the wrapper itself is stateless between turns).
+    - Candidate content, thinking, and tool callbacks are buffered until success.
     - Skipped when content was already streamed to avoid duplicate output,
       except timeout recovery can resume in a new stream segment.
     - Recursive failover is prevented by the factory returning plain providers.
@@ -113,14 +112,15 @@ class FallbackProvider(LLMProvider):
         fallback_presets: list[Any],
         provider_factory: Callable[[Any], LLMProvider],
         fallback_model_observer: FallbackModelObserver | None = None,
+        circuit: CircuitRegistry | None = None,
+        fallback_circuit_key: Callable[[Any], CircuitKey] | None = None,
     ):
         self._primary = primary
         self._fallback_presets = list(fallback_presets)
         self._provider_factory = provider_factory
         self._fallback_model_observer = fallback_model_observer
-        self._has_fallbacks = bool(fallback_presets)
-        self._primary_failures = 0
-        self._primary_tripped_at: float | None = None
+        self._circuit = circuit or CircuitRegistry()
+        self._fallback_circuit_key = fallback_circuit_key or self._default_fallback_circuit_key
 
     @property
     def generation(self) -> GenerationSettings:
@@ -141,43 +141,54 @@ class FallbackProvider(LLMProvider):
     def supports_progress_deltas(self) -> bool:
         return bool(getattr(self._primary, "supports_progress_deltas", False))
 
-    def _primary_available(self) -> bool:
-        """Return True if the primary provider is not currently tripped."""
-        if self._primary_tripped_at is None:
-            return True
-        if time.monotonic() - self._primary_tripped_at >= _PRIMARY_COOLDOWN_S:
-            # Half-open: allow one probe attempt.
-            return True
-        return False
-
     async def chat(self, **kwargs: Any) -> LLMResponse:
-        if not self._has_fallbacks:
-            return await self._primary.chat(**kwargs)
         return await self._try_with_fallback(
             lambda p, kw: p.chat(**kw), kwargs, has_streamed=None
         )
 
     async def chat_stream(self, **kwargs: Any) -> LLMResponse:
-        on_stream_recover = kwargs.pop("on_stream_recover", None)
-        if not self._has_fallbacks:
-            return await self._primary.chat_stream(**kwargs)
-
+        kwargs.pop("on_stream_recover", None)
         has_streamed: list[bool] = [False]
         original_delta = kwargs.get("on_content_delta")
+        original_thinking_delta = kwargs.get("on_thinking_delta")
+        original_tool_call_delta = kwargs.get("on_tool_call_delta")
+        candidate_events: list[tuple[str, Any]] = []
 
         async def _tracking_delta(text: str) -> None:
             if text:
                 has_streamed[0] = True
-            if original_delta:
-                await original_delta(text)
+            candidate_events.append(("content", text))
+
+        async def _tracking_thinking_delta(text: str) -> None:
+            candidate_events.append(("thinking", text))
+
+        async def _tracking_tool_call_delta(event: dict[str, Any]) -> None:
+            candidate_events.append(("tool_call", event))
+
+        async def _discard_candidate() -> None:
+            candidate_events.clear()
 
         kwargs["on_content_delta"] = _tracking_delta
-        return await self._try_with_fallback(
+        if original_thinking_delta:
+            kwargs["on_thinking_delta"] = _tracking_thinking_delta
+        if original_tool_call_delta:
+            kwargs["on_tool_call_delta"] = _tracking_tool_call_delta
+        response = await self._try_with_fallback(
             lambda p, kw: p.chat_stream(**kw),
             kwargs,
             has_streamed=has_streamed,
-            on_stream_recover=on_stream_recover,
+            on_stream_recover=_discard_candidate,
         )
+        if response.finish_reason != "error":
+            callbacks = {
+                "content": original_delta,
+                "thinking": original_thinking_delta,
+                "tool_call": original_tool_call_delta,
+            }
+            for event_name, event_value in candidate_events:
+                if callback := callbacks[event_name]:
+                    await callback(event_value)
+        return response
 
     async def _try_with_fallback(
         self,
@@ -187,17 +198,29 @@ class FallbackProvider(LLMProvider):
         on_stream_recover: Callable[[], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         primary_model = kwargs.get("model") or self._primary.get_default_model()
+        primary_alias = self._provider_alias(self._primary)
+        primary_key = CircuitKey(primary_alias, primary_model)
         primary_was_attempted = False
         primary_error = "unknown error"
+        primary_response: LLMResponse | None = None
         accumulated_attempts: list[Any] = []
 
-        if self._primary_available():
+        async def _reject_stream_candidate() -> None:
+            if has_streamed is None:
+                return
+            has_streamed[0] = False
+            if on_stream_recover:
+                await on_stream_recover()
+            else:
+                kwargs["on_content_delta"] = None
+
+        if self._circuit.allow(primary_key):
             primary_was_attempted = True
             setattr(self._primary, "_fallback_index", 0)
             response = await call(self._primary, kwargs)
+            primary_response = response
             primary_attempts = getattr(response, "attempts", [])
             if not primary_attempts:
-                primary_alias = getattr(self._primary, "provider_alias", self._primary.__class__.__name__)
                 err_cls = (response.error_kind or response.error_type) if response.finish_reason == "error" else None
                 primary_attempts = [
                     ProviderAttempt(
@@ -215,45 +238,33 @@ class FallbackProvider(LLMProvider):
             accumulated_attempts.extend(primary_attempts)
             response.attempts = list(accumulated_attempts)
             if response.finish_reason != "error":
-                self._primary_failures = 0
-                self._primary_tripped_at = None
+                self._circuit.record_success(primary_key)
                 return response
             primary_error = (response.content or primary_error)[:120]
 
-            if has_streamed is not None and has_streamed[0]:
-                is_timeout = (response.error_kind or "").lower() == "timeout"
-                if is_timeout:
-                    logger.warning(
-                        "Primary model '{}' stream stalled after content was emitted; "
-                        "attempting failover anyway",
-                        primary_model,
-                    )
-                    has_streamed[0] = False
-                    if on_stream_recover:
-                        await on_stream_recover()
-                    else:
-                        kwargs["on_content_delta"] = None
-                else:
-                    logger.warning(
-                        "Primary model error but content already streamed; skipping failover"
-                    )
-                    return response
-
             if not self._should_fallback(response):
+                await _reject_stream_candidate()
                 logger.warning(
                     "Primary model '{}' returned non-fallbackable error: {}",
                     primary_model,
                     (response.content or "")[:120],
                 )
                 return response
+            self._circuit.record_failure(primary_key, self._error_class(response))
 
-            self._primary_failures += 1
-            if self._primary_failures >= _PRIMARY_FAILURE_THRESHOLD:
-                self._primary_tripped_at = time.monotonic()
+            if has_streamed is not None and has_streamed[0]:
+                is_timeout = (response.error_kind or "").lower() == "timeout"
+                if not is_timeout:
+                    await _reject_stream_candidate()
+                    logger.warning("Primary model error after content; skipping failover")
+                    return response
                 logger.warning(
-                    "Primary model '{}' circuit open after {} consecutive failures",
-                    primary_model, self._primary_failures,
+                    "Primary model '{}' stream stalled after content was emitted; "
+                    "attempting failover anyway",
+                    primary_model,
                 )
+            await _reject_stream_candidate()
+
         else:
             logger.debug("Primary model '{}' circuit open; skipping", primary_model)
 
@@ -261,6 +272,10 @@ class FallbackProvider(LLMProvider):
         primary_skipped = not primary_was_attempted
         for idx, fallback in enumerate(self._fallback_presets):
             fallback_model = fallback.model
+            fallback_key = self._fallback_circuit_key(fallback)
+            if not self._circuit.allow(fallback_key):
+                logger.debug("Fallback model '{}' circuit open; skipping", fallback_model)
+                continue
             if has_streamed is not None and has_streamed[0]:
                 is_timeout = (
                     last_response is not None
@@ -334,13 +349,17 @@ class FallbackProvider(LLMProvider):
             fallback_response.attempts = list(accumulated_attempts)
 
             if fallback_response.finish_reason != "error":
+                self._circuit.record_success(fallback_key)
                 logger.info(
                     "Fallback '{}' succeeded after primary '{}' failed",
                     fallback_model, primary_model,
                 )
                 return fallback_response
 
+            if self._should_fallback(fallback_response):
+                self._circuit.record_failure(fallback_key, self._error_class(fallback_response))
             last_response = fallback_response
+            await _reject_stream_candidate()
             logger.warning(
                 "Fallback '{}' also failed: {}",
                 fallback_model,
@@ -351,17 +370,56 @@ class FallbackProvider(LLMProvider):
             "All {} fallback model(s) failed",
             len(self._fallback_presets),
         )
-        # Return the last error response we saw (primary or last fallback).
+        # At least one configured fallback was attempted and rejected.
         if last_response is not None:
-            last_response.attempts = list(accumulated_attempts)
-            return last_response
+            return self._exhausted_response(accumulated_attempts)
         # Primary was tripped and we have no fallbacks — synthesize an error.
-        synth_resp = LLMResponse(
-            content=f"Primary model '{primary_model}' circuit open and no fallbacks available",
-            finish_reason="error",
+        if primary_response is not None and not self._fallback_presets:
+            return primary_response
+        return self._exhausted_response(accumulated_attempts)
+
+    @staticmethod
+    def _exhausted_response(attempts: list[Any]) -> LLMResponse:
+        """Return the fixed, presentation-safe terminal failure for exhaustion."""
+        content = PresentationPolicy().sanitize(ALL_CANDIDATES_UNAVAILABLE, {}).content
+        response = LLMResponse(content=content, finish_reason="error")
+        response.attempts = list(attempts)
+        return response
+
+    @staticmethod
+    def _provider_alias(provider: LLMProvider) -> str:
+        return str(getattr(provider, "provider_alias", provider.__class__.__name__))
+
+    @staticmethod
+    def _default_fallback_circuit_key(fallback: Any) -> CircuitKey:
+        return CircuitKey(str(getattr(fallback, "provider", "unknown")), str(fallback.model))
+
+    @staticmethod
+    def _error_class(response: LLMResponse) -> str:
+        if FallbackProvider._is_authentication_response(response):
+            return "authentication"
+        for value in (response.error_kind, response.error_type, response.error_code):
+            if value:
+                return str(value)
+        if response.error_status_code in {401, 403}:
+            return "authentication"
+        return "unknown"
+
+    @staticmethod
+    def _is_authentication_response(response: LLMResponse) -> bool:
+        if response.error_status_code in {401, 403}:
+            return True
+        values = (response.error_kind, response.error_type, response.error_code, response.content)
+        return any(
+            token in str(value).lower()
+            for value in values
+            if value
+            for token in _AUTHENTICATION_ERROR_TOKENS
+        ) or any(
+            str(value).strip().lower() in _AUTHENTICATION_ERROR_KINDS
+            for value in values[:3]
+            if value
         )
-        synth_resp.attempts = list(accumulated_attempts)
-        return synth_resp
 
     async def _notify_fallback_model(self, model: str) -> None:
         if self._fallback_model_observer is None:
@@ -389,18 +447,7 @@ class FallbackProvider(LLMProvider):
         if any(v in non_fallback_kinds for v in structured_values if v):
             return False
 
-        if kind in _AUTHENTICATION_ERROR_KINDS or error_type in _AUTHENTICATION_ERROR_KINDS:
-            return True
-        if any(
-            token in value
-            for value in structured_values
-            if value
-            for token in _AUTHENTICATION_ERROR_TOKENS
-        ):
-            return True
-        if status in {401, 403}:
-            return True
-        if any(token in text for token in _AUTHENTICATION_ERROR_TOKENS):
+        if FallbackProvider._is_authentication_response(response):
             return True
 
         if status in {400, 404, 422}:

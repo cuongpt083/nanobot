@@ -16,10 +16,12 @@ plugins only implement the streaming primitives.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+import json
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import (
     ProgressEvent,
@@ -29,7 +31,9 @@ from nanobot.bus.outbound_events import (
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.channels.manager import ChannelManager
+from nanobot.channels.websocket.runtime import WebSocketChannel
 from nanobot.config.schema import Config
+from nanobot.providers.base import ToolCallRequest
 
 
 class _MockChannel(BaseChannel):
@@ -164,6 +168,24 @@ async def test_dispatch_drops_reasoning_when_channel_opts_out(manager):
 
 
 @pytest.mark.asyncio
+async def test_hidden_reasoning_is_dropped_before_presentation_sanitization(manager, monkeypatch):
+    channel = manager.channels["mock"]
+    channel.show_reasoning = False
+    sanitize = AsyncMock()
+    monkeypatch.setattr(manager.presentation_policy, "sanitize", sanitize)
+    msg = outbound_message_for_event(
+        channel="mock",
+        chat_id="c1",
+        event=ProgressEvent(content="<think>hidden</think>", reasoning_delta=True),
+    )
+
+    await manager._send_once(channel, msg)
+
+    sanitize.assert_not_called()
+    channel._delta_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_dispatch_delivers_reasoning_when_channel_opts_in(manager):
     channel = manager.channels["mock"]
     channel.show_reasoning = True
@@ -239,7 +261,7 @@ async def test_file_edit_events_route_to_channel_capability(manager):
     await manager._send_once(channel, msg)
 
     channel._file_edit_mock.assert_awaited_once_with(
-        "c1", edits, msg.metadata
+        "c1", [{"version": 1, "phase": "start", "path": "[REDACTED]"}], msg.metadata
     )
     channel._send_mock.assert_not_awaited()
 
@@ -257,9 +279,110 @@ async def test_typed_file_edit_event_routes_to_channel_capability(manager):
     await manager._send_once(channel, msg)
 
     channel._file_edit_mock.assert_awaited_once_with(
-        "c1", edits, msg.metadata
+        "c1", [{"version": 1, "phase": "start", "path": "[REDACTED]"}], msg.metadata
     )
     channel._send_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tool_event_payload_is_sanitized_before_channel_delivery(manager):
+    channel = manager.channels["mock"]
+    raw_events = [{
+        "version": 1,
+        "phase": "error",
+        "call_id": "call-1",
+        "name": "exec",
+        "arguments": {"token": "super-secret"},
+        "result": "C:\\Users\\Admin\\secret.txt",
+        "error": "Bearer super-secret",
+        "files": [{"path": "/var/private.txt"}],
+        "embeds": [{"url": "https://user:password@example.test"}],
+    }]
+    msg = outbound_message_for_event(
+        channel="mock",
+        chat_id="c1",
+        event=ProgressEvent(tool_events=raw_events),
+    )
+
+    await manager._send_once(channel, msg)
+
+    delivered = channel._send_mock.await_args.args[0]
+    delivered_event = outbound_event_from_message(delivered)
+    assert isinstance(delivered_event, ProgressEvent)
+    assert delivered_event.tool_events == [{
+        "version": 1,
+        "phase": "error",
+        "call_id": "call-1",
+        "name": "exec",
+    }]
+    assert "super-secret" not in str(delivered_event.tool_events)
+    assert raw_events[0]["arguments"] == {"token": "super-secret"}
+
+
+@pytest.mark.asyncio
+async def test_websocket_file_edit_delivery_and_transcript_redact_paths():
+    channel = WebSocketChannel.__new__(WebSocketChannel)
+    connection = object()
+    channel._subs = {"c1": {connection}}
+    channel._persist_turn_transcript_event = MagicMock(return_value=True)
+    channel._safe_send_to = AsyncMock()
+    raw_edits = [{"version": 1, "phase": "end", "path": "C:\\Users\\Admin\\secret.txt"}]
+
+    await channel.send_file_edit_events("c1", raw_edits)
+
+    persisted = channel._persist_turn_transcript_event.call_args.args[1]
+    wire_payload = json.loads(channel._safe_send_to.await_args.args[1])
+    assert persisted["edits"] == [{"version": 1, "phase": "end", "path": "[REDACTED]"}]
+    assert wire_payload["edits"] == persisted["edits"]
+    assert "C:\\Users" not in str(persisted)
+    assert raw_edits[0]["path"] == "C:\\Users\\Admin\\secret.txt"
+
+
+@pytest.mark.asyncio
+async def test_tool_hint_does_not_leak_arguments_to_websocket_or_transcript():
+    progress: list[str] = []
+
+    async def on_progress(content, **_kwargs):
+        progress.append(content)
+
+    hook = AgentProgressHook(on_progress=on_progress)
+    context = MagicMock()
+    context.tool_calls = [
+        ToolCallRequest(
+            id="call-1",
+            name="exec",
+            arguments={"command": "echo ordinary-secret private/plan.md"},
+        )
+    ]
+    context.response = None
+    context.streamed_content = True
+    await hook.before_execute_tools(context)
+
+    channel = WebSocketChannel.__new__(WebSocketChannel)
+    connection = object()
+    channel._subs = {"c1": {connection}}
+    channel._persist_turn_transcript_event = MagicMock(return_value=True)
+    channel._safe_send_to = AsyncMock()
+    channel._media = MagicMock()
+    channel._media.rewrite_local_markdown_images.side_effect = lambda text: text
+    hint = progress[0]
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="c1",
+            content=hint,
+            event=ProgressEvent(content=hint, tool_hint=True),
+        )
+    )
+
+    persisted = channel._persist_turn_transcript_event.call_args.args[1]
+    wire_payload = json.loads(channel._safe_send_to.await_args.args[1])
+    assert "ordinary-secret" not in hint
+    assert "private/plan.md" not in hint
+    assert "ordinary-secret" not in str(persisted)
+    assert "private/plan.md" not in str(persisted)
+    assert "ordinary-secret" not in wire_payload["text"]
+    assert "private/plan.md" not in wire_payload["text"]
 
 
 @pytest.mark.asyncio

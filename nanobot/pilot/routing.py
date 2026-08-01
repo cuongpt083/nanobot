@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import PilotConfig, PilotRoutingConfig
+    from nanobot.config.schema import Config, PilotConfig, PilotRoutingConfig
 
 RouteClass = Literal["default", "reasoning", "tool_heavy"]
 POLICY_VERSION = "2026-07-30.v1"
@@ -43,7 +45,7 @@ class RoutingInput:
 class RoutingDecision:
     turn_id: str
     route_class: RouteClass
-    primary_preset: str
+    primary_preset: str | None
     fallback_presets: tuple[str, ...]
     reason_code: str
     policy_version: str = POLICY_VERSION
@@ -52,14 +54,16 @@ class RoutingDecision:
 def route_turn(
     turn_id: str,
     input_data: RoutingInput,
-    config: PilotRoutingConfig | PilotConfig | None = None,
+    config: Config | PilotRoutingConfig | PilotConfig | None = None,
+    circuit: Any | None = None,
 ) -> RoutingDecision:
     """Classify an inbound turn deterministically into a RouteClass and preset targets.
 
     Classification uses normalized text length, keyword/shape patterns, media presence,
     and available tools. The reason_code is guaranteed to be a fixed enum-like string.
     """
-    routing_cfg = getattr(config, "routing", config) if config is not None else None
+    pilot_cfg = getattr(config, "pilot", config) if config is not None else None
+    routing_cfg = getattr(pilot_cfg, "routing", pilot_cfg) if pilot_cfg is not None else None
 
     content_strip = input_data.content.strip()
 
@@ -97,10 +101,24 @@ def route_turn(
 
     if routing_cfg is not None and getattr(routing_cfg, "enabled", False):
         class_cfg = getattr(routing_cfg, route_class, None)
-        if class_cfg is not None and hasattr(class_cfg, "primary_preset"):
-            primary_preset = class_cfg.primary_preset
+        if class_cfg is not None:
+            primary_preset = class_cfg.preset
         if hasattr(routing_cfg, "fallbacks") and routing_cfg.fallbacks:
             fallback_presets = tuple(routing_cfg.fallbacks)
+
+    candidates = (primary_preset, *fallback_presets)
+    snapshot = _circuit_snapshot(circuit)
+    available = tuple(
+        candidate
+        for candidate in candidates
+        if not _candidate_is_open(_candidate_state(config, candidate, snapshot))
+    )
+    if available:
+        primary_preset, *fallbacks = available
+        fallback_presets = tuple(fallbacks)
+    elif candidates:
+        primary_preset = None
+        fallback_presets = ()
 
     return RoutingDecision(
         turn_id=turn_id,
@@ -110,3 +128,44 @@ def route_turn(
         reason_code=reason_code,
         policy_version=getattr(routing_cfg, "policy_version", POLICY_VERSION) or POLICY_VERSION,
     )
+
+
+def _circuit_snapshot(circuit: Any | None) -> Mapping[str, Any]:
+    """Capture circuit state once so a decision sees a stable candidate set."""
+    if circuit is None:
+        return MappingProxyType({})
+    raw_snapshot = circuit.snapshot() if callable(getattr(circuit, "snapshot", None)) else circuit
+    if not isinstance(raw_snapshot, Mapping):
+        return MappingProxyType({})
+    return MappingProxyType(dict(raw_snapshot))
+
+
+def _candidate_is_open(state: Any) -> bool:
+    """Accept lightweight circuit state representations without mutating them."""
+    if isinstance(state, bool):
+        return state
+    if isinstance(state, str):
+        return state.lower() == "open"
+    if isinstance(state, Mapping):
+        return bool(state.get("open")) or str(state.get("state", "")).lower() == "open"
+    return str(getattr(state, "name", getattr(state, "value", state))).lower() == "open"
+
+
+def _candidate_state(
+    config: Config | PilotRoutingConfig | PilotConfig | None,
+    candidate: str | None,
+    snapshot: Mapping[Any, Any],
+) -> Any:
+    """Look up a preset's model-scoped circuit while preserving legacy snapshots."""
+    if candidate is None:
+        return None
+    direct = snapshot.get(candidate)
+    if direct is not None:
+        return direct
+    presets = getattr(config, "model_presets", None)
+    preset = presets.get(candidate) if isinstance(presets, Mapping) else None
+    if preset is None:
+        return None
+    from nanobot.pilot.circuit import circuit_key_for_preset
+
+    return snapshot.get(circuit_key_for_preset(preset, config))

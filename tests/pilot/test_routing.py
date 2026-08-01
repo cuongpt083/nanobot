@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from nanobot.config.schema import Config
 from nanobot.pilot.routing import RoutingInput, route_turn
 
 TEST_CASES = [
@@ -110,3 +111,67 @@ def test_reason_code_is_fixed_code_never_user_content() -> None:
         "DEFAULT_MEDIA_ATTACHMENT",
         "DEFAULT_GENERAL",
     }
+
+
+def test_route_turn_uses_configured_preset_and_skips_open_candidates() -> None:
+    config = Config.model_validate(
+        {
+            "modelPresets": {
+                "fast": {"model": "fast-model"},
+                "reasoner": {"model": "reasoner-model"},
+                "tools": {"model": "tools-model"},
+            },
+            "pilot": {
+                "enabled": True,
+                "routing": {
+                    "enabled": True,
+                    "default": {"preset": "fast"},
+                    "reasoning": {"preset": "reasoner"},
+                    "toolHeavy": {"preset": "tools"},
+                    "fallbacks": ["reasoner", "tools"],
+                },
+            },
+        }
+    )
+
+    decision = route_turn(
+        "turn-fast",
+        RoutingInput(channel="websocket", content="hello"),
+        config.pilot,
+        circuit={"fast": "open"},
+    )
+
+    assert decision.primary_preset == "reasoner"
+    assert decision.fallback_presets == ("tools",)
+
+
+def test_route_turn_returns_no_candidate_when_every_preset_circuit_is_open() -> None:
+    config = Config.model_validate(
+        {
+            "modelPresets": {
+                "fast": {"model": "fast-model"},
+                "reasoner": {"model": "reasoner-model"},
+                "tools": {"model": "tools-model"},
+            },
+            "pilot": {
+                "enabled": True,
+                "routing": {
+                    "enabled": True,
+                    "default": {"preset": "fast"},
+                    "reasoning": {"preset": "reasoner"},
+                    "toolHeavy": {"preset": "tools"},
+                    "fallbacks": ["reasoner", "tools"],
+                },
+            },
+        }
+    )
+
+    decision = route_turn(
+        "turn-none",
+        RoutingInput(channel="websocket", content="hello"),
+        config.pilot,
+        circuit={"fast": "open", "reasoner": "open", "tools": "open"},
+    )
+
+    assert decision.primary_preset is None
+    assert decision.fallback_presets == ()

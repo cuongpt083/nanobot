@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import json
 from typing import Any, Awaitable, Callable, cast
 
 from loguru import logger
@@ -17,7 +16,6 @@ from nanobot.utils.progress_events import (
     invoke_on_progress,
     on_progress_accepts_tool_events,
 )
-from nanobot.utils.tool_hints import format_tool_hints
 
 
 class AgentProgressHook(AgentHook):
@@ -54,7 +52,15 @@ class AgentProgressHook(AgentHook):
         return strip_think(text) or None
 
     def _tool_hint(self, tool_calls: list[Any]) -> str:
-        return format_tool_hints(tool_calls, max_length=self._tool_hint_max_length)
+        count = sum(
+            1
+            for tool_call in tool_calls
+            if isinstance(getattr(tool_call, "name", None), str)
+            and bool(getattr(tool_call, "name", ""))
+        )
+        if count == 1:
+            return "Running tool"
+        return f"Running {count} tools" if count else ""
 
     @staticmethod
     def _on_progress_accepts(cb: Callable[..., Any], name: str) -> bool:
@@ -146,9 +152,8 @@ class AgentProgressHook(AgentHook):
                 tool_events=[payload],
             )
             logger.info(
-                "Provider-hosted tool call: {}({})",
+                "Provider-hosted tool call: {}",
                 name,
-                json.dumps(arguments, ensure_ascii=False)[:200],
             )
             return
         if on_progress_accepts_tool_events(self._on_progress):
@@ -174,8 +179,7 @@ class AgentProgressHook(AgentHook):
                 tool_events=tool_events,
             )
         for tc in context.tool_calls:
-            args_str = json.dumps(tc.arguments, ensure_ascii=False)
-            logger.info("Tool call: {}({})", tc.name, args_str[:200])
+            logger.info("Tool call: {}", tc.name)
 
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
         """Publish a reasoning chunk; channel plugins decide whether to render."""

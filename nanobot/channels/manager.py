@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import hashlib
 import inspect
 from collections.abc import Callable, Iterable
 from contextlib import suppress
-from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -820,7 +820,8 @@ class ChannelManager:
             return
 
         res = self.presentation_policy.sanitize(msg.content, msg.metadata or {})
-        msg = replace(msg, content=res.content, metadata=res.metadata)
+        event = self.presentation_policy.sanitize_event(event)
+        msg = dataclasses.replace(msg, content=res.content, metadata=res.metadata, event=event)
 
         if isinstance(event, ProgressEvent) and event.reasoning_end:
             await ChannelManager._send_reasoning_end(channel, msg, event)
