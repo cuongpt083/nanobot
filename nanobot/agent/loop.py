@@ -48,6 +48,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.bus.runtime_events import RuntimeEventBus
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
 from nanobot.config.schema import AgentDefaults, ModelPresetConfig
+from nanobot.pilot.circuit import ALL_CANDIDATES_UNAVAILABLE, CircuitRegistry
 from nanobot.providers.base import LLMProvider
 from nanobot.providers.factory import ProviderSnapshot
 from nanobot.runtime_context import (
@@ -286,6 +287,7 @@ class AgentLoop:
         local_trigger_store: LocalTriggerStore | None = None,
         idle_compact_check_interval_seconds: int = 0,
         config: Config | None = None,
+        pilot_circuit: CircuitRegistry | None = None,
     ):
         from nanobot.config.schema import ToolsConfig
 
@@ -293,6 +295,7 @@ class AgentLoop:
         defaults = AgentDefaults()
         self.bus = bus
         self.config = config
+        self._pilot_circuit = pilot_circuit or CircuitRegistry()
         if turn_delivery_factory is not None:
             if turn_delivery_factory.bus is not bus:
                 raise ValueError("turn delivery factory must use the agent message bus")
@@ -463,8 +466,9 @@ class AgentLoop:
 
         if bus is None:
             bus = MessageBus()
+        pilot_circuit = extra.pop("pilot_circuit", None) or CircuitRegistry()
         defaults = config.agents.defaults
-        provider = extra.pop("provider", None) or make_provider(config)
+        provider = extra.pop("provider", None) or make_provider(config, circuit=pilot_circuit)
         resolved = config.resolve_preset()
         model = extra.pop("model", None) or resolved.model
         context_window_tokens = extra.pop("context_window_tokens", None) or resolved.context_window_tokens
@@ -472,6 +476,7 @@ class AgentLoop:
         preset_snapshot_loader = extra.pop("preset_snapshot_loader", None) or preset_helpers.make_preset_snapshot_loader(
             config,
             provider_snapshot_loader,
+            circuit=pilot_circuit,
         )
         return cls(
             bus=bus,
@@ -503,6 +508,7 @@ class AgentLoop:
             provider_snapshot_loader=provider_snapshot_loader,
             preset_snapshot_loader=preset_snapshot_loader,
             config=config,
+            pilot_circuit=pilot_circuit,
             **extra,
         )
 
@@ -1475,6 +1481,10 @@ class AgentLoop:
         if await self._run_turn_stage(ctx, "command", self._dispatch_command):
             return ctx.outbound
         await self._run_turn_stage(ctx, "build", self._build_turn)
+        if ctx.stop_reason == "all_candidates_open":
+            await self._run_turn_stage(ctx, "save", self._persist_turn)
+            await self._run_turn_stage(ctx, "respond", self._prepare_outbound)
+            return ctx.outbound
         await self._run_turn_stage(ctx, "run", self._run_turn)
         await self._run_turn_stage(ctx, "save", self._persist_turn)
         await self._run_turn_stage(ctx, "respond", self._prepare_outbound)
@@ -1658,8 +1668,13 @@ class AgentLoop:
                     media_types=media_tuple,
                     available_tools=tools_tuple,
                 )
-                decision = route_turn(ctx.turn_id, r_input, self.config.pilot)
+                decision = route_turn(ctx.turn_id, r_input, self.config, self._pilot_circuit)
                 ctx.attributes["routing_decision"] = asdict(decision)
+                if decision.primary_preset is None:
+                    ctx.runtime = self.runtime_for_session(session)
+                    ctx.final_content = ALL_CANDIDATES_UNAVAILABLE
+                    ctx.stop_reason = "all_candidates_open"
+                    return
                 runtime = self.runtime_resolver.resolve_preset(decision.primary_preset)
             else:
                 runtime = self.runtime_for_session(session)

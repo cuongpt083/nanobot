@@ -9,6 +9,7 @@ from nanobot.agent.loop import AgentLoop, TurnContext, TurnKind
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import Config
+from nanobot.pilot.circuit import CircuitKey
 from nanobot.providers.base import GenerationSettings
 from nanobot.providers.factory import ProviderSnapshot
 
@@ -94,3 +95,29 @@ async def test_pilot_routes_turns_to_the_configured_preset(
 
     assert ctx.require_runtime().model_preset == expected_preset
     assert ctx.attributes["routing_decision"]["primary_preset"] == expected_preset
+
+
+@pytest.mark.asyncio
+async def test_all_open_route_returns_a_generic_error_without_resolving_a_preset(tmp_path: Path) -> None:
+    loop = _loop(_config(tmp_path))
+    for preset in loop.config.model_presets.values():
+        for _ in range(3):
+            loop._pilot_circuit.record_failure(CircuitKey(preset.provider, preset.model), "server_error")
+    msg = InboundMessage(channel="websocket", sender_id="user", chat_id="chat", content="hello")
+    session_key = msg.session_key
+    ctx = TurnContext(
+        msg=msg,
+        session_key=session_key,
+        turn_id="turn-open",
+        runtime=None,
+        kind=TurnKind.USER,
+        delivery=loop.turn_delivery_factory.create(msg, session_key),
+        session=loop.sessions.get_or_create(session_key),
+        ephemeral=True,
+    )
+
+    await loop._build_turn(ctx)
+
+    assert ctx.attributes["routing_decision"]["primary_preset"] is None
+    assert ctx.final_content == "The requested model is temporarily unavailable. Please try again later."
+    assert ctx.stop_reason == "all_candidates_open"

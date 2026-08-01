@@ -9,7 +9,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import PilotConfig, PilotRoutingConfig
+    from nanobot.config.schema import Config, PilotConfig, PilotRoutingConfig
 
 RouteClass = Literal["default", "reasoning", "tool_heavy"]
 POLICY_VERSION = "2026-07-30.v1"
@@ -54,7 +54,7 @@ class RoutingDecision:
 def route_turn(
     turn_id: str,
     input_data: RoutingInput,
-    config: PilotRoutingConfig | PilotConfig | None = None,
+    config: Config | PilotRoutingConfig | PilotConfig | None = None,
     circuit: Any | None = None,
 ) -> RoutingDecision:
     """Classify an inbound turn deterministically into a RouteClass and preset targets.
@@ -62,7 +62,8 @@ def route_turn(
     Classification uses normalized text length, keyword/shape patterns, media presence,
     and available tools. The reason_code is guaranteed to be a fixed enum-like string.
     """
-    routing_cfg = getattr(config, "routing", config) if config is not None else None
+    pilot_cfg = getattr(config, "pilot", config) if config is not None else None
+    routing_cfg = getattr(pilot_cfg, "routing", pilot_cfg) if pilot_cfg is not None else None
 
     content_strip = input_data.content.strip()
 
@@ -107,7 +108,11 @@ def route_turn(
 
     candidates = (primary_preset, *fallback_presets)
     snapshot = _circuit_snapshot(circuit)
-    available = tuple(candidate for candidate in candidates if not _candidate_is_open(snapshot.get(candidate)))
+    available = tuple(
+        candidate
+        for candidate in candidates
+        if not _candidate_is_open(_candidate_state(config, candidate, snapshot))
+    )
     if available:
         primary_preset, *fallbacks = available
         fallback_presets = tuple(fallbacks)
@@ -144,3 +149,23 @@ def _candidate_is_open(state: Any) -> bool:
     if isinstance(state, Mapping):
         return bool(state.get("open")) or str(state.get("state", "")).lower() == "open"
     return str(getattr(state, "name", getattr(state, "value", state))).lower() == "open"
+
+
+def _candidate_state(
+    config: Config | PilotRoutingConfig | PilotConfig | None,
+    candidate: str | None,
+    snapshot: Mapping[Any, Any],
+) -> Any:
+    """Look up a preset's model-scoped circuit while preserving legacy snapshots."""
+    if candidate is None:
+        return None
+    direct = snapshot.get(candidate)
+    if direct is not None:
+        return direct
+    presets = getattr(config, "model_presets", None)
+    preset = presets.get(candidate) if isinstance(presets, Mapping) else None
+    if preset is None:
+        return None
+    from nanobot.pilot.circuit import circuit_key_for_preset
+
+    return snapshot.get(circuit_key_for_preset(preset, config))

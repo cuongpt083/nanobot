@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from nanobot.config.schema import Config, InlineFallbackConfig, ModelPresetConfig, ProviderConfig
+from nanobot.pilot.circuit import circuit_key_for_preset
 from nanobot.providers.base import GenerationSettings, LLMProvider
 from nanobot.providers.fallback_provider import FallbackProvider
 from nanobot.providers.registry import ProviderSpec, create_dynamic_spec, find_by_name
@@ -247,6 +249,7 @@ def make_provider(
     preset_name: str | None = None,
     preset: ModelPresetConfig | None = None,
     model: str | None = None,
+    circuit: Any | None = None,
 ) -> LLMProvider:
     """Create the LLM provider implied by config.
 
@@ -257,11 +260,13 @@ def make_provider(
     provider = _make_provider_core(config, preset=resolved, model=model)
     fallback_presets = _resolve_fallback_presets(config, resolved)
 
-    if fallback_presets:
+    if fallback_presets or circuit is not None:
         provider = FallbackProvider(
             primary=provider,
             fallback_presets=fallback_presets,
             provider_factory=lambda fb: _make_provider_core(config, preset=fb),
+            circuit=circuit,
+            fallback_circuit_key=lambda fb: circuit_key_for_preset(fb, config),
         )
 
     return provider
@@ -345,6 +350,7 @@ def build_provider_snapshot(
     *,
     preset_name: str | None = None,
     preset: ModelPresetConfig | None = None,
+    circuit: Any | None = None,
 ) -> ProviderSnapshot:
     resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
     selected_preset = (
@@ -357,7 +363,7 @@ def build_provider_snapshot(
         for fallback in _resolve_fallback_presets(config, resolved)
     ]
     return ProviderSnapshot(
-        provider=make_provider(config, preset=resolved),
+        provider=make_provider(config, preset=resolved, circuit=circuit),
         model=resolved.model,
         context_window_tokens=min([resolved.context_window_tokens, *fallback_windows]),
         signature=provider_signature(config, preset=resolved),
