@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from loguru import logger
 
 from agent.runner_helpers import make_run_spec
 from nanobot.agent.hook import CompositeHook
@@ -15,6 +16,35 @@ from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
+
+
+@pytest.mark.asyncio
+async def test_progress_hook_never_logs_tool_arguments():
+    log_lines: list[str] = []
+    sink_id = logger.add(log_lines.append, format="{message}")
+    hook = AgentProgressHook(on_progress=AsyncMock())
+    context = MagicMock()
+    context.tool_calls = [
+        ToolCallRequest(id="ordinary", name="exec", arguments={"token": "ordinary-secret"}),
+    ]
+    context.response = None
+    context.streamed_content = True
+    try:
+        await hook.before_execute_tools(context)
+        await hook.on_provider_tool_event(
+            context,
+            {
+                "phase": "start",
+                "call_id": "hosted",
+                "name": "hosted_search",
+                "arguments": {"token": "hosted-secret"},
+            },
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert "ordinary-secret" not in "\n".join(log_lines)
+    assert "hosted-secret" not in "\n".join(log_lines)
 
 
 @pytest.mark.asyncio

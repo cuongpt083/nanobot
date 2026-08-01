@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from nanobot.bus.outbound_events import ProgressEvent
@@ -18,6 +18,8 @@ _POLICY_KEYS = frozenset(
         "reasoningcontent",
         "thinkingblocks",
         "toolarguments",
+        "toolevents",
+        "fileeditevents",
     }
 )
 _THINK_BLOCK = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL | re.IGNORECASE)
@@ -80,6 +82,43 @@ def _sanitize_value(value: Any, blocked: list[str], path: str = "") -> tuple[Any
     return value, False
 
 
+def _safe_progress_event_fields(event: dict[str, Any]) -> dict[str, Any]:
+    safe: dict[str, Any] = {}
+    version = event.get("version")
+    if isinstance(version, int) and not isinstance(version, bool):
+        safe["version"] = version
+    phase = event.get("phase")
+    if isinstance(phase, str) and phase in {"start", "end", "error"}:
+        safe["phase"] = phase
+    for field in ("call_id", "name"):
+        value = event.get(field)
+        if isinstance(value, str):
+            safe[field] = value
+    return safe
+
+
+def sanitize_progress_event(event: Any) -> Any:
+    """Return a presentation-safe progress event without tool payload data."""
+    if not isinstance(event, ProgressEvent):
+        return event
+    tool_events = (
+        [_safe_progress_event_fields(item) for item in event.tool_events if isinstance(item, dict)]
+        if event.tool_events is not None
+        else None
+    )
+    file_edit_events: list[dict[str, Any]] | None = None
+    if event.file_edit_events is not None:
+        file_edit_events = []
+        for item in event.file_edit_events:
+            if not isinstance(item, dict):
+                continue
+            safe = _safe_progress_event_fields(item)
+            if "path" in item:
+                safe["path"] = "[REDACTED]"
+            file_edit_events.append(safe)
+    return replace(event, tool_events=tool_events, file_edit_events=file_edit_events)
+
+
 @dataclass(frozen=True, slots=True)
 class PresentationResult:
     content: str
@@ -99,6 +138,9 @@ class PresentationPolicy:
             if event.reasoning or event.reasoning_delta or event.reasoning_end:
                 return False
         return True
+
+    def sanitize_event(self, event: Any) -> Any:
+        return sanitize_progress_event(event)
 
     def sanitize(self, content: str, metadata: dict[str, Any]) -> PresentationResult:
         blocked: list[str] = []

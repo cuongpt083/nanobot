@@ -16,7 +16,8 @@ plugins only implement the streaming primitives.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+import json
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -29,6 +30,7 @@ from nanobot.bus.outbound_events import (
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.channels.manager import ChannelManager
+from nanobot.channels.websocket.runtime import WebSocketChannel
 from nanobot.config.schema import Config
 
 
@@ -257,7 +259,7 @@ async def test_file_edit_events_route_to_channel_capability(manager):
     await manager._send_once(channel, msg)
 
     channel._file_edit_mock.assert_awaited_once_with(
-        "c1", edits, msg.metadata
+        "c1", [{"version": 1, "phase": "start", "path": "[REDACTED]"}], msg.metadata
     )
     channel._send_mock.assert_not_awaited()
 
@@ -275,9 +277,63 @@ async def test_typed_file_edit_event_routes_to_channel_capability(manager):
     await manager._send_once(channel, msg)
 
     channel._file_edit_mock.assert_awaited_once_with(
-        "c1", edits, msg.metadata
+        "c1", [{"version": 1, "phase": "start", "path": "[REDACTED]"}], msg.metadata
     )
     channel._send_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tool_event_payload_is_sanitized_before_channel_delivery(manager):
+    channel = manager.channels["mock"]
+    raw_events = [{
+        "version": 1,
+        "phase": "error",
+        "call_id": "call-1",
+        "name": "exec",
+        "arguments": {"token": "super-secret"},
+        "result": "C:\\Users\\Admin\\secret.txt",
+        "error": "Bearer super-secret",
+        "files": [{"path": "/var/private.txt"}],
+        "embeds": [{"url": "https://user:password@example.test"}],
+    }]
+    msg = outbound_message_for_event(
+        channel="mock",
+        chat_id="c1",
+        event=ProgressEvent(tool_events=raw_events),
+    )
+
+    await manager._send_once(channel, msg)
+
+    delivered = channel._send_mock.await_args.args[0]
+    delivered_event = outbound_event_from_message(delivered)
+    assert isinstance(delivered_event, ProgressEvent)
+    assert delivered_event.tool_events == [{
+        "version": 1,
+        "phase": "error",
+        "call_id": "call-1",
+        "name": "exec",
+    }]
+    assert "super-secret" not in str(delivered_event.tool_events)
+    assert raw_events[0]["arguments"] == {"token": "super-secret"}
+
+
+@pytest.mark.asyncio
+async def test_websocket_file_edit_delivery_and_transcript_redact_paths():
+    channel = WebSocketChannel.__new__(WebSocketChannel)
+    connection = object()
+    channel._subs = {"c1": {connection}}
+    channel._persist_turn_transcript_event = MagicMock(return_value=True)
+    channel._safe_send_to = AsyncMock()
+    raw_edits = [{"version": 1, "phase": "end", "path": "C:\\Users\\Admin\\secret.txt"}]
+
+    await channel.send_file_edit_events("c1", raw_edits)
+
+    persisted = channel._persist_turn_transcript_event.call_args.args[1]
+    wire_payload = json.loads(channel._safe_send_to.await_args.args[1])
+    assert persisted["edits"] == [{"version": 1, "phase": "end", "path": "[REDACTED]"}]
+    assert wire_payload["edits"] == persisted["edits"]
+    assert "C:\\Users" not in str(persisted)
+    assert raw_edits[0]["path"] == "C:\\Users\\Admin\\secret.txt"
 
 
 @pytest.mark.asyncio

@@ -820,7 +820,8 @@ class ChannelManager:
             return
 
         res = self.presentation_policy.sanitize(msg.content, msg.metadata or {})
-        msg = dataclasses.replace(msg, content=res.content, metadata=res.metadata)
+        event = self.presentation_policy.sanitize_event(event)
+        msg = dataclasses.replace(msg, content=res.content, metadata=res.metadata, event=event)
 
         if isinstance(event, ProgressEvent) and event.reasoning_end:
             await ChannelManager._send_reasoning_end(channel, msg, event)
