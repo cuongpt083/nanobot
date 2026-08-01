@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from loguru import logger
 
 from nanobot.agent import SubagentManager
 from nanobot.agent.hook import AgentHookContext
@@ -662,11 +663,17 @@ class TestSubagentHook:
         hook = _SubagentHook("t1")
         tool_call = MagicMock()
         tool_call.name = "read_file"
-        tool_call.arguments = {"path": "/tmp/test"}
+        tool_call.arguments = {"token": "subagent-secret"}
         ctx = _make_hook_context(tool_calls=[tool_call])
-        result = await hook.before_execute_tools(ctx)
+        log_lines: list[str] = []
+        sink_id = logger.add(log_lines.append, format="{message}")
+        try:
+            result = await hook.before_execute_tools(ctx)
+        finally:
+            logger.remove(sink_id)
         assert result is None
         assert ctx.tool_calls == [tool_call]
+        assert "subagent-secret" not in "\n".join(log_lines)
 
     @pytest.mark.asyncio
     async def test_after_iteration_updates_status(self):

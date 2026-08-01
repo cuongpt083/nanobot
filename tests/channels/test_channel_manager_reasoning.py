@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import (
     ProgressEvent,
@@ -32,6 +33,7 @@ from nanobot.channels.base import BaseChannel
 from nanobot.channels.manager import ChannelManager
 from nanobot.channels.websocket.runtime import WebSocketChannel
 from nanobot.config.schema import Config
+from nanobot.providers.base import ToolCallRequest
 
 
 class _MockChannel(BaseChannel):
@@ -334,6 +336,53 @@ async def test_websocket_file_edit_delivery_and_transcript_redact_paths():
     assert wire_payload["edits"] == persisted["edits"]
     assert "C:\\Users" not in str(persisted)
     assert raw_edits[0]["path"] == "C:\\Users\\Admin\\secret.txt"
+
+
+@pytest.mark.asyncio
+async def test_tool_hint_does_not_leak_arguments_to_websocket_or_transcript():
+    progress: list[str] = []
+
+    async def on_progress(content, **_kwargs):
+        progress.append(content)
+
+    hook = AgentProgressHook(on_progress=on_progress)
+    context = MagicMock()
+    context.tool_calls = [
+        ToolCallRequest(
+            id="call-1",
+            name="exec",
+            arguments={"command": "echo ordinary-secret private/plan.md"},
+        )
+    ]
+    context.response = None
+    context.streamed_content = True
+    await hook.before_execute_tools(context)
+
+    channel = WebSocketChannel.__new__(WebSocketChannel)
+    connection = object()
+    channel._subs = {"c1": {connection}}
+    channel._persist_turn_transcript_event = MagicMock(return_value=True)
+    channel._safe_send_to = AsyncMock()
+    channel._media = MagicMock()
+    channel._media.rewrite_local_markdown_images.side_effect = lambda text: text
+    hint = progress[0]
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="c1",
+            content=hint,
+            event=ProgressEvent(content=hint, tool_hint=True),
+        )
+    )
+
+    persisted = channel._persist_turn_transcript_event.call_args.args[1]
+    wire_payload = json.loads(channel._safe_send_to.await_args.args[1])
+    assert "ordinary-secret" not in hint
+    assert "private/plan.md" not in hint
+    assert "ordinary-secret" not in str(persisted)
+    assert "private/plan.md" not in str(persisted)
+    assert "ordinary-secret" not in wire_payload["text"]
+    assert "private/plan.md" not in wire_payload["text"]
 
 
 @pytest.mark.asyncio

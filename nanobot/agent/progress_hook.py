@@ -16,7 +16,6 @@ from nanobot.utils.progress_events import (
     invoke_on_progress,
     on_progress_accepts_tool_events,
 )
-from nanobot.utils.tool_hints import format_tool_hints
 
 
 class AgentProgressHook(AgentHook):
@@ -53,7 +52,15 @@ class AgentProgressHook(AgentHook):
         return strip_think(text) or None
 
     def _tool_hint(self, tool_calls: list[Any]) -> str:
-        return format_tool_hints(tool_calls, max_length=self._tool_hint_max_length)
+        count = sum(
+            1
+            for tool_call in tool_calls
+            if isinstance(getattr(tool_call, "name", None), str)
+            and bool(getattr(tool_call, "name", ""))
+        )
+        if count == 1:
+            return "Running tool"
+        return f"Running {count} tools" if count else ""
 
     @staticmethod
     def _on_progress_accepts(cb: Callable[..., Any], name: str) -> bool:
