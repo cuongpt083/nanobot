@@ -164,6 +164,24 @@ async def test_dispatch_drops_reasoning_when_channel_opts_out(manager):
 
 
 @pytest.mark.asyncio
+async def test_hidden_reasoning_is_dropped_before_presentation_sanitization(manager, monkeypatch):
+    channel = manager.channels["mock"]
+    channel.show_reasoning = False
+    sanitize = AsyncMock()
+    monkeypatch.setattr(manager.presentation_policy, "sanitize", sanitize)
+    msg = outbound_message_for_event(
+        channel="mock",
+        chat_id="c1",
+        event=ProgressEvent(content="<think>hidden</think>", reasoning_delta=True),
+    )
+
+    await manager._send_once(channel, msg)
+
+    sanitize.assert_not_called()
+    channel._delta_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_dispatch_delivers_reasoning_when_channel_opts_in(manager):
     channel = manager.channels["mock"]
     channel.show_reasoning = True

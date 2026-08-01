@@ -1,5 +1,6 @@
 """Tests for server-side presentation policy."""
 
+from copy import deepcopy
 
 import pytest
 
@@ -15,8 +16,13 @@ def _create_policy():
 @pytest.mark.parametrize("content", [
     "Here is some text <think>this is reasoning</think> and more text.",
     "<think>unclosed reasoning block",
-    "Bearer sk-test-12345",
-    "API-key: sk-123456",
+    "Bearer token-value",
+    "API-key: token-value",
+    "api_key=token-value",
+    "cookie: session=value",
+    "-----BEGIN PRIVATE KEY-----private material-----END PRIVATE KEY-----",
+    "private_key=token-value",
+    "https://user:password@example.test/private",
     "C:\\Users\\Admin\\Workspaces\\nanobot\\secret.txt",
     "/var/run/secrets/kubernetes.io",
     "Exception: File not found",
@@ -24,7 +30,7 @@ def _create_policy():
 def test_presentation_sanitizes_content(content):
     policy, counter = _create_policy()
     res = policy.sanitize(content, {})
-    assert "sk-" not in res.content
+    assert "token-value" not in res.content
     assert "<think>" not in res.content
     assert "reasoning" not in res.content
     assert "Exception" not in res.content
@@ -39,6 +45,12 @@ def test_presentation_sanitizes_content(content):
     ({"tool_arguments": {"arg": "val"}}, "tool_arguments"),
     ({"error": "Exception"}, "error"),
     ({"nested": {"reasoning_content": "secret"}}, "nested.reasoning_content"),
+    ({"provider_error": {"message": "secret"}}, "provider_error"),
+    ({"arguments": {"token": "secret"}}, "arguments"),
+    ({"toolArguments": {"token": "secret"}}, "toolArguments"),
+    ({"reasoning": "secret"}, "reasoning"),
+    ({"reasoningDelta": "secret"}, "reasoningDelta"),
+    ({"reasoning_end": "secret"}, "reasoning_end"),
 ])
 def test_presentation_sanitizes_metadata(metadata, expected_dropped):
     policy, counter = _create_policy()
@@ -54,8 +66,52 @@ def test_presentation_sanitizes_metadata(metadata, expected_dropped):
                 check_dropped(v)
 
     check_dropped(res.metadata)
+    observed_keys: set[str] = set()
+
+    def collect_keys(value):
+        if isinstance(value, dict):
+            observed_keys.update(value)
+            for child in value.values():
+                collect_keys(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect_keys(child)
+
+    collect_keys(res.metadata)
+    assert expected_dropped.rsplit(".", 1)[-1] not in observed_keys
     assert counter["presentation_leak_prevented_total"] == 1
     assert res.leak_prevented is True
+
+
+def test_presentation_recursively_redacts_metadata_without_mutating_input():
+    policy, counter = _create_policy()
+    metadata = {
+        "nested": {
+            "list": [
+                "Bearer nested-token",
+                "api_key=nested-token",
+                "cookie: nested-token",
+                "private_key=nested-token",
+                {"windowsPath": "C:\\Users\\Admin\\secret.txt"},
+                {"url": "https://user:password@example.test/private"},
+                {"think": "<think>unclosed reasoning"},
+            ],
+            "posixPath": "/var/run/secrets/kubernetes.io",
+        }
+    }
+    original = deepcopy(metadata)
+
+    result = policy.sanitize("safe", metadata)
+
+    assert metadata == original
+    assert result.metadata is not metadata
+    assert result.metadata["nested"] is not metadata["nested"]
+    assert "nested-token" not in str(result.metadata)
+    assert "C:\\Users" not in str(result.metadata)
+    assert "user:password" not in str(result.metadata)
+    assert "kubernetes.io" not in str(result.metadata)
+    assert "<think>" not in str(result.metadata)
+    assert counter["presentation_leak_prevented_total"] == 1
 
 def test_presentation_allows_safe_content():
     policy, counter = _create_policy()

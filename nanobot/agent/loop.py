@@ -285,12 +285,14 @@ class AgentLoop:
         restart_mode: str = "auto",
         local_trigger_store: LocalTriggerStore | None = None,
         idle_compact_check_interval_seconds: int = 0,
+        config: Config | None = None,
     ):
         from nanobot.config.schema import ToolsConfig
 
         _tc = tools_config or ToolsConfig()
         defaults = AgentDefaults()
         self.bus = bus
+        self.config = config
         if turn_delivery_factory is not None:
             if turn_delivery_factory.bus is not bus:
                 raise ValueError("turn delivery factory must use the agent message bus")
@@ -500,6 +502,7 @@ class AgentLoop:
             restart_mode=config.gateway.restart_mode,
             provider_snapshot_loader=provider_snapshot_loader,
             preset_snapshot_loader=preset_snapshot_loader,
+            config=config,
             **extra,
         )
 
@@ -1647,7 +1650,7 @@ class AgentLoop:
 
                 from nanobot.pilot.routing import RoutingInput, route_turn
 
-                tools_tuple = tuple(self.tools.keys()) if self.tools else ()
+                tools_tuple = tuple(self.tools.tool_names) if self.tools else ()
                 media_tuple = tuple(ctx.msg.media or ())
                 r_input = RoutingInput(
                     channel=ctx.msg.channel,
@@ -1657,7 +1660,7 @@ class AgentLoop:
                 )
                 decision = route_turn(ctx.turn_id, r_input, self.config.pilot)
                 ctx.attributes["routing_decision"] = asdict(decision)
-                runtime = self.model_runtime_resolver.resolve_preset(decision.primary_preset)
+                runtime = self.runtime_resolver.resolve_preset(decision.primary_preset)
             else:
                 runtime = self.runtime_for_session(session)
             ctx.runtime = runtime
