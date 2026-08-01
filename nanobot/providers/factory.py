@@ -208,7 +208,7 @@ def _make_provider_core(
             proxy=p.proxy if p else None,
         )
 
-    provider.provider_alias = provider_name
+    setattr(provider, "provider_alias", provider_name)
     provider.generation = preset.to_generation_settings()
     return provider
 
@@ -267,6 +267,7 @@ def make_provider(
             provider_factory=lambda fb: _make_provider_core(config, preset=fb),
             circuit=circuit,
             fallback_circuit_key=lambda fb: circuit_key_for_preset(fb, config),
+            primary_context_window_tokens=resolved.context_window_tokens,
         )
 
     return provider

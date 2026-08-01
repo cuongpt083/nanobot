@@ -11,7 +11,14 @@ from loguru import logger
 
 from nanobot.pilot.circuit import ALL_CANDIDATES_UNAVAILABLE, CircuitKey, CircuitRegistry
 from nanobot.pilot.presentation import PresentationPolicy
-from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse, ProviderAttempt
+from nanobot.providers.base import (
+    GenerationSettings,
+    LLMProvider,
+    LLMResponse,
+    ProviderAttempt,
+    ProviderCallContext,
+    ProviderConversationState,
+)
 
 _FALLBACK_ERROR_KINDS = frozenset({
     "timeout",
@@ -112,6 +119,7 @@ class FallbackProvider(LLMProvider):
         fallback_presets: list[Any],
         provider_factory: Callable[[Any], LLMProvider],
         fallback_model_observer: FallbackModelObserver | None = None,
+        primary_context_window_tokens: int | None = None,
         circuit: CircuitRegistry | None = None,
         fallback_circuit_key: Callable[[Any], CircuitKey] | None = None,
     ):
@@ -119,6 +127,7 @@ class FallbackProvider(LLMProvider):
         self._fallback_presets = list(fallback_presets)
         self._provider_factory = provider_factory
         self._fallback_model_observer = fallback_model_observer
+        self._primary_context_window_tokens = primary_context_window_tokens
         self._circuit = circuit or CircuitRegistry()
         self._fallback_circuit_key = fallback_circuit_key or self._default_fallback_circuit_key
 
@@ -141,9 +150,53 @@ class FallbackProvider(LLMProvider):
     def supports_progress_deltas(self) -> bool:
         return bool(getattr(self._primary, "supports_progress_deltas", False))
 
+    def can_resume_conversation_state(
+        self,
+        state: ProviderConversationState,
+        model: str | None = None,
+    ) -> bool:
+        return self._primary.can_resume_conversation_state(state, model)
+
+    def supports_native_compaction(self, model: str | None = None) -> bool:
+        return self._primary.supports_native_compaction(model)
+
+    def _primary_call_context(
+        self,
+        provider_context: ProviderCallContext,
+        model: str | None,
+    ) -> ProviderCallContext:
+        context_window_tokens = (
+            self._primary_context_window_tokens
+            if self._primary_context_window_tokens is not None
+            else provider_context.context_window_tokens
+        )
+        if not self._primary.supports_native_compaction(model):
+            context_window_tokens = None
+        return ProviderCallContext(
+            conversation_state=provider_context.conversation_state,
+            context_window_tokens=context_window_tokens,
+        )
+
     async def chat(self, **kwargs: Any) -> LLMResponse:
         return await self._try_with_fallback(
             lambda p, kw: p.chat(**kw), kwargs, has_streamed=None
+        )
+
+    async def chat_with_context(
+        self,
+        *,
+        provider_context: ProviderCallContext,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        call_kwargs: dict[str, Any] = dict(kwargs)
+        call_kwargs["provider_context"] = self._primary_call_context(
+            provider_context,
+            kwargs.get("model"),
+        )
+        return await self._try_with_fallback(
+            lambda p, kw: p.chat_with_context(**kw),
+            call_kwargs,
+            has_streamed=None,
         )
 
     async def chat_stream(self, **kwargs: Any) -> LLMResponse:
@@ -176,6 +229,60 @@ class FallbackProvider(LLMProvider):
         response = await self._try_with_fallback(
             lambda p, kw: p.chat_stream(**kw),
             kwargs,
+            has_streamed=has_streamed,
+            on_stream_recover=_discard_candidate,
+        )
+        if response.finish_reason != "error":
+            callbacks = {
+                "content": original_delta,
+                "thinking": original_thinking_delta,
+                "tool_call": original_tool_call_delta,
+            }
+            for event_name, event_value in candidate_events:
+                if callback := callbacks[event_name]:
+                    await callback(event_value)
+        return response
+
+    async def chat_stream_with_context(
+        self,
+        *,
+        provider_context: ProviderCallContext,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        kwargs.pop("on_stream_recover", None)
+        call_kwargs: dict[str, Any] = dict(kwargs)
+        call_kwargs["provider_context"] = self._primary_call_context(
+            provider_context,
+            kwargs.get("model"),
+        )
+        has_streamed: list[bool] = [False]
+        original_delta = call_kwargs.get("on_content_delta")
+        original_thinking_delta = call_kwargs.get("on_thinking_delta")
+        original_tool_call_delta = call_kwargs.get("on_tool_call_delta")
+        candidate_events: list[tuple[str, Any]] = []
+
+        async def _tracking_delta(text: str) -> None:
+            if text:
+                has_streamed[0] = True
+            candidate_events.append(("content", text))
+
+        async def _tracking_thinking_delta(text: str) -> None:
+            candidate_events.append(("thinking", text))
+
+        async def _tracking_tool_call_delta(event: dict[str, Any]) -> None:
+            candidate_events.append(("tool_call", event))
+
+        async def _discard_candidate() -> None:
+            candidate_events.clear()
+
+        call_kwargs["on_content_delta"] = _tracking_delta
+        if original_thinking_delta:
+            call_kwargs["on_thinking_delta"] = _tracking_thinking_delta
+        if original_tool_call_delta:
+            call_kwargs["on_tool_call_delta"] = _tracking_tool_call_delta
+        response = await self._try_with_fallback(
+            lambda p, kw: p.chat_stream_with_context(**kw),
+            call_kwargs,
             has_streamed=has_streamed,
             on_stream_recover=_discard_candidate,
         )
@@ -229,7 +336,7 @@ class FallbackProvider(LLMProvider):
                         sequence=len(accumulated_attempts) + 1,
                         retry_index=0,
                         fallback_index=0,
-                        latency_ms=0.0,
+                        latency_ms=0,
                         finish_reason=response.finish_reason,
                         error_class=err_cls,
                         usage=response.usage,
@@ -323,6 +430,23 @@ class FallbackProvider(LLMProvider):
                 "max_tokens": fallback.max_tokens,
                 "temperature": fallback.temperature,
             }
+            provider_context = fallback_kwargs.get("provider_context")
+            if isinstance(provider_context, ProviderCallContext):
+                state = provider_context.conversation_state
+                if state is not None and not fallback_provider.can_resume_conversation_state(
+                    state,
+                    fallback_model,
+                ):
+                    state = None
+                context_window_tokens = (
+                    fallback.context_window_tokens
+                    if fallback_provider.supports_native_compaction(fallback_model)
+                    else None
+                )
+                fallback_kwargs["provider_context"] = ProviderCallContext(
+                    conversation_state=state,
+                    context_window_tokens=context_window_tokens,
+                )
             if fallback.reasoning_effort is None:
                 fallback_kwargs.pop("reasoning_effort", None)
             else:
@@ -339,7 +463,7 @@ class FallbackProvider(LLMProvider):
                         sequence=len(accumulated_attempts) + 1,
                         retry_index=0,
                         fallback_index=idx + 1,
-                        latency_ms=0.0,
+                        latency_ms=0,
                         finish_reason=fallback_response.finish_reason,
                         error_class=err_cls,
                         usage=fallback_response.usage,
@@ -382,7 +506,11 @@ class FallbackProvider(LLMProvider):
     def _exhausted_response(attempts: list[Any]) -> LLMResponse:
         """Return the fixed, presentation-safe terminal failure for exhaustion."""
         content = PresentationPolicy().sanitize(ALL_CANDIDATES_UNAVAILABLE, {}).content
-        response = LLMResponse(content=content, finish_reason="error")
+        response = LLMResponse(
+            content=content,
+            finish_reason="error",
+            preserve_provider_state_on_error=True,
+        )
         response.attempts = list(attempts)
         return response
 

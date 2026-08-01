@@ -1191,6 +1191,7 @@ class WebSocketChannel(BaseChannel):
             body,
             metadata=meta,
             phase="answer",
+            include_source=True,
         )
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
