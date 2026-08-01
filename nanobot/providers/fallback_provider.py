@@ -96,6 +96,7 @@ class FallbackProvider(LLMProvider):
 
     Key design:
     - Failover is request-scoped (the wrapper itself is stateless between turns).
+    - Candidate content, thinking, and tool callbacks are buffered until success.
     - Skipped when content was already streamed to avoid duplicate output,
       except timeout recovery can resume in a new stream segment.
     - Recursive failover is prevented by the factory returning plain providers.
@@ -149,26 +150,44 @@ class FallbackProvider(LLMProvider):
         kwargs.pop("on_stream_recover", None)
         has_streamed: list[bool] = [False]
         original_delta = kwargs.get("on_content_delta")
-        candidate_deltas: list[str] = []
+        original_thinking_delta = kwargs.get("on_thinking_delta")
+        original_tool_call_delta = kwargs.get("on_tool_call_delta")
+        candidate_events: list[tuple[str, Any]] = []
 
         async def _tracking_delta(text: str) -> None:
             if text:
                 has_streamed[0] = True
-                candidate_deltas.append(text)
+            candidate_events.append(("content", text))
+
+        async def _tracking_thinking_delta(text: str) -> None:
+            candidate_events.append(("thinking", text))
+
+        async def _tracking_tool_call_delta(event: dict[str, Any]) -> None:
+            candidate_events.append(("tool_call", event))
 
         async def _discard_candidate() -> None:
-            candidate_deltas.clear()
+            candidate_events.clear()
 
         kwargs["on_content_delta"] = _tracking_delta
+        if original_thinking_delta:
+            kwargs["on_thinking_delta"] = _tracking_thinking_delta
+        if original_tool_call_delta:
+            kwargs["on_tool_call_delta"] = _tracking_tool_call_delta
         response = await self._try_with_fallback(
             lambda p, kw: p.chat_stream(**kw),
             kwargs,
             has_streamed=has_streamed,
             on_stream_recover=_discard_candidate,
         )
-        if response.finish_reason != "error" and original_delta:
-            for delta in candidate_deltas:
-                await original_delta(delta)
+        if response.finish_reason != "error":
+            callbacks = {
+                "content": original_delta,
+                "thinking": original_thinking_delta,
+                "tool_call": original_tool_call_delta,
+            }
+            for event_name, event_value in candidate_events:
+                if callback := callbacks[event_name]:
+                    await callback(event_value)
         return response
 
     async def _try_with_fallback(
@@ -185,6 +204,15 @@ class FallbackProvider(LLMProvider):
         primary_error = "unknown error"
         primary_response: LLMResponse | None = None
         accumulated_attempts: list[Any] = []
+
+        async def _reject_stream_candidate() -> None:
+            if has_streamed is None:
+                return
+            has_streamed[0] = False
+            if on_stream_recover:
+                await on_stream_recover()
+            else:
+                kwargs["on_content_delta"] = None
 
         if self._circuit.allow(primary_key):
             primary_was_attempted = True
@@ -215,6 +243,7 @@ class FallbackProvider(LLMProvider):
             primary_error = (response.content or primary_error)[:120]
 
             if not self._should_fallback(response):
+                await _reject_stream_candidate()
                 logger.warning(
                     "Primary model '{}' returned non-fallbackable error: {}",
                     primary_model,
@@ -225,22 +254,16 @@ class FallbackProvider(LLMProvider):
 
             if has_streamed is not None and has_streamed[0]:
                 is_timeout = (response.error_kind or "").lower() == "timeout"
-                if is_timeout:
-                    logger.warning(
-                        "Primary model '{}' stream stalled after content was emitted; "
-                        "attempting failover anyway",
-                        primary_model,
-                    )
-                    has_streamed[0] = False
-                    if on_stream_recover:
-                        await on_stream_recover()
-                    else:
-                        kwargs["on_content_delta"] = None
-                else:
-                    logger.warning(
-                        "Primary model error but content already streamed; skipping failover"
-                    )
+                if not is_timeout:
+                    await _reject_stream_candidate()
+                    logger.warning("Primary model error after content; skipping failover")
                     return response
+                logger.warning(
+                    "Primary model '{}' stream stalled after content was emitted; "
+                    "attempting failover anyway",
+                    primary_model,
+                )
+            await _reject_stream_candidate()
 
         else:
             logger.debug("Primary model '{}' circuit open; skipping", primary_model)
@@ -336,6 +359,7 @@ class FallbackProvider(LLMProvider):
             if self._should_fallback(fallback_response):
                 self._circuit.record_failure(fallback_key, self._error_class(fallback_response))
             last_response = fallback_response
+            await _reject_stream_candidate()
             logger.warning(
                 "Fallback '{}' also failed: {}",
                 fallback_model,
@@ -346,11 +370,11 @@ class FallbackProvider(LLMProvider):
             "All {} fallback model(s) failed",
             len(self._fallback_presets),
         )
-        # Return the last error response we saw (primary or last fallback).
+        # At least one configured fallback was attempted and rejected.
         if last_response is not None:
             return self._exhausted_response(accumulated_attempts)
         # Primary was tripped and we have no fallbacks — synthesize an error.
-        if primary_response is not None:
+        if primary_response is not None and not self._fallback_presets:
             return primary_response
         return self._exhausted_response(accumulated_attempts)
 

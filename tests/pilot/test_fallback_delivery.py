@@ -25,10 +25,12 @@ class _ScriptedProvider(LLMProvider):
         name: str,
         response: LLMResponse,
         deltas: tuple[str, ...] = (),
+        stream_events: tuple[tuple[str, object], ...] = (),
     ) -> None:
         self.name = name
         self.response = response
         self.deltas = deltas
+        self.stream_events = stream_events
         self.calls = 0
 
     @property
@@ -48,6 +50,10 @@ class _ScriptedProvider(LLMProvider):
         if on_delta is not None:
             for delta in self.deltas:
                 await on_delta(delta)
+        for event_name, event_value in self.stream_events:
+            callback = kwargs.get(f"on_{event_name}_delta")
+            if callback is not None:
+                await callback(event_value)
         return self.response
 
 
@@ -55,7 +61,12 @@ def _preset(model: str, provider: str) -> ModelPresetConfig:
     return ModelPresetConfig(model=model, provider=provider)
 
 
-async def _deliver(provider: FallbackProvider) -> list[OutboundMessage]:
+async def _deliver(
+    provider: FallbackProvider,
+    *,
+    on_thinking_delta: Any = None,
+    on_tool_call_delta: Any = None,
+) -> list[OutboundMessage]:
     """Run one streamed provider call through the real turn delivery boundary."""
     bus = MessageBus()
     msg = InboundMessage(
@@ -74,6 +85,8 @@ async def _deliver(provider: FallbackProvider) -> list[OutboundMessage]:
         messages=[],
         on_content_delta=delivery.on_stream,
         on_stream_recover=delivery.on_stream_end,
+        on_thinking_delta=on_thinking_delta,
+        on_tool_call_delta=on_tool_call_delta,
     )
     streamed = bus.outbound_size > 0
     if streamed:
@@ -152,6 +165,32 @@ async def test_exhausted_chain_delivers_one_fixed_safe_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mixed_open_and_unconstructable_fallback_chain_hides_primary_error() -> None:
+    circuit = CircuitRegistry(failure_threshold=1)
+    circuit.record_failure(CircuitKey("open-backup", "open-model"), "server_error")
+    primary = _ScriptedProvider(
+        "primary", LLMResponse("primary provider detail", finish_reason="error", error_kind="server_error")
+    )
+
+    def _factory(preset: ModelPresetConfig) -> LLMProvider:
+        assert preset.model == "factory-model"
+        raise ValueError("provider setup detail")
+
+    provider = FallbackProvider(
+        primary,
+        [
+            _preset("open-model", "open-backup"),
+            _preset("factory-model", "factory-backup"),
+        ],
+        _factory,
+        circuit=circuit,
+    )
+
+    assert _visible_content(await _deliver(provider)) == [ALL_CANDIDATES_UNAVAILABLE]
+    assert primary.calls == 1
+
+
+@pytest.mark.asyncio
 async def test_all_open_chain_delivers_one_fixed_safe_error() -> None:
     circuit = CircuitRegistry(failure_threshold=1)
     circuit.record_failure(CircuitKey("primary", "primary-model"), "server_error")
@@ -191,6 +230,48 @@ async def test_capture_observer_exception_preserves_fallback_and_one_answer() ->
     assert _visible_content(await _deliver(provider)) == ["fallback answer"]
     assert capture_health_failures == 1
     assert primary.calls == backup.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_candidate_callbacks_are_not_replayed_to_progress_hooks() -> None:
+    primary = _ScriptedProvider(
+        "primary",
+        LLMResponse("timeout detail", finish_reason="error", error_kind="timeout"),
+        ("primary-content-canary",),
+        (
+            ("thinking", "primary-thinking-canary"),
+            ("tool_call", {"kind": "primary-tool-canary"}),
+        ),
+    )
+    backup = _ScriptedProvider(
+        "backup",
+        LLMResponse("fallback answer"),
+        ("fallback answer",),
+        (
+            ("thinking", "fallback-thinking"),
+            ("tool_call", {"kind": "fallback-tool"}),
+        ),
+    )
+    provider = FallbackProvider(primary, [_preset("backup-model", "backup")], lambda _: backup)
+    replayed: list[tuple[str, object]] = []
+
+    async def _thinking(value: str) -> None:
+        replayed.append(("thinking", value))
+
+    async def _tool(value: dict[str, str]) -> None:
+        replayed.append(("tool", value))
+
+    messages = await _deliver(
+        provider,
+        on_thinking_delta=_thinking,
+        on_tool_call_delta=_tool,
+    )
+
+    assert _visible_content(messages) == ["fallback answer"]
+    assert replayed == [
+        ("thinking", "fallback-thinking"),
+        ("tool", {"kind": "fallback-tool"}),
+    ]
 
 
 @pytest.mark.asyncio
