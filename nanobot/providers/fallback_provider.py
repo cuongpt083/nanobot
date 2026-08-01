@@ -10,6 +10,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.pilot.circuit import ALL_CANDIDATES_UNAVAILABLE, CircuitKey, CircuitRegistry
+from nanobot.pilot.presentation import PresentationPolicy
 from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse, ProviderAttempt
 
 _FALLBACK_ERROR_KINDS = frozenset({
@@ -145,23 +146,30 @@ class FallbackProvider(LLMProvider):
         )
 
     async def chat_stream(self, **kwargs: Any) -> LLMResponse:
-        on_stream_recover = kwargs.pop("on_stream_recover", None)
+        kwargs.pop("on_stream_recover", None)
         has_streamed: list[bool] = [False]
         original_delta = kwargs.get("on_content_delta")
+        candidate_deltas: list[str] = []
 
         async def _tracking_delta(text: str) -> None:
             if text:
                 has_streamed[0] = True
-            if original_delta:
-                await original_delta(text)
+                candidate_deltas.append(text)
+
+        async def _discard_candidate() -> None:
+            candidate_deltas.clear()
 
         kwargs["on_content_delta"] = _tracking_delta
-        return await self._try_with_fallback(
+        response = await self._try_with_fallback(
             lambda p, kw: p.chat_stream(**kw),
             kwargs,
             has_streamed=has_streamed,
-            on_stream_recover=on_stream_recover,
+            on_stream_recover=_discard_candidate,
         )
+        if response.finish_reason != "error" and original_delta:
+            for delta in candidate_deltas:
+                await original_delta(delta)
+        return response
 
     async def _try_with_fallback(
         self,
@@ -340,17 +348,19 @@ class FallbackProvider(LLMProvider):
         )
         # Return the last error response we saw (primary or last fallback).
         if last_response is not None:
-            last_response.attempts = list(accumulated_attempts)
-            return last_response
+            return self._exhausted_response(accumulated_attempts)
         # Primary was tripped and we have no fallbacks — synthesize an error.
         if primary_response is not None:
             return primary_response
-        synth_resp = LLMResponse(
-            content=ALL_CANDIDATES_UNAVAILABLE,
-            finish_reason="error",
-        )
-        synth_resp.attempts = list(accumulated_attempts)
-        return synth_resp
+        return self._exhausted_response(accumulated_attempts)
+
+    @staticmethod
+    def _exhausted_response(attempts: list[Any]) -> LLMResponse:
+        """Return the fixed, presentation-safe terminal failure for exhaustion."""
+        content = PresentationPolicy().sanitize(ALL_CANDIDATES_UNAVAILABLE, {}).content
+        response = LLMResponse(content=content, finish_reason="error")
+        response.attempts = list(attempts)
+        return response
 
     @staticmethod
     def _provider_alias(provider: LLMProvider) -> str:
