@@ -7,6 +7,7 @@ import hashlib
 import inspect
 from collections.abc import Callable, Iterable
 from contextlib import suppress
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -122,8 +123,17 @@ class ChannelManager:
         self._dispatch_task: asyncio.Task[None] | None = None
         self._started = False
         self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
+        self.presentation_leak_prevented_total = 0
+
+        from nanobot.pilot.presentation import PresentationPolicy
+        self.presentation_policy = PresentationPolicy(
+            on_leak_prevented=self._on_leak_prevented
+        )
 
         self._init_channels()
+
+    def _on_leak_prevented(self) -> None:
+        self.presentation_leak_prevented_total += 1
 
     def _channel_section(
         self,
@@ -184,6 +194,11 @@ class ChannelManager:
                 logger=logger,
             )
             kwargs["gateway"] = gateway
+            sig = inspect.signature(cls.__init__)
+            if "pilot_mode" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                kwargs["pilot_mode"] = self.config.pilot.enabled
         channel = cls(section, self.bus, **kwargs)
         if runtime_name and runtime_name != channel.name:
             channel.name = runtime_name
@@ -797,10 +812,16 @@ class ChannelManager:
             **kwargs,
         )
 
-    @staticmethod
-    async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
+    async def _send_once(self, channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
         event = outbound_event_from_message(msg)
+        show_reasoning = getattr(channel, "show_reasoning", True)
+        if not self.presentation_policy.permits_event(event, show_reasoning):
+            return
+
+        res = self.presentation_policy.sanitize(msg.content, msg.metadata or {})
+        msg = replace(msg, content=res.content, metadata=res.metadata)
+
         if isinstance(event, ProgressEvent) and event.reasoning_end:
             await ChannelManager._send_reasoning_end(channel, msg, event)
         elif isinstance(event, ProgressEvent) and event.reasoning_delta:

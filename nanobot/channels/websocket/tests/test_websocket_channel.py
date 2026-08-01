@@ -1493,7 +1493,7 @@ async def test_send_delta_stream_end_rewrites_inline_final_text(monkeypatch, tmp
 
 
 @pytest.mark.asyncio
-async def test_send_reasoning_delta_emits_streaming_frame() -> None:
+async def test_send_reasoning_delta_is_noop() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
     mock_ws = AsyncMock()
@@ -1505,16 +1505,11 @@ async def test_send_reasoning_delta_emits_streaming_frame() -> None:
         stream_id="r1",
     )
 
-    mock_ws.send.assert_awaited_once()
-    payload = json.loads(mock_ws.send.await_args.args[0])
-    assert payload["event"] == "reasoning_delta"
-    assert payload["chat_id"] == "chat-1"
-    assert payload["text"] == "step-by-step thinking"
-    assert payload["stream_id"] == "r1"
+    mock_ws.send.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_send_reasoning_end_emits_close_frame() -> None:
+async def test_send_reasoning_end_is_noop() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
     mock_ws = AsyncMock()
@@ -1522,13 +1517,12 @@ async def test_send_reasoning_end_emits_close_frame() -> None:
 
     await channel.send_reasoning_end("chat-1", stream_id="r1")
 
-    payload = json.loads(mock_ws.send.await_args.args[0])
-    assert payload == {"event": "reasoning_end", "chat_id": "chat-1", "stream_id": "r1"}
+    mock_ws.send.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_send_reasoning_one_shot_expands_to_delta_plus_end() -> None:
-    """``send_reasoning`` produces one delta and one end."""
+async def test_send_reasoning_one_shot_is_noop() -> None:
+    """``send_reasoning`` drops reasoning frames."""
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
     mock_ws = AsyncMock()
@@ -1541,12 +1535,7 @@ async def test_send_reasoning_one_shot_expands_to_delta_plus_end() -> None:
         event=ProgressEvent(content="thinking", reasoning=True),
     ))
 
-    assert mock_ws.send.await_count == 2
-    first = json.loads(mock_ws.send.call_args_list[0][0][0])
-    second = json.loads(mock_ws.send.call_args_list[1][0][0])
-    assert first["event"] == "reasoning_delta"
-    assert first["text"] == "thinking"
-    assert second["event"] == "reasoning_end"
+    mock_ws.send.assert_not_awaited()
 
 
 @pytest.mark.asyncio

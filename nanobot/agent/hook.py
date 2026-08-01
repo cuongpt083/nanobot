@@ -9,7 +9,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.providers.base import LLMResponse, ToolCallRequest
+from nanobot.providers.base import LLMResponse, ProviderAttempt, ToolCallRequest
 
 
 @dataclass(slots=True)
@@ -98,6 +98,14 @@ class AgentHook:
         event: dict[str, Any],
     ) -> None:
         """Observe a provider-hosted tool lifecycle event."""
+        pass
+
+    async def on_provider_attempt(
+        self,
+        context: AgentHookContext,
+        attempt: ProviderAttempt,
+    ) -> None:
+        """Observe a single LLM provider call attempt."""
         pass
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
@@ -208,6 +216,13 @@ class CompositeHook(AgentHook):
         event: dict[str, Any],
     ) -> None:
         await self._for_each_hook_safe("on_provider_tool_event", context, event)
+
+    async def on_provider_attempt(
+        self,
+        context: AgentHookContext,
+        attempt: ProviderAttempt,
+    ) -> None:
+        await self._for_each_hook_safe("on_provider_attempt", context, attempt)
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         await self._for_each_hook_safe("before_execute_tools", context)

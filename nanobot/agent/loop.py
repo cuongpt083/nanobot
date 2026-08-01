@@ -1382,12 +1382,22 @@ class AgentLoop:
             on_stream = delivery.on_stream
         if on_stream_end is None:
             on_stream_end = delivery.on_stream_end
+        from nanobot.pilot.turns import CLIENT_TURN_ID_KEY, PILOT_TURN_ID_KEY, new_turn_id
+
         t0 = time.time()
+        tid = new_turn_id()
+        attrs = dict(attributes or {})
+        attrs["turn_id"] = tid
+        attrs[PILOT_TURN_ID_KEY] = tid
+        client_tid = (msg.metadata or {}).get("client_turn_id") or (msg.metadata or {}).get("turn_id")
+        if client_tid is not None:
+            attrs[CLIENT_TURN_ID_KEY] = client_tid
+
         ctx = TurnContext(
             msg=msg,
             session=None,
             session_key=key,
-            turn_id=f"{key}:{time.time_ns()}",
+            turn_id=tid,
             runtime=runtime,
             kind=kind,
             delivery=delivery,
@@ -1411,7 +1421,7 @@ class AgentLoop:
             hooks=list(hooks or []),
             hook_factories=list(hook_factories or []),
             tools=tools,
-            attributes=dict(attributes or {}),
+            attributes=attrs,
         )
         # A streaming callback may be present even when the final text comes from a
         # non-streaming recovery. Only the last completed segment can suppress the
@@ -1608,7 +1618,7 @@ class AgentLoop:
                     ctx.msg, session, _command=True
                 )
                 session.add_message(
-                    "assistant", result.content, _command=True
+                    "assistant", result.content, _command=True, _pilot_turn_id=ctx.turn_id
                 )
                 self._clear_pending_user_turn(session)
                 self.sessions.save(session)
@@ -1626,7 +1636,30 @@ class AgentLoop:
         session = ctx.require_session()
         runtime = ctx.runtime
         if runtime is None:
-            runtime = self.runtime_for_session(session)
+            pilot_config = getattr(self.config, "pilot", None) if hasattr(self, "config") and self.config is not None else None
+            if (
+                ctx.kind is TurnKind.USER
+                and not ctx.session_key.startswith("dream:")
+                and pilot_config is not None
+                and getattr(pilot_config, "enabled", False)
+            ):
+                from dataclasses import asdict
+
+                from nanobot.pilot.routing import RoutingInput, route_turn
+
+                tools_tuple = tuple(self.tools.keys()) if self.tools else ()
+                media_tuple = tuple(ctx.msg.media or ())
+                r_input = RoutingInput(
+                    channel=ctx.msg.channel,
+                    content=ctx.msg.content,
+                    media_types=media_tuple,
+                    available_tools=tools_tuple,
+                )
+                decision = route_turn(ctx.turn_id, r_input, self.config.pilot)
+                ctx.attributes["routing_decision"] = asdict(decision)
+                runtime = self.model_runtime_resolver.resolve_preset(decision.primary_preset)
+            else:
+                runtime = self.runtime_for_session(session)
             ctx.runtime = runtime
         if ctx.session_key.startswith("dream:"):
             logger.info(
@@ -1746,6 +1779,7 @@ class AgentLoop:
         self._save_turn(
             session, ctx.all_messages, ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
+            turn_id=ctx.turn_id,
         )
         ctx.delivery.record_latency(ctx.turn_latency_ms)
         if not ctx.ephemeral:
@@ -1841,6 +1875,7 @@ class AgentLoop:
         skip: int,
         *,
         turn_latency_ms: int | None = None,
+        turn_id: str | None = None,
     ) -> None:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime
@@ -1913,6 +1948,8 @@ class AgentLoop:
                 if isinstance(runtime_context_meta, dict):
                     entry[RUNTIME_CONTEXT_HISTORY_META] = runtime_context_meta
             entry.setdefault("timestamp", datetime.now().isoformat())
+            if role == "assistant" and turn_id is not None:
+                entry["_pilot_turn_id"] = turn_id
             session.messages.append(entry)
             if role == "assistant":
                 last_assistant_idx = len(session.messages) - 1

@@ -26,3 +26,37 @@ def test_bootstrap_keeps_transport_and_business_limits_separate() -> None:
         "max_total_bytes": 25_165_824,
     }
     assert policy.minimum_full_policy_frame_bytes() < 36 * 1024 * 1024
+
+
+def test_websocket_pilot_mode_rejects_wildcard_allow_from() -> None:
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from nanobot.bus.queue import MessageBus
+    from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
+
+    mock_gateway = MagicMock()
+    with pytest.raises(ValueError, match="Wildcard allow_from"):
+        WebSocketChannel(
+            WebSocketConfig(allow_from=["*"]),
+            MessageBus(),
+            gateway=mock_gateway,
+            pilot_mode=True,
+        )
+
+
+def test_websocket_pilot_mode_enforces_token_requirement() -> None:
+    from unittest.mock import MagicMock
+
+    from nanobot.bus.queue import MessageBus
+    from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
+
+    mock_gateway = MagicMock()
+    channel = WebSocketChannel(
+        WebSocketConfig(allow_from=["allowed-client"], websocket_requires_token=False),
+        MessageBus(),
+        gateway=mock_gateway,
+        pilot_mode=True,
+    )
+    assert channel.config.websocket_requires_token is True

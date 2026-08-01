@@ -2183,6 +2183,7 @@ def test_optional_features_payload_detects_legacy_default_weixin_state(tmp_path,
     config_path = tmp_path / "config.json"
     loader.save_config(Config(), config_path)
     monkeypatch.setattr(loader, "_current_config_path", config_path)
+    monkeypatch.setattr("nanobot.channels.weixin.state.get_config_path", lambda: config_path)
     state_dir = tmp_path / "weixin"
     state_dir.mkdir()
     (state_dir / "account.json").write_text(
@@ -2780,6 +2781,8 @@ async def test_manager_skips_disabled_channel_package(monkeypatch):
     mgr.bus = MessageBus()
     mgr.channels = {}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
     mgr._init_channels()
 
     assert "fakeplugin" not in mgr.channels
@@ -2890,6 +2893,8 @@ async def test_send_with_retry_succeeds_first_try():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
     await mgr._send_with_retry(mgr.channels["failing"], msg)
@@ -2927,6 +2932,8 @@ async def test_send_with_retry_retries_on_failure():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
 
@@ -2968,6 +2975,8 @@ async def test_send_with_retry_no_retry_when_max_is_zero():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
 
@@ -3018,6 +3027,8 @@ async def test_send_with_retry_calls_send_delta():
     mgr.bus = MessageBus()
     mgr.channels = {"streaming": _StreamingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     msg = outbound_message_for_event(
         channel="streaming",
@@ -3086,6 +3097,8 @@ async def test_send_with_retry_skips_send_when_streamed():
     mgr.bus = MessageBus()
     mgr.channels = {"streamed": _StreamedChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     msg = outbound_message_for_event(
         channel="streamed",
@@ -3110,6 +3123,8 @@ def test_outbound_duplicate_suppression_is_scoped_to_origin_message() -> None:
     mgr.bus = MessageBus()
     mgr.channels = {}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
     mgr._origin_reply_fingerprints = {}
 
     first = OutboundMessage(
@@ -3169,6 +3184,8 @@ async def test_send_with_retry_propagates_cancelled_error():
     mgr.bus = MessageBus()
     mgr.channels = {"cancelling": _CancellingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     msg = OutboundMessage(channel="cancelling", chat_id="123", content="test")
 
@@ -3206,6 +3223,8 @@ async def test_send_with_retry_propagates_cancelled_error_during_sleep():
     mgr.bus = MessageBus()
     mgr.channels = {"failing": _FailingChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     msg = OutboundMessage(channel="failing", chat_id="123", content="test")
 
@@ -3279,6 +3298,8 @@ async def test_validate_allow_from_allows_empty_list():
     mgr.config = fake_config
     mgr.channels = {"test": _ChannelWithAllowFrom(fake_config, None, [])}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     # Should not raise — empty list defers to pairing store
     mgr._validate_allow_from()
@@ -3298,6 +3319,8 @@ async def test_validate_allow_from_passes_with_asterisk():
     mgr.config = fake_config
     mgr.channels = {"test": _ChannelWithAllowFrom(fake_config, None, ["*"])}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     # Should not raise
     mgr._validate_allow_from()
@@ -3317,6 +3340,8 @@ async def test_validate_allow_from_allows_empty_dict_allow_from():
     mgr.config = fake_config
     mgr.channels = {"test": _ChannelWithAllowFrom({"enabled": True}, None, [])}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     mgr._validate_allow_from()
     assert list(mgr.channels) == ["test"]
@@ -3348,6 +3373,8 @@ async def test_validate_allow_from_allows_missing_allow_from():
     mgr.config = fake_config
     mgr.channels = {"test": _NoAllowFromChannel({"enabled": True}, None)}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     # Should not raise — pairing-only mode
     mgr._validate_allow_from()
@@ -3368,6 +3395,8 @@ async def test_get_channel_returns_channel_if_exists():
     mgr.bus = MessageBus()
     mgr.channels = {"telegram": _StartableChannel(fake_config, mgr.bus)}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     assert mgr.get_channel("telegram") is not None
     assert mgr.get_channel("nonexistent") is None
@@ -3387,6 +3416,8 @@ async def test_get_status_returns_running_state():
     ch = _StartableChannel(fake_config, mgr.bus)
     mgr.channels = {"startable": ch}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     status = mgr.get_status()
 
@@ -3410,6 +3441,8 @@ async def test_enabled_channels_returns_channel_names():
         "slack": _StartableChannel(fake_config, mgr.bus),
     }
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     enabled = mgr.enabled_channels
 
@@ -3476,6 +3509,8 @@ async def test_start_channel_logs_error_on_failure():
     mgr.bus = MessageBus()
     mgr.channels = {}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     ch = _FailingChannel(fake_config, mgr.bus)
 
@@ -3512,6 +3547,8 @@ async def test_stop_all_handles_channel_exception():
     mgr.channels = {"stopfailing": _StopFailingChannel(fake_config, mgr.bus)}
     mgr._channel_tasks = {}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     # Should not raise even if channel.stop() raises
     await mgr.stop_all()
@@ -3551,6 +3588,8 @@ async def test_stop_all_handles_channel_stop_cancelled_task():
     }
     mgr._channel_tasks = {}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     await mgr.stop_all()
 
@@ -3570,6 +3609,8 @@ async def test_start_all_no_channels_logs_warning():
     mgr.bus = MessageBus()
     mgr.channels = {}  # No channels
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     # Should return early without creating dispatch task
     await mgr.start_all()
@@ -3593,6 +3634,8 @@ async def test_start_all_creates_dispatch_task():
     mgr.channels = {"startable": ch}
     mgr._channel_tasks = {}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     # Cancel immediately after start to avoid running forever
     async def cancel_after_start():
@@ -3631,6 +3674,8 @@ async def test_notify_restart_done_waits_until_channel_starts():
     channel = _StartableChannel(fake_config, mgr.bus)
     mgr.channels = {"feishu": channel}
     mgr._dispatch_task = None
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
     mgr._send_with_retry = AsyncMock()
 
     notice = RestartNotice(channel="feishu", chat_id="oc_123", started_at_raw="100.0")
@@ -3678,6 +3723,8 @@ async def test_restart_notice_retries_until_running_channel_accepts_delivery():
     channel = _EventuallyDeliverableChannel(fake_config, mgr.bus)
     channel._running = True
     mgr.channels = {"discord": channel}
+    from nanobot.pilot.presentation import PresentationPolicy
+    mgr.presentation_policy = PresentationPolicy()
 
     notice = RestartNotice(channel="discord", chat_id="123", started_at_raw="")
     with patch("nanobot.channels.manager._SEND_RETRY_DELAYS", (0,)):

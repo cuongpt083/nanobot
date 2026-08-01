@@ -261,11 +261,17 @@ class WebSocketChannel(BaseChannel):
         bus: MessageBus,
         *,
         gateway: GatewayServices,
+        pilot_mode: bool = False,
     ):
         if isinstance(config, dict):
             config = WebSocketConfig.model_validate(config)
         super().__init__(config, bus)
         self.config: WebSocketConfig = config
+        self.pilot_mode = pilot_mode
+        if self.pilot_mode:
+            self.config.websocket_requires_token = True
+            if "*" in self.config.allow_from:
+                raise ValueError("Wildcard allow_from=['*'] is not allowed in pilot mode")
         # chat_id -> connections subscribed to it (fan-out target).
         self._subs: dict[str, set[ServerConnection]] = {}
         # connection -> chat_ids it is subscribed to (O(1) cleanup on disconnect).
@@ -683,6 +689,9 @@ class WebSocketChannel(BaseChannel):
             )
             return
         if t == "transcribe_audio":
+            if not self.is_allowed(client_id):
+                await self._send_event(connection, "error", detail="access_denied")
+                return
             event, payload = await webui_transcription_event(envelope)
             await self._send_event(connection, event, **payload)
             return
@@ -1096,28 +1105,7 @@ class WebSocketChannel(BaseChannel):
         rendered above the active assistant bubble with a shimmer header
         until the matching ``reasoning_end`` arrives.
         """
-        conns = list(self._subs.get(chat_id, ()))
-        if not delta:
-            return
-        meta = metadata or {}
-        body: dict[str, Any] = {
-            "event": "reasoning_delta",
-            "chat_id": chat_id,
-            "text": delta,
-        }
-        if stream_id is not None:
-            body["stream_id"] = stream_id
-        self._persist_turn_transcript_event(
-            chat_id,
-            body,
-            metadata=meta,
-            phase="reasoning",
-        )
-        raw = json.dumps(body, ensure_ascii=False)
-        if not conns:
-            return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning ")
+        pass
 
     async def send_reasoning_end(
         self,
@@ -1127,25 +1115,7 @@ class WebSocketChannel(BaseChannel):
         stream_id: str | None = None,
     ) -> None:
         """Close the current reasoning stream segment for in-place renderers."""
-        conns = list(self._subs.get(chat_id, ()))
-        meta = metadata or {}
-        body: dict[str, Any] = {
-            "event": "reasoning_end",
-            "chat_id": chat_id,
-        }
-        if stream_id is not None:
-            body["stream_id"] = stream_id
-        self._persist_turn_transcript_event(
-            chat_id,
-            body,
-            metadata=meta,
-            phase="reasoning",
-        )
-        raw = json.dumps(body, ensure_ascii=False)
-        if not conns:
-            return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning_end ")
+        pass
 
     async def send_file_edit_events(
         self,
@@ -1235,6 +1205,12 @@ class WebSocketChannel(BaseChannel):
         """Signal that the agent has fully finished processing the current turn."""
         conns = list(self._subs.get(chat_id, ()))
         body: dict[str, Any] = {"event": "turn_end", "chat_id": chat_id}
+        tid = (metadata or {}).get("turn_id") or (metadata or {}).get("_pilot_turn_id")
+        if tid:
+            body["turn_id"] = tid
+        client_tid = (metadata or {}).get("client_turn_id")
+        if client_tid:
+            body["client_turn_id"] = client_tid
         if latency_ms is not None:
             body["latency_ms"] = int(latency_ms)
         if goal_state is not None:

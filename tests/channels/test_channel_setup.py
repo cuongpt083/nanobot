@@ -42,7 +42,7 @@ def test_channel_setup_spec_derives_route_and_secret_metadata() -> None:
     assert slack.route_field_types == {
         "appToken": "secret",
         "botToken": "secret",
-        "groupPolicy": ("enum", {"mention", "open", "allowlist"}),
+        "groupPolicy": ("enum", {"disabled", "mention", "open", "allowlist"}),
     }
     assert slack.simple_required_fields == ("appToken", "botToken")
     assert slack.fields["groupPolicy"].default == "mention"

@@ -371,10 +371,27 @@ class TelegramConfig(Base):
     token: str = ""
     mode: Literal["polling", "webhook"] = "polling"
     allow_from: list[str] = Field(default_factory=list)
+    group_allow_from: list[str] = Field(default_factory=list)
     proxy: str | None = None
     reply_to_message: bool = False
     react_emoji: str = "👀"
-    group_policy: Literal["open", "mention"] = "mention"
+    group_policy: Literal["disabled", "mention", "allowlist"] = "disabled"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _convert_legacy_group_policy(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            gp = data.get("group_policy") or data.get("groupPolicy")
+            if gp == "open":
+                from loguru import logger
+                logger.warning(
+                    "Telegram group_policy 'open' is deprecated and will be removed in a future release. "
+                    "Mapping to 'allowlist'."
+                )
+                data["group_policy"] = "allowlist"
+                if "group_allow_from" not in data and "groupAllowFrom" not in data:
+                    data["group_allow_from"] = ["*"]
+        return data
     connection_pool_size: int = 32
     pool_timeout: float = 5.0
     streaming: bool = True
@@ -1349,8 +1366,20 @@ class TelegramChannel(BaseChannel):
         return handle in text.lower()
 
     async def _is_group_message_for_bot(self, message: Message) -> bool:
-        """Allow group messages when policy is open, @mentioned, or replying to the bot."""
-        if message.chat.type == "private" or self.config.group_policy == "open":
+        """Allow group messages when policy is mention or allowlist and group is allowed."""
+        if message.chat.type == "private":
+            return True
+
+        policy = self.config.group_policy
+        if policy == "disabled":
+            return False
+
+        group_allow = self.config.group_allow_from
+        chat_id_str = str(message.chat_id)
+        if "*" not in group_allow and chat_id_str not in group_allow:
+            return False
+
+        if policy == "allowlist":
             return True
 
         bot_id, bot_username = await self._ensure_bot_identity()

@@ -7,7 +7,7 @@ from typing import Any
 
 from nanobot.channels.contracts import ChannelFieldSpec, FieldKind, SetupRequirement
 
-GROUP_POLICIES = frozenset({"mention", "open", "allowlist"})
+GROUP_POLICIES = frozenset({"disabled", "mention", "open", "allowlist"})
 DIRECT_GROUP_POLICIES = frozenset({"mention", "open"})
 
 

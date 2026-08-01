@@ -64,13 +64,7 @@ export interface UIMessage {
   cliApps?: UICliAppAttachment[];
   /** Settings-managed MCP presets explicitly attached to this user turn. */
   mcpPresets?: UIMcpPresetAttachment[];
-  /** Assistant turn: accumulated model reasoning / thinking text. Built up
-   * incrementally from ``reasoning_delta`` frames; finalized when
-   * ``reasoning_end`` arrives. */
-  reasoning?: string;
-  /** True while ``reasoning_delta`` frames are still arriving for this turn.
-   * Drives the shimmer header on ``ReasoningBubble``. */
-  reasoningStreaming?: boolean;
+  reasoning_deleted?: never;
   /** End-to-end wall time for this assistant turn (persisted ``latency_ms`` / ``turn_end``). */
   latencyMs?: number;
   /** Client epoch milliseconds when the definitive ``turn_end`` was received. */
@@ -79,6 +73,7 @@ export interface UIMessage {
   source?: UIMessageSource;
   /** Stable protocol metadata for grouping all activity emitted by one user turn. */
   turnId?: string;
+  clientTurnId?: string;
   turnPhase?: UITurnPhase;
   turnSeq?: number;
   /** Ephemeral delivery lifecycle for optimistic user messages. */

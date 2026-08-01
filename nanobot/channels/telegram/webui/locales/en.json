@@ -26,9 +26,15 @@
         "placeholder": "* or Telegram user IDs",
         "help": "Leave empty to use pairing codes."
       },
+      "groupAllowFrom": {
+        "label": "Allowed group IDs",
+        "placeholder": "* or Telegram group IDs",
+        "help": "Group IDs allowed to interact with the bot."
+      },
       "groupPolicy": {
         "label": "Group behavior",
         "choices": {
+          "disabled": "Disabled",
           "mention": "Mention only",
           "open": "All messages",
           "allowlist": "Allowlist"

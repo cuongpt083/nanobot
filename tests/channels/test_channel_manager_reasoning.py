@@ -99,6 +99,7 @@ def test_websocket_gateway_uses_configured_workspace_restriction(tmp_path, monke
 @pytest.mark.asyncio
 async def test_reasoning_delta_routes_to_send_reasoning_delta(manager):
     channel = manager.channels["mock"]
+    channel.show_reasoning = True
     msg = outbound_message_for_event(
         channel="mock",
         chat_id="c1",
@@ -117,6 +118,7 @@ async def test_reasoning_delta_routes_to_send_reasoning_delta(manager):
 @pytest.mark.asyncio
 async def test_reasoning_end_routes_to_send_reasoning_end(manager):
     channel = manager.channels["mock"]
+    channel.show_reasoning = True
     msg = outbound_message_for_event(
         channel="mock",
         chat_id="c1",
@@ -132,6 +134,7 @@ async def test_reasoning_end_routes_to_send_reasoning_end(manager):
 async def test_one_shot_reasoning_expands_to_delta_plus_end(manager):
     """One-shot reasoning expands to a single delta + end."""
     channel = manager.channels["mock"]
+    channel.show_reasoning = True
     msg = outbound_message_for_event(
         channel="mock",
         chat_id="c1",

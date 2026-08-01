@@ -13,14 +13,8 @@ interface NormalizeActivityTimelineOptions {
   preserveTrailingActivity?: boolean;
 }
 
-export function isReasoningOnlyAssistant(message: UIMessage): boolean {
-  if (message.role !== "assistant" || message.kind === "trace") return false;
-  if (message.content.trim().length > 0) return false;
-  return !!(message.reasoning?.length || message.reasoningStreaming || message.isStreaming);
-}
-
 export function isAgentActivityMember(message: UIMessage): boolean {
-  return isReasoningOnlyAssistant(message) || message.kind === "trace";
+  return message.kind === "trace";
 }
 
 export function hasPendingAgentActivity(messages: UIMessage[]): boolean {
@@ -37,7 +31,7 @@ export function hasPendingAgentActivity(messages: UIMessage[]): boolean {
   }
 
   const trailing = messages.slice(trailingStart);
-  if (trailing.some((message) => message.isStreaming || message.reasoningStreaming)) {
+  if (trailing.some((message) => message.isStreaming)) {
     return true;
   }
 
@@ -91,14 +85,6 @@ export function normalizeActivityTimeline(
     for (const message of orderedTurnMessages) {
       if (isAgentActivityMember(message)) {
         activityMessages.push(message);
-        continue;
-      }
-
-      if (assistantHasInlineReasoning(message)) {
-        activityMessages.push(reasoningOnlyMessageFromAnswer(message));
-        flushActivityMessages();
-        turnUnits.push({ type: "message", message: stripInlineReasoning(message) });
-        visibleIndex += 1;
         continue;
       }
 
@@ -184,7 +170,7 @@ function visibleMessagesForTurn(messages: UIMessage[]): UIMessage[] {
   const visibleMessages: UIMessage[] = [];
   for (const message of messages) {
     if (isAgentActivityMember(message)) continue;
-    visibleMessages.push(assistantHasInlineReasoning(message) ? stripInlineReasoning(message) : message);
+    visibleMessages.push(message);
   }
   return visibleMessages;
 }
@@ -238,36 +224,6 @@ function pushActivityUnits(
 
 function isFileEditActivityMessage(message: UIMessage): boolean {
   return message.kind === "trace" && !!message.fileEdits?.length;
-}
-
-function assistantHasInlineReasoning(message: UIMessage): boolean {
-  return (
-    message.role === "assistant"
-    && message.kind !== "trace"
-    && message.content.trim().length > 0
-    && (!!message.reasoning?.trim() || !!message.reasoningStreaming)
-  );
-}
-
-function reasoningOnlyMessageFromAnswer(message: UIMessage): UIMessage {
-  return {
-    id: `${message.id}-reasoning`,
-    role: "assistant",
-    content: "",
-    createdAt: message.createdAt,
-    reasoning: message.reasoning,
-    reasoningStreaming: message.reasoningStreaming,
-    isStreaming: message.reasoningStreaming,
-    activitySegmentId: message.activitySegmentId,
-    latencyMs: message.latencyMs,
-  };
-}
-
-function stripInlineReasoning(message: UIMessage): UIMessage {
-  const next = { ...message };
-  delete next.reasoning;
-  delete next.reasoningStreaming;
-  return next;
 }
 
 function activityTurnLatencyMs(activityMessages: UIMessage[], visibleMessages: UIMessage[]): number | undefined {

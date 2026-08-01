@@ -31,7 +31,7 @@ class ChannelsConfig(Base):
 
     send_progress: bool = True  # stream agent's text progress to the channel
     send_tool_hints: bool = True  # stream tool-call hints (e.g. read_file("…"))
-    show_reasoning: bool = True  # surface model reasoning when channel implements it
+    show_reasoning: bool = False  # surface model reasoning when channel implements it
     extract_document_text: bool = True  # Deprecated and ignored; documents are read on demand
     send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
     transcription_provider: str = "groq"  # Deprecated: use top-level transcription.provider
@@ -184,6 +184,7 @@ class AgentsConfig(Base):
 
 class ProviderConfig(Base):
     """LLM provider configuration."""
+    model_config = ConfigDict(extra="forbid")
 
     # User-facing name for dynamic custom providers.
     display_name: str | None = Field(
@@ -408,6 +409,50 @@ class ToolsConfig(Base):
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 
+class PilotModelClassConfig(Base):
+    preset: str
+    supports_tools: bool = True
+    capture_policy: Literal["metrics_only", "answer", "reasoning"] = "metrics_only"
+    input_cost_per_million: float | None = Field(default=None, ge=0)
+    output_cost_per_million: float | None = Field(default=None, ge=0)
+
+
+class PilotRoutingConfig(Base):
+    enabled: bool = False
+    policy_version: str = "pilot-routing-v1"
+    default: PilotModelClassConfig
+    reasoning: PilotModelClassConfig
+    tool_heavy: PilotModelClassConfig
+    fallbacks: list[str] = Field(default_factory=list)
+
+
+class PilotCaptureConfig(Base):
+    enabled: bool = False
+    hmac_secret: str = Field(default="", repr=False)
+    database_path: str = "~/.nanobot/pilot/events.db"
+    queue_capacity: int = Field(default=1000, ge=10, le=100_000)
+    flush_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
+    max_prompt_chars: int = Field(default=32_000, ge=1000)
+    max_reasoning_chars: int = Field(default=64_000, ge=1000)
+    max_answer_chars: int = Field(default=32_000, ge=1000)
+
+
+class PilotRetentionConfig(Base):
+    session_days: int = Field(default=30, ge=1)
+    telemetry_days: int = Field(default=90, ge=1)
+    raw_capture_days: int = Field(default=30, ge=1)
+    training_eligible_days: int = Field(default=180, ge=1)
+
+
+class PilotConfig(Base):
+    enabled: bool = False
+    routing: PilotRoutingConfig | None = None
+    capture: PilotCaptureConfig = Field(default_factory=PilotCaptureConfig)
+    retention: PilotRetentionConfig = Field(default_factory=PilotRetentionConfig)
+    product_consent_version: str = "pilot-product-v1"
+    training_consent_version: str = "pilot-training-v1"
+
+
 class Config(BaseSettings):
     """Root configuration for nanobot."""
 
@@ -418,6 +463,7 @@ class Config(BaseSettings):
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    pilot: PilotConfig = Field(default_factory=PilotConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("modelPresets", "model_presets"),
@@ -442,6 +488,24 @@ class Config(BaseSettings):
         for fallback in self.agents.defaults.fallback_models:
             if isinstance(fallback, str) and fallback not in self.model_presets:
                 raise ValueError(f"fallback_models entry {fallback!r} not found in model_presets")
+
+        if self.pilot.capture.enabled and not self.pilot.capture.hmac_secret:
+            raise ValueError("hmac_secret must be set when pilot capture is enabled")
+
+        if self.pilot.routing and self.pilot.routing.enabled:
+            presets_to_check = [
+                self.pilot.routing.default.preset,
+                self.pilot.routing.reasoning.preset,
+                self.pilot.routing.tool_heavy.preset,
+                *self.pilot.routing.fallbacks
+            ]
+            for p in presets_to_check:
+                if p not in self.model_presets:
+                    raise ValueError(f"Pilot routing preset {p!r} not found in model_presets")
+
+            if not self.pilot.routing.tool_heavy.supports_tools:
+                raise ValueError("tool_heavy must support tools")
+
         return self
 
     def resolve_default_preset(self) -> ModelPresetConfig:

@@ -26,9 +26,15 @@
         "placeholder": "* hoặc ID người dùng Telegram",
         "help": "Để trống để dùng mã ghép nối."
       },
+      "groupAllowFrom": {
+        "label": "ID nhóm được phép",
+        "placeholder": "* hoặc ID nhóm Telegram",
+        "help": "ID nhóm được phép tương tác với bot."
+      },
       "groupPolicy": {
         "label": "Hành vi trong nhóm",
         "choices": {
+          "disabled": "Tắt",
           "mention": "Chỉ khi được nhắc",
           "open": "Mọi tin nhắn",
           "allowlist": "Danh sách cho phép"

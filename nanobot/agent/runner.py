@@ -453,6 +453,8 @@ class AgentRunner:
             response = await self._request_model(spec, messages_for_model, hook, context)
             context.response = response
             context.tool_calls = list(response.tool_calls)
+            for att in response.attempts:
+                await hook.on_provider_attempt(context, att)
 
             original_content = response.content
             reasoning_text, cleaned_content = extract_reasoning(

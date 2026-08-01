@@ -10,6 +10,9 @@
 # Claude / AI assistant artifacts
 #docs/superpowers/
 #docs/plans/
+.agents/
+.venv/
+.claude/
 
 # webui (monorepo frontend)
 webui/node_modules/
@@ -101,3 +104,4 @@ exp/
 .playwright-mcp/
 bridge/node_modules/
 webui/.verify-*
+.worktrees/

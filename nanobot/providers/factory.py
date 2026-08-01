@@ -206,6 +206,7 @@ def _make_provider_core(
             proxy=p.proxy if p else None,
         )
 
+    provider.provider_alias = provider_name
     provider.generation = preset.to_generation_settings()
     return provider
 
