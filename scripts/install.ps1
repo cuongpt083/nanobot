@@ -1,6 +1,8 @@
 param(
     [switch]$Dev,
     [switch]$DryRun,
+    [string]$Source,
+    [string]$Ref,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RemainingArgs
 )
@@ -8,11 +10,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Package = "nanobot-ai"
-$MainSource = "https://github.com/HKUDS/nanobot/archive/refs/heads/main.zip"
+$MainSource = "https://github.com/HKUDS/nanobot.git"
 $InstallTarget = $Package
 $InstallSource = "PyPI"
 $script:NanobotRunner = $null
 $script:NanobotPython = $null
+$script:NanobotExecutable = $null
 $script:LastInstallSucceeded = $false
 
 function Write-Info {
@@ -38,10 +41,11 @@ function Show-InstallFailureHint {
 }
 
 function Show-Usage {
-    Write-Host "Usage: install.ps1 [-Dev|--dev] [-DryRun|--dry-run]"
+    Write-Host "Usage: install.ps1 [-Dev|--dev] [-Source GIT_URL [-Ref REF]] [-DryRun|--dry-run]"
     Write-Host ""
     Write-Host "By default this installs or upgrades nanobot-ai from PyPI."
-    Write-Host "Use --dev to install from the current main branch on GitHub."
+    Write-Host "Use --dev to install from the upstream main branch on GitHub."
+    Write-Host "Use -Source and -Ref to install an explicit Git repository revision; pin -Ref to a commit SHA for deployments."
     Write-Host "Use --dry-run to print what would happen without installing or starting setup."
 }
 
@@ -118,6 +122,9 @@ function Invoke-Nanobot {
         "python" {
             & $script:NanobotPython -m nanobot @NanobotArgs
         }
+        "executable" {
+            & $script:NanobotExecutable @NanobotArgs
+        }
         default {
             Fail "nanobot was installed, but no runner was configured."
         }
@@ -129,6 +136,7 @@ function Get-NanobotCommand {
         "uv" { return "uv tool run --from $InstallTarget nanobot" }
         "pipx" { return "pipx run --spec $InstallTarget nanobot" }
         "python" { return "$script:NanobotPython -m nanobot" }
+        "executable" { return $script:NanobotExecutable }
         default { return "nanobot" }
     }
 }
@@ -171,7 +179,12 @@ function Install-WithUv {
     if ($LASTEXITCODE -ne 0) {
         return
     }
-    $script:NanobotRunner = "uv"
+    $ToolDir = & uv tool dir
+    if ($LASTEXITCODE -ne 0) { return }
+    $Candidate = Join-Path $ToolDir "$Package\Scripts\nanobot.exe"
+    if (-not (Test-Path $Candidate)) { return }
+    $script:NanobotExecutable = $Candidate
+    $script:NanobotRunner = "executable"
     $script:LastInstallSucceeded = $true
 }
 
@@ -182,7 +195,12 @@ function Install-WithPipx {
     if ($LASTEXITCODE -ne 0) {
         return
     }
-    $script:NanobotRunner = "pipx"
+    $PipxHome = & pipx environment --value PIPX_HOME
+    if ($LASTEXITCODE -ne 0) { return }
+    $Candidate = Join-Path $PipxHome "venvs\$Package\Scripts\nanobot.exe"
+    if (-not (Test-Path $Candidate)) { return }
+    $script:NanobotExecutable = $Candidate
+    $script:NanobotRunner = "executable"
     $script:LastInstallSucceeded = $true
 }
 
@@ -230,6 +248,12 @@ foreach ($Arg in $RemainingArgs) {
         "--dry-run" {
             $DryRun = $true
         }
+        "--source" {
+            Fail "Use -Source <Git URL> when running install.ps1 directly."
+        }
+        "--ref" {
+            Fail "Use -Ref <branch, tag, or commit SHA> when running install.ps1 directly."
+        }
         "-h" {
             Show-Usage
             return
@@ -245,8 +269,21 @@ foreach ($Arg in $RemainingArgs) {
 }
 
 if ($Dev) {
-    $InstallTarget = $MainSource
-    $InstallSource = "GitHub main"
+    $Source = $MainSource
+    $Ref = "main"
+}
+
+if ($Ref -and -not $Source) {
+    Fail "-Ref requires -Source."
+}
+
+if ($Source) {
+    if ($Source -notmatch '^(https?|ssh|git)://.+\.git$|^git@.+:.+\.git$') {
+        Fail "-Source must be a Git repository URL ending in .git."
+    }
+    $InstallTarget = "git+$Source"
+    if ($Ref) { $InstallTarget = "$InstallTarget@$Ref" }
+    $InstallSource = "Git source $Source @ $Ref"
 }
 
 $Python = Find-Python
@@ -260,10 +297,10 @@ if ($DryRun) {
         Write-Info "Dry run: would run nanobot as: $Python -m nanobot"
     } elseif (Get-Command uv -ErrorAction SilentlyContinue) {
         Write-Info "Dry run: would run: uv tool install --python $Python --force --upgrade $InstallTarget"
-        Write-Info "Dry run: would run nanobot as: uv tool run --from $InstallTarget nanobot"
+        Write-Info "Dry run: would run nanobot from: <uv-tool-dir>\$Package\Scripts\nanobot.exe"
     } elseif (Get-Command pipx -ErrorAction SilentlyContinue) {
         Write-Info "Dry run: would run: pipx install --python $Python --force $InstallTarget"
-        Write-Info "Dry run: would run nanobot as: pipx run --spec $InstallTarget nanobot"
+        Write-Info "Dry run: would run nanobot from: <pipx-home>\venvs\$Package\Scripts\nanobot.exe"
     } else {
         $HomeDir = if ($env:HOME) { $env:HOME } elseif ($env:USERPROFILE) { $env:USERPROFILE } else { "~" }
         $VenvDir = if ($env:NANOBOT_VENV) { $env:NANOBOT_VENV } else { Join-Path $HomeDir ".nanobot\venv" }
@@ -281,6 +318,15 @@ if ($DryRun) {
     }
     Write-Info "Dry run: no changes made."
     return
+}
+
+if ($Source) {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Fail "Git is required to install from -Source."
+    }
+    if ($env:NANOBOT_SKIP_WEBUI_BUILD -ne "1" -and -not (Get-Command bun -ErrorAction SilentlyContinue) -and -not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Fail "Source installs build the bundled WebUI; install bun or npm, or set NANOBOT_SKIP_WEBUI_BUILD=1 for headless use."
+    }
 }
 
 if (Test-VirtualEnv $Python) {

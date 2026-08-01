@@ -2,12 +2,15 @@
 set -eu
 
 package="nanobot-ai"
-main_source="https://github.com/HKUDS/nanobot/archive/refs/heads/main.zip"
+main_source="https://github.com/HKUDS/nanobot.git"
 install_target="$package"
 install_source="PyPI"
+source_url=""
+source_ref=""
 dry_run="0"
 nanobot_runner=""
 nanobot_python=""
+nanobot_executable=""
 
 info() {
   printf '%s\n' "$*"
@@ -32,10 +35,11 @@ install_failure_hint() {
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--dev] [--dry-run]
+Usage: install.sh [--dev] [--source GIT_URL [--ref REF]] [--dry-run]
 
 By default this installs or upgrades nanobot-ai from PyPI.
-Use --dev to install from the current main branch on GitHub.
+Use --dev to install from the upstream main branch on GitHub.
+Use --source and --ref to install an explicit Git repository revision. Pin --ref to a commit SHA for deployments.
 Use --dry-run to print what would happen without installing or starting setup.
 EOF
 }
@@ -84,6 +88,9 @@ run_nanobot() {
     python)
       "$nanobot_python" -m nanobot "$@"
       ;;
+    executable)
+      "$nanobot_executable" "$@"
+      ;;
     *)
       fail "nanobot was installed, but no runner was configured"
       ;;
@@ -100,6 +107,9 @@ nanobot_try_command() {
       ;;
     python)
       printf '%s\n' "$nanobot_python -m nanobot"
+      ;;
+    executable)
+      printf '%s\n' "$nanobot_executable"
       ;;
   esac
 }
@@ -139,13 +149,19 @@ install_with_active_python() {
 install_with_uv() {
   info "Installing or upgrading nanobot from $install_source with uv tool..."
   uv tool install --python "$python_bin" --force --upgrade "$install_target" || return 1
-  nanobot_runner="uv"
+  tool_dir="$(uv tool dir 2>/dev/null)" || return 1
+  nanobot_executable="$tool_dir/$package/bin/nanobot"
+  [ -x "$nanobot_executable" ] || return 1
+  nanobot_runner="executable"
 }
 
 install_with_pipx() {
   info "Installing or upgrading nanobot from $install_source with pipx..."
   pipx install --python "$python_bin" --force "$install_target" || return 1
-  nanobot_runner="pipx"
+  pipx_home="$(pipx environment --value PIPX_HOME 2>/dev/null)" || return 1
+  nanobot_executable="$pipx_home/venvs/$package/bin/nanobot"
+  [ -x "$nanobot_executable" ] || return 1
+  nanobot_runner="executable"
 }
 
 write_managed_wrapper() {
@@ -200,8 +216,18 @@ PY
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dev)
-      install_target="$main_source"
-      install_source="GitHub main"
+      source_url="$main_source"
+      source_ref="main"
+      ;;
+    --source)
+      shift
+      [ "$#" -gt 0 ] || fail "--source requires a Git URL"
+      source_url="$1"
+      ;;
+    --ref)
+      shift
+      [ "$#" -gt 0 ] || fail "--ref requires a branch, tag, or commit SHA"
+      source_ref="$1"
       ;;
     --dry-run)
       dry_run="1"
@@ -216,6 +242,22 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+if [ -n "$source_ref" ] && [ -z "$source_url" ]; then
+  fail "--ref requires --source"
+fi
+
+if [ -n "$source_url" ]; then
+  case "$source_url" in
+    https://*.git|http://*.git|ssh://*.git|git://*.git|git@*:*/*.git) ;;
+    *) fail "--source must be a Git repository URL ending in .git" ;;
+  esac
+  install_target="git+$source_url"
+  if [ -n "$source_ref" ]; then
+    install_target="$install_target@$source_ref"
+  fi
+  install_source="Git source $source_url @ $source_ref"
+fi
 
 python_bin="${PYTHON:-}"
 
@@ -238,10 +280,10 @@ if [ "$dry_run" = "1" ]; then
     info "Dry run: would run nanobot as: $python_bin -m nanobot"
   elif command -v uv >/dev/null 2>&1; then
     info "Dry run: would run: uv tool install --python $python_bin --force --upgrade $install_target"
-    info "Dry run: would run nanobot as: uv tool run --from $install_target nanobot"
+    info "Dry run: would run nanobot from: <uv-tool-dir>/$package/bin/nanobot"
   elif command -v pipx >/dev/null 2>&1; then
     info "Dry run: would run: pipx install --python $python_bin --force $install_target"
-    info "Dry run: would run nanobot as: pipx run --spec $install_target nanobot"
+    info "Dry run: would run nanobot from: <pipx-home>/venvs/$package/bin/nanobot"
   else
     venv_dir="${NANOBOT_VENV:-$HOME/.nanobot/venv}"
     info "Dry run: would create or reuse a dedicated virtual environment: $venv_dir"
@@ -258,6 +300,13 @@ if [ "$dry_run" = "1" ]; then
   fi
   info "Dry run: no changes made."
   exit 0
+fi
+
+if [ -n "$source_url" ]; then
+  command -v git >/dev/null 2>&1 || fail "Git is required to install from --source"
+  if [ "${NANOBOT_SKIP_WEBUI_BUILD:-}" != "1" ] && ! command -v bun >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then
+    fail "Source installs build the bundled WebUI; install bun or npm, or set NANOBOT_SKIP_WEBUI_BUILD=1 for headless use"
+  fi
 fi
 
 if python_is_virtual_env; then
