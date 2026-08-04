@@ -8,6 +8,32 @@
 
 **Tech Stack:** Python 3.11+, asyncio, Pydantic, stdlib `sqlite3`, pytest/pytest-asyncio, basedpyright, Ruff, React 18, TypeScript, Vite, Vitest, Telegram Bot API.
 
+## Progress audit — 2026-08-04
+
+This audit compares the plan with the current `develop` tree, source files, pilot tests, and Git history. It is a status update only; the task checkboxes below remain the implementation checklist.
+
+**Repository baseline:** `develop` and `origin/develop` are synchronized at `6d45b5e3` (`Merge pull request #4 from cuongpt083/feature/product-first-pilot`).
+
+| Workstream | Tasks | Current status | Evidence / next action |
+| --- | --- | --- | --- |
+| A. Confidential pilot boundary | 1–5 | **Implemented** | `nanobot/config/schema.py`, `nanobot/pilot/presentation.py`, `nanobot/pilot/turns.py`, channel ingress changes, WebUI reasoning removal, and focused pilot/channel tests are present. Task 4/5 implementation commits are represented in the merged history even though their commit checklist bullets were not checked. |
+| B. Routing and provider resilience | 6–9 | **Implemented** | `nanobot/pilot/routing.py`, `nanobot/pilot/circuit.py`, provider-attempt instrumentation, structured fallback handling, and `tests/pilot/test_circuit.py` / `test_fallback_delivery.py` are present. |
+| C. Consent-gated capture | 10–14 | **Not started** | No `IdentityHasher`, `Redactor`, bounded capture queue, SQLite pilot store, `PilotService`, consent/deletion, or retention implementation is present under `nanobot/pilot`. |
+| D. Feedback, operations, and release gate | 15–19 | **Not started** | No pilot feedback service/UI actions, authenticated pilot health/metrics endpoints, concurrency/leak gates, staging checklist evidence, or operator runbooks for this plan are present. |
+
+### Verification status
+
+- Static/source audit: implementation evidence found for Tasks 1–9.
+- Focused/full automated verification: **pending**. The current environment cannot start `pytest` or `ruff` (`program not found` / no `pytest` module), so no test-pass claim is recorded here.
+- The next completion gate is to install/supply the project test dependencies, run the Task 1–9 focused suites plus the full suite, and then execute Tasks 10–19.
+
+### Remaining delivery scope
+
+1. Complete Tasks 10–14: pseudonymous identity and redaction, priority capture queue, SQLite WAL store, isolated capture lifecycle, consent/revocation/deletion, and retention.
+2. Complete Tasks 15–17: transport-neutral feedback, WebUI/Telegram feedback UX, sensitive-safe health and metrics.
+3. Complete Tasks 18–19: concurrency/performance/leak gates, CI job, release verification, staging evidence, and operator runbooks.
+4. Update the individual task checkboxes and add command/commit evidence after each verification gate passes.
+
 ## Global Constraints
 
 - The approved design in `docs/superpowers/specs/2026-07-30-product-first-pilot-design.md` is authoritative.

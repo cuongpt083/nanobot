@@ -65,9 +65,10 @@ install_config() {
         die "${TARGET_PATH} already exists; use install --replace only if replacing it is intentional"
     fi
 
-    local temp_config
+    local temp_config cleanup_command
     temp_config="$(mktemp)"
-    trap 'rm -f "${temp_config}"' RETURN
+    printf -v cleanup_command 'rm -f -- %q' "${temp_config}"
+    trap "${cleanup_command}" RETURN
     sed "s|__NANOBOT_LISTEN__|${NANOBOT_LISTEN}|g" "${TEMPLATE_PATH}" >"${temp_config}"
     caddy validate --config "${temp_config}" --adapter caddyfile
 
@@ -79,6 +80,8 @@ install_config() {
     else
         systemctl start caddy
     fi
+    trap - RETURN
+    rm -f -- "${temp_config}"
 }
 
 validate_config() {
