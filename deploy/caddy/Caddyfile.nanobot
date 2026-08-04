@@ -1,0 +1,12 @@
+# Render __NANOBOT_LISTEN__ with the VPN address and HTTP port, for example:
+# 10.8.0.10:8080
+{
+    auto_https off
+}
+
+http://__NANOBOT_LISTEN__ {
+    reverse_proxy 127.0.0.1:8765 {
+        header_up Host {host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
