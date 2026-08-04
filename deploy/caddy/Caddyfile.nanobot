@@ -6,7 +6,12 @@
 
 http://__NANOBOT_LISTEN__ {
     reverse_proxy 127.0.0.1:8765 {
+        # Forward the original Host header to the upstream
         header_up Host {host}
+        # Forward the original protocol scheme (http/https) for ws/wss detection
         header_up X-Forwarded-Proto {scheme}
+        # Forward WebSocket upgrade headers so the gateway can handle WS handshake
+        header_up Connection *Upgrade*
+        header_up Upgrade websocket
     }
 }

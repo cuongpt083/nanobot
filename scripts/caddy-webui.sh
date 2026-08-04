@@ -27,7 +27,7 @@ Actions:
 
 For install, set NANOBOT_LISTEN to the VPN host and HTTP port, for example:
   export NANOBOT_LISTEN='10.8.0.10:8080'
-  sudo -E ./scripts/caddy-webui.sh install
+  Khi 
 EOF
 }
 
