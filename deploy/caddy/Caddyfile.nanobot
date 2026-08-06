@@ -10,8 +10,8 @@ http://__NANOBOT_LISTEN__ {
         header_up Host {host}
         # Forward the original protocol scheme (http/https) for ws/wss detection
         header_up X-Forwarded-Proto {scheme}
-        # Forward WebSocket upgrade headers so the gateway can handle WS handshake
-        header_up Connection *Upgrade*
-        header_up Upgrade websocket
+        # WebSocket upgrade headers are forwarded automatically by Caddy v2 reverse_proxy.
+        # Do NOT manually set Connection or Upgrade headers here — doing so sends literal
+        # string values (e.g., "*Upgrade*") that break the upstream WebSocket handshake.
     }
 }
