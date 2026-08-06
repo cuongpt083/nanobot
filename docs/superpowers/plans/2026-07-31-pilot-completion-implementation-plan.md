@@ -10,30 +10,68 @@
 
 ## Global Constraints
 
-- The approved 2026-07-30 product design and 2026-07-31 supplement are authoritative.
+- The approved 2026-07-30 product design, 2026-07-31 supplement, and 2026-07-30 code audit (`docs/superpowers/archive/2026-07-31-pilot-remediation/code-audit-Task3.md`) are authoritative.
 - MVP surfaces are WebUI and Telegram only; do not add Zalo, public signup, billing, OAuth, training export, or SLM serving.
 - Reasoning, thinking blocks, tool arguments, paths, credentials, and raw provider errors cannot enter payloads, metadata, logs, responses, or metric labels.
 - Capture, migration, and writer failures cannot retry a provider or prevent one final answer.
 - Use TDD. Do not complete a task without focused tests, Ruff, and relevant type/WebUI checks.
 - Preserve the existing untracked tests/pilot/__init__.py unless its owner asks to include it.
 
+## Prerequisite: Audit remediation verification
+
+Before starting Task 1, verify that the following findings from `code-audit-Task3.md` are closed or explicitly tracked:
+
+- [ ] **Transcript reasoning code** – `nanobot/webui/transcript.py` still contains active reasoning functions (`attach_reasoning_chunk`, `close_reasoning`, `is_reasoning_only_placeholder`, `prune_reasoning_only`) that are called during transcript replay (lines 2118, 2130, 2146, 2153, 2255). Decide: (a) remove them and update transcript replay to skip reasoning frames silently, or (b) add a comment block documenting that these are kept only for backward-compatible transcript replay of legacy records and are excluded from live pilot sessions.
+- [ ] **`permits_event` ordering** – `ChannelManager._send_once` (line 819) calls `permits_event` before `sanitize` (lines 822–823). This means a reasoning event blocked by `permits_event` never reaches sanitize, which is correct functionally but creates a confusing dependency. Consider reordering or adding a comment explaining the intentional sequence.
+- [ ] **Redaction pattern audit** – Review the patterns in `PresentationPolicy` against the canary list from `code-audit-Task3.md`. Ensure the redaction is neither too broad (over-redacting legitimate errors) nor too narrow (missing inline think tags, mixed-format credentials).
+- [ ] **Ruff lint baseline** – Run `ruff check nanobot/pilot/` to confirm the 24 lint findings from the code audit are resolved.
+- [ ] **Checkbox reconciliation** – The original plan (`2026-07-30-product-first-pilot-implementation-plan.md`) has checkbox/commit states that do not match the progress audit claims for Tasks 1–9. Update those checkboxes to reflect actual implementation status so the record is accurate for future workers.
+
 ## File map
+
+**Legend:** ✅ = exists in current codebase | 🆕 = to be created by this plan
 
 | Area | Files | Responsibility |
 | --- | --- | --- |
-| Foundation | nanobot/pilot/presentation.py, routing.py, agent/loop.py, channels/manager.py | safe outbound policy and configured routing |
-| Resilience | nanobot/pilot/circuit.py, providers/fallback_provider.py, agent/turn_delivery.py | circuit state and one-answer failover |
-| Capture | identity.py, redaction.py, consent.py, queue.py, store.py, capture.py, service.py | pseudonymous asynchronous capture |
-| Controls | retention.py, feedback.py, bus/channel/WebUI files | deletion, retention, feedback |
-| Operations | metrics.py, health.py, webui/pilot_api.py, scripts/pilot_smoke.py, docs/pilot | safe health and release procedures |
+| Foundation | ✅ `nanobot/pilot/presentation.py`, ✅ `routing.py`, ✅ `agent/loop.py`, ✅ `channels/manager.py` | safe outbound policy and configured routing |
+| Resilience | ✅ `nanobot/pilot/circuit.py`, 🆕 `providers/fallback_provider.py`, 🆕 `agent/turn_delivery.py` | circuit state and one-answer failover |
+| Capture | 🆕 `identity.py`, 🆕 `redaction.py`, 🆕 `consent.py`, 🆕 `queue.py`, 🆕 `store.py`, 🆕 `capture.py`, 🆕 `service.py` | pseudonymous asynchronous capture |
+| Controls | 🆕 `retention.py`, 🆕 `feedback.py`, 🆕 bus/channel/WebUI files | deletion, retention, feedback |
+| Operations | 🆕 `metrics.py`, 🆕 `health.py`, 🆕 `webui/pilot_api.py`, 🆕 `scripts/pilot_smoke.py`, 🆕 `docs/pilot` | safe health and release procedures |
+
+### Existing test files (do not re-create; extend as needed)
+
+| Test file | Lines | Status |
+| --- | --- | --- |
+| `tests/pilot/test_circuit.py` | 228 | ✅ Exists – verify completeness before extending |
+| `tests/pilot/test_fallback_delivery.py` | 287 | ✅ Exists – verify completeness before extending |
+| `tests/pilot/test_presentation.py` | 122 | ✅ Exists – extend with audit remediation canaries |
+| `tests/pilot/test_provider_attempts.py` | 164 | ✅ Exists |
+| `tests/pilot/test_reasoning_client_canaries.py` | 66 | ✅ Exists – created during audit remediation |
+| `tests/pilot/test_routing.py` | 177 | ✅ Exists |
+| `tests/pilot/test_routing_loop.py` | 123 | ✅ Exists – verify proposed tests match existing coverage |
+| `tests/pilot/test_turn_ids.py` | 55 | ✅ Exists |
+| `tests/channels/test_channel_manager_reasoning.py` | 444 | ✅ Exists |
 
 ---
 
-### Task 1: Repair configured routing and presentation policy
+### Task 1: Repair configured routing and presentation policy (including audit remediation)
 
-**Files:** Modify nanobot/pilot/routing.py, presentation.py, channels/manager.py, agent/loop.py; modify tests/pilot/test_routing.py, test_presentation.py, tests/channels/test_channel_manager_reasoning.py; create tests/pilot/test_routing_loop.py.
+**Files:** Modify nanobot/pilot/routing.py, presentation.py, channels/manager.py, agent/loop.py, nanobot/webui/transcript.py; modify tests/pilot/test_routing.py, test_routing_loop.py, test_presentation.py, tests/channels/test_channel_manager_reasoning.py.
 
 **Interfaces:** route_turn(turn_id, input_data, config, circuit=None) returns RoutingDecision. PresentationPolicy.sanitize(content, metadata) returns a copied PresentationResult and never mutates an input.
+
+#### Audit remediation sub-tasks (before functional changes)
+
+- [ ] **Transcript reasoning code** – Review `nanobot/webui/transcript.py` functions `attach_reasoning_chunk` (line 1639), `close_reasoning` (line 1750), `is_reasoning_only_placeholder` (line 1756), and `prune_reasoning_only` (line 1770). These are still called from the transcript replay path (lines 2118, 2130, 2146, 2153, 2255). Either:
+  - (a) Remove them entirely and update transcript replay to silently skip reasoning frames, OR
+  - (b) Gate them behind a `reasoning_enabled` config flag that is `False` in pilot mode, OR
+  - (c) Add explicit docstring comments documenting they are preserved only for legacy transcript replay and excluded from all live pilot sessions.
+- [ ] **`permits_event` ordering** – In `channels/manager.py`, `permits_event` (line 819) runs before `sanitize` (lines 822–823). While functionally correct (blocked events don't need sanitization), add a comment explaining the intentional sequence. Optionally reorder for clarity.
+- [ ] **Redaction pattern review** – Audit `PresentationPolicy` patterns against the canary list from `code-audit-Task3.md`. Ensure patterns cover: `reasoning_content`, `thinking_blocks`, reasoning event types, ` thinking... response` (both block and inline), bearer/API-key/cookie strings, Windows and POSIX internal paths, tool arguments, and raw exception text. Fix any over-broad patterns that could over-redact legitimate content.
+- [ ] **Ruff lint baseline** – Run `ruff check nanobot/pilot/` and resolve any remaining findings. The code audit reported 24 issues.
+
+#### Functional changes
 
 - [ ] Write failing AgentLoop tests using a real Config whose route presets are fast, reasoner, and tools. Assert each route resolves the configured preset rather than a route label.
 - [ ] Write parameterized canaries for nested provider_error, arguments, toolArguments, bearer/API key/cookie/private-key strings, URL credentials, POSIX/Windows paths, and unclosed think tags in both content and metadata.
@@ -41,42 +79,45 @@
 uv run pytest tests/pilot/test_routing.py tests/pilot/test_routing_loop.py tests/pilot/test_presentation.py tests/channels/test_channel_manager_reasoning.py -q
 ~~~
 Expected before implementation: routing-loop test fails because primary_preset is read instead of preset.
-- [ ] Use class_cfg.preset; filter open candidates from an immutable circuit snapshot. Recursively normalize metadata keys, drop policy keys, redact string leaves, and send dataclasses.replace(msg, ...) instead of mutating msg. Drop reasoning events before sanitizer when display is disabled.
+- [ ] Use `class_cfg.preset`; filter open candidates from an immutable circuit snapshot. Recursively normalize metadata keys, drop policy keys, redact string leaves, and send `dataclasses.replace(msg, ...)` instead of mutating `msg`. Drop reasoning events before sanitizer when display is disabled.
 - [ ] Re-run the command above plus: ~~~bash
-uv run ruff check nanobot/pilot/routing.py nanobot/pilot/presentation.py nanobot/channels/manager.py
+uv run ruff check nanobot/pilot/routing.py nanobot/pilot/presentation.py nanobot/channels/manager.py nanobot/webui/transcript.py
 ~~~
 - [ ] Commit: ~~~bash
-git add nanobot/pilot/routing.py nanobot/pilot/presentation.py nanobot/channels/manager.py nanobot/agent/loop.py tests/pilot tests/channels/test_channel_manager_reasoning.py
-git commit -m "fix(pilot): enforce configured routing and presentation policy"
+git add nanobot/pilot/routing.py nanobot/pilot/presentation.py nanobot/channels/manager.py nanobot/agent/loop.py nanobot/webui/transcript.py tests/pilot tests/channels/test_channel_manager_reasoning.py
+git commit -m "fix(pilot): enforce configured routing, presentation policy, and audit remediation"
 ~~~
 
-### Task 2: Add provider/model circuit registry
+### Task 2: Verify and complete provider/model circuit registry
 
-**Files:** Create nanobot/pilot/circuit.py and tests/pilot/test_circuit.py. Modify routing.py and providers/fallback_provider.py.
+**Files:** `nanobot/pilot/circuit.py` (113 lines, ✅ exists); `tests/pilot/test_circuit.py` (228 lines, ✅ exists). Modify routing.py and providers/fallback_provider.py.
 
 **Interfaces:** CircuitRegistry(clock, failure_threshold, cooldown_seconds), allow(key), record_success(key), record_failure(key, error_class), snapshot(). CircuitKey is provider alias plus model only.
 
-- [ ] Write fake-clock tests for closed-open-half-open-closed, provider/model isolation, one half-open probe, retry threshold, cooldown, and immediate authentication open.
+> **Note:** `circuit.py` and `test_circuit.py` already exist from the initial pilot implementation. This task must verify their completeness against the plan's interface spec and extend them where needed.
+
+- [ ] **Review existing implementation** – Read `nanobot/pilot/circuit.py` and verify it implements: `CircuitRegistry` with `allow`, `record_success`, `record_failure`, `snapshot`; `CircuitKey` with provider alias + model only; no prompt/user fields; lock-protected state. Add any missing methods.
+- [ ] **Review existing tests** – Read `tests/pilot/test_circuit.py` and verify coverage of: closed-open-half_open-closed, provider/model isolation, one half-open probe, retry threshold, cooldown, and immediate authentication open. Add any missing test cases.
 - [ ] Run: ~~~bash
 uv run pytest tests/pilot/test_circuit.py -q
 ~~~
-Expected: import failure.
-- [ ] Implement lock-protected state with no prompt/user fields. Inject one registry into router and fallback provider; omit open primary/fallback candidates and update state after each attempt.
+- [ ] Implement or extend lock-protected state with no prompt/user fields. Inject one registry into router and fallback provider; omit open primary/fallback candidates and update state after each attempt.
 - [ ] Add all-open integration test asserting one generic sanitized error and no provider alias in user output.
 - [ ] Verify and commit: ~~~bash
 uv run pytest tests/pilot/test_circuit.py tests/pilot/test_routing.py tests/agent/test_runner_fallback.py -q
 git add nanobot/pilot/circuit.py nanobot/pilot/routing.py nanobot/providers/fallback_provider.py tests/pilot/test_circuit.py
-git commit -m "feat(pilot): add model scoped circuit breaking"
-~~~
+git commit -m "feat(pilot): complete model scoped circuit breaking"
 
 ### Task 3: Guarantee one-answer fallback delivery
 
-**Files:** Modify providers/fallback_provider.py and agent/turn_delivery.py. Create tests/pilot/test_fallback_delivery.py.
+**Files:** Modify providers/fallback_provider.py and agent/turn_delivery.py. `tests/pilot/test_fallback_delivery.py` (287 lines, ✅ exists).
 
 **Interfaces:** A turn accepts at most one final delivery segment; fallback output is buffered until an accepted boundary.
 
-- [ ] Write fake-provider tests for failure before stream, timeout after partial stream, non-timeout after content, exhausted chain, all-open chain, and capture-hook exception. Count final outbound messages.
-- [ ] Run the focused test and confirm failure.
+> **Note:** `test_fallback_delivery.py` already exists (287 lines). Review its coverage before adding new tests.
+
+- [ ] **Review existing tests** – Read `tests/pilot/test_fallback_delivery.py` and verify it covers: failure before stream, timeout after partial stream, non-timeout after content, exhausted chain, all-open chain, and capture-hook exception. Count final outbound messages. Add any missing cases.
+- [ ] Run the focused test and confirm failure or success.
 - [ ] Buffer fallback candidate output; discard unaccepted primary fragments; lock TurnDelivery after first accepted final. Use a fixed PresentationPolicy-sanitized error for exhaustion. Capture-hook exception only increments capture health.
 - [ ] Verify and commit: ~~~bash
 uv run pytest tests/pilot/test_fallback_delivery.py tests/agent/test_runner_fallback.py tests/agent/test_turn_delivery.py -q
@@ -193,6 +234,8 @@ git commit -m "feat(pilot): expose privacy safe health and metrics"
 ### Task 11: Add concurrency, performance, and leak regression gates
 
 **Files:** Create tests/pilot/test_concurrent_turns.py, test_capture_performance.py, test_feedback_performance.py, test_reasoning_leak_regression.py. Modify .github/workflows/ci.yml.
+
+> **Note:** The current `.github/workflows/ci.yml` has zero pilot-specific jobs. This task must add a dedicated CI job (e.g., `pilot-tests`) that runs all `tests/pilot/` tests and verifies no reasoning leakage.
 
 - [ ] Build one deterministic fake teacher with unique answer/reasoning canaries, retries, fallback, and tools.
 - [ ] Write 20 concurrent WebUI/Telegram turn assertions for no session/stream/turn/feedback/reasoning mixing. Capture logs, frames, Telegram calls, exceptions, and metrics; assert every reasoning canary is absent.
