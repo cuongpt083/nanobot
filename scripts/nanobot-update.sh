@@ -53,42 +53,101 @@ Environment:
 EOF
 }
 
-require_command() {
-    command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+check_python_version() {
+    local candidate="$1"
+    [[ -n "${candidate}" ]] || return 1
+    local executable=""
+    if command -v "${candidate}" >/dev/null 2>&1; then
+        executable="$(command -v "${candidate}")"
+    elif [[ -x "${candidate}" ]]; then
+        executable="${candidate}"
+    fi
+
+    if [[ -n "${executable}" ]]; then
+        if "${executable}" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+PY
+        then
+            printf '%s\n' "${executable}"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+find_system_python() {
+    if command -v uv >/dev/null 2>&1; then
+        local uv_py
+        uv_py="$(uv python find ">=3.11" 2>/dev/null || true)"
+        if [[ -n "${uv_py}" ]]; then
+            local res
+            res="$(check_python_version "${uv_py}")" && { printf '%s\n' "${res}"; return 0; }
+        fi
+    fi
+
+    local name path res
+    for name in python3.13 python3.12 python3.11 python3 python; do
+        res="$(check_python_version "${name}")" && { printf '%s\n' "${res}"; return 0; }
+    done
+
+    for path in \
+        /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3 \
+        /usr/local/bin/python3.13 /usr/local/bin/python3.12 /usr/local/bin/python3.11 /usr/local/bin/python3 \
+        "${HOME}/.local/share/uv/python"/*/bin/python3 \
+        "${HOME}/.pyenv/shims/python3"
+    do
+        res="$(check_python_version "${path}")" && { printf '%s\n' "${res}"; return 0; }
+    done
+
+    return 1
+}
+
+get_python_binary() {
+    local venv_path
+    if [[ -n "${NANOBOT_VENV_DIR:-}" ]]; then
+        venv_path="$(check_python_version "${NANOBOT_VENV_DIR}/bin/python")" || true
+        if [[ -n "${venv_path}" ]]; then
+            printf '%s\n' "${venv_path}"
+            return 0
+        fi
+    fi
+
+    for candidate in \
+        "${REPO_ROOT}/.venv/bin/python" \
+        "${NANOBOT_HOME_DIR}/.venv/bin/python" \
+        "${HOME}/.nanobot/venv/bin/python3" \
+        "${HOME}/.nanobot/venv/bin/python" \
+        "${HOME}/.nanobot/.venv/bin/python"
+    do
+        venv_path="$(check_python_version "${candidate}")" || true
+        if [[ -n "${venv_path}" ]]; then
+            printf '%s\n' "${venv_path}"
+            return 0
+        fi
+    done
+
+    local sys_py
+    sys_py="$(find_system_python)" || die "Python 3.11 or newer was not found. Install Python first, then rerun this command."
+    printf '%s\n' "${sys_py}"
 }
 
 run_python() {
-    if [[ -x "${VENV_PYTHON}" ]]; then
-        "${VENV_PYTHON}" "$@"
-    elif command -v uv >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/uv.lock" ]]; then
-        (cd -- "${REPO_ROOT}" && uv run --no-sync python "$@")
-    else
-        require_command python3
-        (cd -- "${REPO_ROOT}" && python3 "$@")
-    fi
+    local py_bin
+    py_bin="$(get_python_binary)"
+    (cd -- "${REPO_ROOT}" && "${py_bin}" "$@")
 }
 
 run_pip() {
-    if [[ -x "${VENV_PIP}" ]]; then
-        "${VENV_PIP}" "$@"
-    elif [[ -x "${VENV_PYTHON}" ]]; then
-        "${VENV_PYTHON}" -m pip "$@"
-    else
-        require_command python3
-        (cd -- "${REPO_ROOT}" && python3 -m pip "$@")
-    fi
+    local py_bin
+    py_bin="$(get_python_binary)"
+    (cd -- "${REPO_ROOT}" && "${py_bin}" -m pip "$@")
 }
 
 run_nanobot() {
-    if [[ -x "${VENV_PYTHON}" ]]; then
-        (cd -- "${REPO_ROOT}" && "${VENV_PYTHON}" -m nanobot "$@")
-    elif command -v uv >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/uv.lock" ]]; then
-        (cd -- "${REPO_ROOT}" && uv run --no-sync nanobot "$@")
-    elif command -v nanobot >/dev/null 2>&1; then
-        nanobot "$@"
-    else
-        run_python -m nanobot "$@"
-    fi
+    local py_bin
+    py_bin="$(get_python_binary)"
+    (cd -- "${REPO_ROOT}" && "${py_bin}" -m nanobot "$@")
 }
 
 service_action() {
