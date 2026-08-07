@@ -444,11 +444,24 @@ class PilotRetentionConfig(Base):
     training_eligible_days: int = Field(default=180, ge=1)
 
 
+class PilotStudentConfig(Base):
+    enabled: bool = False
+    model_path: str = "~/.nanobot/models/qwen3-4b-pilot-q5_k_m.gguf"
+    context_length: int = 4096
+    max_tokens: int = 2048
+    temperature: float = 0.7
+    concurrent_instances: int = 1
+    complexity_threshold: float = 0.5
+    teacher_provider: str = "deepseek"
+    llama_cpp_path: str = "~/.nanobot/llama.cpp/"
+
+
 class PilotConfig(Base):
     enabled: bool = False
     routing: PilotRoutingConfig | None = None
     capture: PilotCaptureConfig = Field(default_factory=PilotCaptureConfig)
     retention: PilotRetentionConfig = Field(default_factory=PilotRetentionConfig)
+    student: PilotStudentConfig | None = None
     product_consent_version: str = "pilot-product-v1"
     training_consent_version: str = "pilot-training-v1"
 

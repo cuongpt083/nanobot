@@ -178,6 +178,33 @@ docker run -v ~/.nanobot:/home/nanobot/.nanobot --rm nanobot status
 
 ## Linux Service
 
+### Updating a source checkout
+
+For a checkout that is run directly from this repository, use the update helper:
+
+```bash
+scripts/nanobot-update.sh update
+```
+
+It stops the gateway, fast-forwards the current branch, synchronizes Python dependencies,
+rebuilds the WebUI, and starts the gateway again. If an update fails, the gateway is left
+stopped so the error can be fixed before restarting it. Useful variants are:
+
+```bash
+scripts/nanobot-update.sh status
+scripts/nanobot-update.sh restart
+scripts/nanobot-update.sh update --no-webui
+scripts/nanobot-update.sh update --install-channels
+```
+
+The helper prefers `uv` when `uv.lock` is present and otherwise uses the active `python3`
+environment. It uses the built-in nanobot background gateway by default. If the gateway is
+managed by the systemd user service below, set its name so systemd remains the process owner:
+
+```bash
+NANOBOT_SERVICE_NAME=nanobot-gateway scripts/nanobot-update.sh update
+```
+
 Run the gateway as a systemd user service so it starts automatically and restarts on failure.
 
 Preview the generated unit first:

@@ -1,0 +1,31 @@
+model_name_or_path: "Qwen/Qwen3-4B-Instruct"
+dataset_path: "~/.nanobot/pilot/curated/train_chatml.jsonl"
+output_dir: "~/.nanobot/models/qwen3-4b-pilot-adapter/"
+merged_output_dir: "/tmp/qwen3-4b-pilot-merged/"
+final_gguf_path: "~/.nanobot/models/qwen3-4b-pilot-q5_k_m.gguf"
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.1
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+
+training:
+  max_seq_length: 4096
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-4
+  num_train_epochs: 3
+  warmup_ratio: 0.03
+  logging_steps: 10
+  eval_steps: 100
+  save_steps: 500
+  bf16: true
+
+quantization:
+  final_type: "q5_k_m"
+  llama_cpp_path: "~/.nanobot/llama.cpp/"

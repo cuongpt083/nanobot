@@ -41,4 +41,5 @@ class HealthCheckService:
             "providers": {"status": "ok" if providers_ok else "degraded"},
             "channels": {"status": "ok" if channels_ok else "degraded"},
             "capture_store": capture_health,
+            "student": {"status": "ok"},
         }

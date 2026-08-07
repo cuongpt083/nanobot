@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from nanobot.config.schema import Config, PilotConfig, PilotRoutingConfig
 
-RouteClass = Literal["default", "reasoning", "tool_heavy"]
+RouteClass = Literal["default", "reasoning", "tool_heavy", "student"]
 POLICY_VERSION = "2026-07-30.v1"
 
 _MATH_LOGIC_PATTERN = re.compile(

@@ -13,6 +13,8 @@ class PilotMetrics:
         self.capture_hook_errors_total = 0
         self.queue_drops_by_kind: dict[str, int] = {}
         self.events_persisted_by_kind: dict[str, int] = {}
+        self.student_requests_total = 0
+        self.student_teacher_reviews_total = 0
 
     def inc_hook_error(self) -> None:
         with self._lock:
@@ -26,12 +28,22 @@ class PilotMetrics:
         with self._lock:
             self.events_persisted_by_kind[kind] = self.events_persisted_by_kind.get(kind, 0) + count
 
+    def inc_student_request(self) -> None:
+        with self._lock:
+            self.student_requests_total += 1
+
+    def inc_student_teacher_review(self) -> None:
+        with self._lock:
+            self.student_teacher_reviews_total += 1
+
     def snapshot(self) -> dict[str, int | dict[str, int]]:
         with self._lock:
             return {
                 "capture_hook_errors_total": self.capture_hook_errors_total,
                 "queue_drops_by_kind": dict(self.queue_drops_by_kind),
                 "events_persisted_by_kind": dict(self.events_persisted_by_kind),
+                "student_requests_total": self.student_requests_total,
+                "student_teacher_reviews_total": self.student_teacher_reviews_total,
             }
 
 
