@@ -696,6 +696,53 @@ class WebSocketChannel(BaseChannel):
             event, payload = await webui_transcription_event(envelope)
             await self._send_event(connection, event, **payload)
             return
+        if t == "feedback":
+            action_id = envelope.get("action_id") or str(uuid.uuid4())
+            turn_id = envelope.get("turn_id")
+            kind = envelope.get("kind")
+            chat_id = envelope.get("chat_id")
+            if not turn_id or not kind or not chat_id:
+                await self._send_event(
+                    connection,
+                    "feedback_ack",
+                    action_id=action_id,
+                    turn_id=turn_id,
+                    accepted=False,
+                    reason="invalid_params",
+                )
+                return
+            feedback_service = getattr(self, "feedback_service", None)
+            if feedback_service:
+                from nanobot.bus.events import FeedbackAction
+                action = FeedbackAction(
+                    action_id=action_id,
+                    turn_id=turn_id,
+                    kind=kind,
+                    channel="webui",
+                    sender_id=client_id,
+                    chat_id=chat_id,
+                    session_key=f"webui:{chat_id}",
+                    metadata=envelope.get("metadata") or {},
+                )
+                ack = await feedback_service.handle_action(action)
+                await self._send_event(
+                    connection,
+                    "feedback_ack",
+                    action_id=ack.action_id,
+                    turn_id=ack.turn_id,
+                    accepted=ack.accepted,
+                    reason=ack.reason,
+                )
+            else:
+                await self._send_event(
+                    connection,
+                    "feedback_ack",
+                    action_id=action_id,
+                    turn_id=turn_id,
+                    accepted=False,
+                    reason="service_unavailable",
+                )
+            return
         if t == "message":
             cid = envelope.get("chat_id")
             content = envelope.get("content")

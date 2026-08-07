@@ -56,3 +56,27 @@ class OutboundMessage:
     metadata: dict[str, Any] = field(default_factory=dict)
     buttons: list[list[str]] = field(default_factory=list)
     event: "OutboundEvent | None" = None
+
+
+@dataclass
+class FeedbackAction:
+    """Feedback action emitted by channel or UI client."""
+
+    action_id: str
+    turn_id: str
+    kind: str  # helpful, incorrect, retry, explain_more
+    channel: str
+    sender_id: str
+    chat_id: str
+    session_key: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class FeedbackAck:
+    """Acknowledgement of feedback action."""
+
+    action_id: str
+    turn_id: str
+    accepted: bool
+    reason: str | None = None

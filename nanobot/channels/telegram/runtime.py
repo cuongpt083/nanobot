@@ -6,6 +6,7 @@ import asyncio
 import re
 import time
 import unicodedata
+import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
@@ -1796,6 +1797,26 @@ class TelegramChannel(BaseChannel):
             with suppress(Exception):
                 await query_message.edit_reply_markup(reply_markup=None)
         self.logger.debug("Inline button tap from {}: {}", sender_id, button_label)
+
+        if button_label.startswith("fb:"):
+            parts = button_label.split(":", 2)
+            if len(parts) == 3:
+                kind, turn_id = parts[1], parts[2]
+                feedback_service = getattr(self, "feedback_service", None)
+                if feedback_service:
+                    from nanobot.bus.events import FeedbackAction
+                    action = FeedbackAction(
+                        action_id=uuid.uuid4().hex,
+                        turn_id=turn_id,
+                        kind=kind,
+                        channel="telegram",
+                        sender_id=sender_id,
+                        chat_id=str(chat_id),
+                        session_key=f"telegram:{chat_id}",
+                    )
+                    await feedback_service.handle_action(action)
+            return
+
         self._start_typing(str(chat_id))
         await self._handle_message(
             sender_id=sender_id,
