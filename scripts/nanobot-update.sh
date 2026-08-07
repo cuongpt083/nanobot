@@ -53,6 +53,10 @@ Environment:
 EOF
 }
 
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
 check_python_version() {
     local candidate="$1"
     [[ -n "${candidate}" ]] || return 1
