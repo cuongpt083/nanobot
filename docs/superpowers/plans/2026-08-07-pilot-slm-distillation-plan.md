@@ -14,7 +14,8 @@
 store, fine-tune Qwen3-4B-Instruct-2507 Q5_K_M as a primary student model, and deploy a
 teacher-student architecture where the SLM handles simple tasks independently and plans complex
 tasks under LLM teacher (DeepSeek V4 Flash) review. All long-running distillation work runs in the
-background and is observable and safely controllable from an authenticated WebUI operations surface.
+background and is observable and safely controllable from an authenticated WebUI operations surface
+unlocked via an interactive **Expert Mode** configuration toggle, eliminating manual `config.json` editing.
 
 **Architecture:**
 
@@ -1262,6 +1263,7 @@ Every mutation requires the action to be present in the coordinator's server-gen
 ### Task E.29 [NEW]: WebUI SLM Operations dashboard and safe operator controls
 
 **Files:**
+- Create: `webui/src/components/slm-operations/ExpertModeToggle.tsx`
 - Create: `webui/src/components/slm-operations/SlmOperationsView.tsx`
 - Create: `webui/src/components/slm-operations/PipelineOverview.tsx`
 - Create: `webui/src/components/slm-operations/CaptureDatasetPanel.tsx`
@@ -1278,6 +1280,8 @@ Every mutation requires the action to be present in the coordinator's server-gen
 - Modify: WebUI locale files for at least English and Vietnamese
 
 **Information architecture:**
+- **Expert Mode Toggle & Discovery Surface:** An explicit `[Expert Mode]` toggle switch in WebUI Settings (`Settings -> Advanced`). When OFF, displays a clean introductory feature card explaining local SLM inference & distillation. Toggling to ON enables the full SLM Operations control plane and visual configuration panel, automatically persisting settings via `PUT /api/pilot/slm/config` to `~/.nanobot/config.json` without requiring manual JSON editing.
+- **SLM & Student Model Visual Configurator:** Form controls for `GGUF Model Path`, `Context Length` (4096), `Max Output Tokens` (2048), `Temperature` (0.7), `Complexity Threshold` (0.5), `Teacher Fallback Provider` (DeepSeek V4 Flash), and `Data Consent & Redaction` toggles.
 - **Overview:** pipeline DAG with per-stage state/progress, active alerts, next scheduled run, active
   model, current capture/dataset/training/evaluation/inference summaries, and last successful run.
 - **Capture & Dataset:** eligible sample growth, capture/write/drop rates, redaction-rule counts,
