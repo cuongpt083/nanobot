@@ -27,7 +27,7 @@ install_failure_hint() {
   printf '%s\n' "You can also run manually:" >&2
   printf '  %s\n' "uv tool install --force --upgrade $install_target" >&2
   printf '  %s\n' "$python_bin -m venv ~/.nanobot/venv" >&2
-  printf '  %s\n' "~/.nanobot/venv/bin/python -m pip install --upgrade $install_target" >&2
+  printf '  %s\n' "~/.nanobot/venv/bin/python3 -m pip install --upgrade $install_target" >&2
   printf '%s\n' "Then start setup with:" >&2
   printf '  %s\n' "nanobot onboard --wizard" >&2
   exit 1
@@ -191,7 +191,10 @@ install_with_managed_venv() {
   [ -n "${HOME:-}" ] || fail "HOME is not set; cannot create a managed virtual environment"
 
   venv_dir="${NANOBOT_VENV:-$HOME/.nanobot/venv}"
-  venv_python="$venv_dir/bin/python"
+  venv_python="$venv_dir/bin/python3"
+  if [ ! -x "$venv_python" ]; then
+    venv_python="$venv_dir/bin/python"
+  fi
 
   if [ ! -x "$venv_python" ]; then
     info "Creating a dedicated virtual environment at $venv_dir..."
