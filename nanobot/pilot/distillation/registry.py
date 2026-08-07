@@ -59,6 +59,11 @@ class ArtifactRegistry:
         if default_path.exists() and default_path.is_file():
             return default_path
 
+        if not model_id.endswith(".gguf"):
+            default_gguf = Path("~/.nanobot/models").expanduser() / f"{model_id}.gguf"
+            if default_gguf.exists() and default_gguf.is_file():
+                return default_gguf
+
         raise ArtifactNotFoundError(
             f"Model {model_id!r} not found in registry or local filesystem"
         )
