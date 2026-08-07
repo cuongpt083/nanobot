@@ -66,10 +66,50 @@ These tasks implement the consent-gated capture pipeline: identity hashing, reda
 - Create: `tests/pilot/test_redaction.py`
 - Create: `tests/pilot/test_consent.py`
 
-- [ ] Implement `IdentityHasher` with `HMAC-SHA256(secret, f"{version}:{domain}:{value}")` returning hex digests; never retain the source value.
-- [ ] Implement recursive `Redactor` for strings, mappings, and sequences. Return both redacted data and a set of rule codes; never return matched secret text in diagnostics.
-- [ ] Implement `ConsentState` (product_allowed, training_allowed, versioned) and `CaptureDecision` (store_prompt/store_reasoning/store_answer/training_eligible) with three-gate logic: operator enabled, user consent, provider policy.
-- [ ] Write failing tests for domain separation, secret rotation, no raw identity in repr, recursive map/list redaction, size bounds, and every operator/user/provider consent combination.
+**Existing config fields to use (from `nanobot/config/schema.py`):**
+- `PilotCaptureConfig.hmac_secret` — the HMAC signing key (a non-empty `str` with `repr=False`); `IdentityHasher` reads this at construction time.
+- `PilotModelClassConfig.capture_policy` — the "provider policy" gate value; one of `"metrics_only"`, `"answer"`, `"reasoning"`. The three-gate logic checks: `enabled` (operator) AND `consent` (user) AND `capture_policy != "metrics_only"` (provider).
+- `PilotCaptureConfig.max_prompt_chars`, `max_reasoning_chars`, `max_answer_chars` — size bounds passed to `Redactor`.
+- `PilotConfig.product_consent_version`, `training_consent_version` — version identifiers embedded in consent records.
+
+**`nanobot/pilot/types.py` contents — Pydantic or dataclass types shared across B.10–B.14:**
+
+```python
+# CaptureDecision: per-field flags after three-gate evaluation
+class CaptureDecision:
+    store_prompt: bool
+    store_reasoning: bool
+    store_answer: bool
+    training_eligible: bool
+
+# ConsentState: per-user consent snapshot (stored in SQLite consents table)
+class ConsentState:
+    user_pseudonym: str
+    product_allowed: bool
+    product_version: str
+    training_allowed: bool
+    training_version: str
+    created_at_ms: int
+    updated_at_ms: int
+
+# CapturePriority: ordering enum for the capture queue (Task B.11)
+class CapturePriority(enum.IntEnum):
+    CONSENT = 0
+    FEEDBACK = 1
+    FINAL = 2
+    ATTEMPT = 3
+    ARTIFACT = 4
+
+# RedactionResult: return type of Redactor.__call__
+class RedactionResult:
+    data: Any          # redacted copy of the input (str, dict, list, or unchanged)
+    rule_codes: set[str]  # set of applied rule codes (never contains matched secrets)
+```
+
+- [ ] Implement `IdentityHasher` using `HMAC-SHA256(secret, f"{version}:{domain}:{value}")` returning hex digests. Read `secret` from `PilotCaptureConfig.hmac_secret`. Never retain the source value after hashing. `repr(hasher)` must not leak the secret key or any hashed value.
+- [ ] Implement recursive `Redactor` for strings, mappings, and sequences. Accept `max_chars` bounds from config. Return both a redacted copy of the data and a `set[str]` of applied rule codes; never return matched secret text in diagnostics or repr. Supported rules: `"api_key"`, `"bearer"`, `"cookie"`, `"private_key"`, `"url_credentials"`, `"windows_path"`, `"posix_path"`, `"exception_text"`, `"tool_argument"`, `"size_trimmed"`.
+- [ ] Implement `ConsentState` (product_allowed, training_allowed, versioned) and `CaptureDecision` (store_prompt/store_reasoning/store_answer/training_eligible) with three-gate logic: (1) operator enabled (`PilotCaptureConfig.enabled`), (2) user consent (`ConsentState.product_allowed` or `.training_allowed` matching the requested use), (3) provider policy (`PilotModelClassConfig.capture_policy`). When any gate fails, all `CaptureDecision.*` flags are `False`.
+- [ ] Write failing tests for domain separation (different domains produce different hashes), secret rotation (different versions produce different hashes), no raw identity in `repr` or `str`, recursive map/list redaction (nested dicts, lists of dicts), size bounds (truncation at config limits), and every operator/user/provider consent combination (2×2×3 = 12 permutations).
 - [ ] Run: `uv run pytest tests/pilot/test_identity.py tests/pilot/test_redaction.py tests/pilot/test_consent.py -q`
 - [ ] Commit: `git add nanobot/pilot/identity.py nanobot/pilot/redaction.py nanobot/pilot/consent.py nanobot/pilot/types.py tests/pilot`
 
@@ -94,17 +134,109 @@ These tasks implement the consent-gated capture pipeline: identity hashing, reda
 - Create: `tests/pilot/test_store_migrations.py`
 - Create: `tests/pilot/test_event_store.py`
 
-**Schema (Migration 1):**
-- `schema_migrations` — version tracking
-- `turns` — pseudonymous identity, channel, timestamps, consent, routing decision (JSON)
-- `attempts` — provider/model, latency_ms, usage (JSON), error_class, retry_index, fallback_index
-- `artifacts` — redacted prompt, reasoning, answer, tool trajectory (as bounded JSON text)
-- `feedback` — append-only user actions linked to turn_id
-- `consents` — versioned consent state per pseudonym
-- `deletions` — content-free audit records
+**Migration versioning scheme:**
+- `schema_migrations.version` is an integer starting at 1.
+- `nanobot/pilot/migrations.py` exposes `CURRENT_VERSION = 1` and a `migrate(conn: sqlite3.Connection) -> None` function that reads current version from `schema_migrations`, applies missing migrations in order, and writes the final version. `PRAGMA user_version` is used as a secondary guard.
+- Each migration is a private function `_migrate_v{N}(conn)` that runs inside a transaction.
 
-- [ ] Migration 1 creates all tables with `PRAGMA journal_mode=WAL`, foreign keys, opaque event IDs as primary keys, UTC integer milliseconds, and JSON text for bounded sanitized structures.
-- [ ] Implement `SQLitePilotStore` with synchronous transaction methods called only through `asyncio.to_thread` from a single writer. No store method may return artifacts for model-context construction.
+**Schema (Migration 1) — full column definitions:**
+
+```sql
+-- schema_migrations
+CREATE TABLE schema_migrations (
+    version     INTEGER PRIMARY KEY,
+    applied_at  INTEGER NOT NULL  -- UTC epoch ms
+);
+
+-- turns
+CREATE TABLE turns (
+    turn_id             TEXT PRIMARY KEY,         -- opaque event ID (uuid4 hex)
+    user_pseudonym      TEXT NOT NULL,
+    session_pseudonym   TEXT NOT NULL,
+    channel             TEXT NOT NULL,             -- "webui", "telegram"
+    chat_id             TEXT NOT NULL,
+    created_at_ms       INTEGER NOT NULL,          -- UTC epoch ms
+    consent_version     TEXT NOT NULL,              -- "pilot-product-v1"
+    routing_decision    TEXT NOT NULL,              -- JSON: {route_class, primary, fallbacks, policy_version, reason_code}
+    store_prompt        INTEGER NOT NULL DEFAULT 0, -- boolean from CaptureDecision
+    store_reasoning     INTEGER NOT NULL DEFAULT 0,
+    store_answer        INTEGER NOT NULL DEFAULT 0,
+    training_eligible   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_turns_user ON turns(user_pseudonym);
+CREATE INDEX idx_turns_session ON turns(session_pseudonym);
+
+-- attempts
+CREATE TABLE attempts (
+    attempt_id      TEXT PRIMARY KEY,               -- opaque event ID
+    turn_id         TEXT NOT NULL REFERENCES turns(turn_id),
+    provider        TEXT NOT NULL,
+    model           TEXT NOT NULL,
+    latency_ms      INTEGER NOT NULL,
+    usage_json      TEXT,                           -- JSON: {input_tokens?, output_tokens?, ...}
+    error_class     TEXT,                           -- NULL if successful
+    retry_index     INTEGER NOT NULL,
+    fallback_index  INTEGER                         -- NULL for primary
+);
+CREATE INDEX idx_attempts_turn ON attempts(turn_id);
+
+-- artifacts
+CREATE TABLE artifacts (
+    artifact_id     TEXT PRIMARY KEY,               -- opaque event ID
+    turn_id         TEXT NOT NULL REFERENCES turns(turn_id),
+    prompt_text     TEXT,                           -- redacted, NULL if not stored
+    reasoning_text  TEXT,                           -- redacted, NULL if not stored
+    answer_text     TEXT,                           -- redacted, NULL if not stored
+    tool_trajectory TEXT,                           -- JSON array of redacted tool calls/results
+    prompt_chars    INTEGER NOT NULL DEFAULT 0,
+    reasoning_chars INTEGER NOT NULL DEFAULT 0,
+    answer_chars    INTEGER NOT NULL DEFAULT 0,
+    consent_version TEXT NOT NULL,
+    redaction_version TEXT NOT NULL,                -- e.g. "pilot-redaction-v1"
+    capture_policy  TEXT NOT NULL                   -- value from PilotModelClassConfig.capture_policy
+);
+CREATE INDEX idx_artifacts_turn ON artifacts(turn_id);
+
+-- feedback
+CREATE TABLE feedback (
+    feedback_id     TEXT PRIMARY KEY,               -- opaque event ID (action_id from client)
+    turn_id         TEXT NOT NULL REFERENCES turns(turn_id),
+    user_pseudonym  TEXT NOT NULL,
+    kind            TEXT NOT NULL,                  -- "helpful", "incorrect", "retry", "explain_more"
+    created_at_ms   INTEGER NOT NULL,
+    metadata_json   TEXT                            -- optional JSON for future extension
+);
+CREATE INDEX idx_feedback_turn ON feedback(turn_id);
+CREATE INDEX idx_feedback_user ON feedback(user_pseudonym);
+
+-- consents
+CREATE TABLE consents (
+    user_pseudonym  TEXT NOT NULL,
+    product_allowed INTEGER NOT NULL DEFAULT 0,
+    product_version TEXT NOT NULL,
+    training_allowed INTEGER NOT NULL DEFAULT 0,
+    training_version TEXT NOT NULL,
+    created_at_ms   INTEGER NOT NULL,
+    updated_at_ms   INTEGER NOT NULL,
+    PRIMARY KEY (user_pseudonym)
+);
+
+-- deletions (content-free audit records)
+CREATE TABLE deletions (
+    deletion_id     TEXT PRIMARY KEY,
+    user_pseudonym  TEXT NOT NULL,
+    requested_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER NOT NULL,
+    turn_count      INTEGER NOT NULL,
+    attempt_count   INTEGER NOT NULL,
+    artifact_count  INTEGER NOT NULL,
+    feedback_count  INTEGER NOT NULL
+);
+CREATE INDEX idx_deletions_user ON deletions(user_pseudonym);
+```
+
+- [ ] Migration 1 creates all tables with `PRAGMA journal_mode=WAL`, foreign keys enabled via `PRAGMA foreign_keys=ON`, opaque event IDs as TEXT primary keys (uuid4 hex), UTC integer milliseconds for all timestamps, and JSON TEXT for bounded structures.
+- [ ] Implement `SQLitePilotStore` with synchronous transaction methods called only through `asyncio.to_thread` from a single writer. No store method may return artifacts for model-context construction. Key methods: `write_batch(events: list[QueueEvent]) -> int` (returns row count), `get_ownership(turn_id) -> tuple[str, str] | None` (user_pseudonym, session_pseudonym), `get_consent(user_pseudonym) -> ConsentState | None`, `get_consent_lookup(pseudonyms: set[str]) -> dict[str, ConsentState]`, `get_turn_count(pseudonym)`, `delete_by_pseudonym(user_pseudonym) -> DeletionSummary`, `count_retention_candidates(now_ms, config) -> dict`, `get_aggregate_metrics(since_ms) -> dict` (turn count, attempt count, error rate, P50/P95 latency, P50/P95 prompt/reasoning/answer chars, feedback distribution).
 - [ ] Add ownership lookup `(turn_id, user_pseudonym, session_pseudonym)`, consent lookup, aggregate metrics queries, deletion-by-pseudonym transaction, and dry-run retention counts.
 - [ ] Write failing tests for migration from empty database, WAL mode, foreign keys, all six entities, append-only feedback, idempotent event IDs across reopen, database size, last successful write, and rollback on batch failure.
 - [ ] Run: `uv run pytest tests/pilot/test_store_migrations.py tests/pilot/test_event_store.py -q`
@@ -121,10 +253,28 @@ These tasks implement the consent-gated capture pipeline: identity hashing, reda
 - Modify: `nanobot/agent/hook.py`
 - Modify: `nanobot/cli/commands.py`
 
-- [ ] Implement `DistillationCaptureHook(AgentHook)` from `AgentTurnHookContext`. Accumulate per-iteration data, apply `CaptureDecision` and `Redactor`, then enqueue immutable events in `after_run`/`on_error`. Catch errors at the hook boundary and increment content-free failure metrics.
-- [ ] Implement `PilotService.start()`, `hook_factory()`, `health_snapshot()`, and `stop()`. The writer consumes batches sequentially and calls `SQLitePilotStore.write_batch` through `asyncio.to_thread`.
-- [ ] Wire in `nanobot/cli/commands.py`: create one service, append `pilot_service.hook_factory` to `hook_factories`, call `start()` before channels start, call `stop()` in shutdown `finally` block.
+- [ ] **Modify `nanobot/agent/hook.py`**: Add the following fields to `AgentTurnHookContext` so the capture hook can observe routing and provider decisions:
+  - `turn_id: str | None = None` — the stable turn identifier
+  - `routing_decision: dict[str, Any] | None = None` — the `RoutingDecision` as a dict (route_class, primary, fallbacks, policy_version, reason_code)
+  - `provider_config: dict[str, Any] | None = None` — the resolved provider/model config (alias, model, capture_policy, etc.)
+  - `session_key: str | None = None` — already exists, verify presence
+  These fields are set by `AgentLoop`/`AgentRunner` before invoking hooks; they are never populated by the hook itself.
+- [ ] Implement `DistillationCaptureHook(AgentHook)` from `AgentTurnHookContext`. Accumulate per-iteration data (messages, response, usage, tool_calls, tool_results, tool_events, streamed_content, streamed_reasoning, final_content, stop_reason, error, session_key + new fields turn_id, routing_decision, provider_config) during iterations. In `after_run`/`on_error`: apply `CaptureDecision` and `Redactor`, then enqueue immutable `QueueEvent` records. Catch errors at the hook boundary (catch `Exception`, never `BaseException`), increment a content-free `capture_hook_errors_total` metric, and **do not re-raise**. Do not hold a reference to the bus, channel, or any outbound publisher.
+- [ ] Implement `PilotService.start()`, `hook_factory()`, `health_snapshot()`, and `stop()`. The writer is an `asyncio.Task` that consumes `QueueEvent` batches from the `CaptureQueue` sequentially and calls `SQLitePilotStore.write_batch` through `asyncio.to_thread`. On `stop()`, perform a bounded flush (using `flush_timeout_seconds` from config) and log the count of unpersisted events (no content).
+- [ ] **Wire in `nanobot/cli/commands.py`**:
+  ```python
+  # In the startup section (after config load, before channels start):
+  pilot_service = PilotService(config.pilot)
+  await pilot_service.start()
+  # Replace the existing hardcoded hook_factories list:
+  #   hook_factories=[create_file_edit_activity_hook]
+  # with:
+  hook_factories=[create_file_edit_activity_hook, pilot_service.hook_factory]
+  # In the shutdown finally block (after channels stop):
+  await pilot_service.stop()
+  ```
 - [ ] Write failing tests showing the hook observes routing, approved prompt/context, provider/model generation settings, reasoning shapes, final answer, sanitized tool trajectory, attempts, usage, latency, and stop reason; assert it has no bus/channel reference and cannot publish outbound messages.
+- [ ] **Error mode catalog** — test that the hook handles (and does not propagate): database `OperationalError`, queue full (rejected enqueue), `Redactor` failure (malformed input), `CaptureDecision` evaluation error (missing consent), and any unexpected `Exception`. Each increments the failure metric without crashing the agent turn.
 - [ ] Measure enqueue-path duration with a deliberately slow writer and assert the hook does not wait for persistence.
 - [ ] Run: `uv run pytest tests/pilot/test_capture_hook.py tests/pilot/test_pilot_service.py tests/agent/test_hook_composite.py -q`
 - [ ] Commit: `git add nanobot/pilot/capture.py nanobot/pilot/service.py nanobot/pilot/metrics.py tests/pilot nanobot/agent/hook.py nanobot/cli/commands.py`

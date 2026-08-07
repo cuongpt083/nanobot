@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from nanobot import __version__
 from nanobot.bus.events import OutboundMessage
 from nanobot.command.router import CommandContext, CommandRouter, normalize_command_text
+from nanobot.pilot.types import ConsentState
 from nanobot.utils.helpers import build_status_content
 from nanobot.utils.restart import set_restart_notice_to_env
 from nanobot.utils.workspace_prompts import initialize_workspace_prompt
@@ -174,6 +175,22 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "List, approve, deny or revoke pairing requests.",
         "shield",
         "[list|approve <code>|deny <code>|revoke <user_id>]",
+        accepts_args=True,
+    ),
+    BuiltinCommandSpec(
+        "/consent",
+        "Manage consent",
+        "View or toggle product capture and training consent.",
+        "shield-check",
+        "[status|product on|off|training on|off]",
+        accepts_args=True,
+    ),
+    BuiltinCommandSpec(
+        "/privacy",
+        "Manage privacy",
+        "Request privacy data deletion.",
+        "trash-2",
+        "[delete]",
         accepts_args=True,
     ),
 )
@@ -1018,6 +1035,82 @@ def build_help_text() -> str:
     return "\n".join(lines)
 
 
+def _command_reply(ctx: CommandContext, content: str) -> OutboundMessage:
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=content,
+        metadata=dict(ctx.msg.metadata or {}),
+    )
+
+
+async def cmd_consent(ctx: CommandContext) -> OutboundMessage:
+    text = (ctx.args or "").strip().lower()
+    pilot_service = getattr(ctx.loop, "pilot_service", None)
+    if not pilot_service:
+        return _command_reply(ctx, "Pilot service is not enabled.")
+
+    sender_id = ctx.msg.sender_id or ctx.msg.chat_id
+    user_pseudo = pilot_service.hasher.hash_identity("user", f"{ctx.msg.channel}:{sender_id}")
+    current = pilot_service.store.get_consent(user_pseudo)
+
+    now_ms = int(time.time() * 1000)
+    p_allowed = current.product_allowed if current else False
+    t_allowed = current.training_allowed if current else False
+
+    if text == "status" or not text:
+        msg = f"🔒 **Consent Status**:\n- Product capture: {'ON' if p_allowed else 'OFF'}\n- Training usage: {'ON' if t_allowed else 'OFF'}"
+        return _command_reply(ctx, msg)
+
+    if text in ("product on", "product off"):
+        new_p = text.endswith("on")
+        new_state = ConsentState(
+            user_pseudonym=user_pseudo,
+            product_allowed=new_p,
+            product_version="pilot-product-v1",
+            training_allowed=t_allowed,
+            training_version="pilot-training-v1",
+            created_at_ms=current.created_at_ms if current else now_ms,
+            updated_at_ms=now_ms,
+        )
+        pilot_service.store.save_consent(new_state)
+        return _command_reply(ctx, f"Product capture updated to: {'ON' if new_p else 'OFF'}")
+
+    if text in ("training on", "training off"):
+        new_t = text.endswith("on")
+        new_state = ConsentState(
+            user_pseudonym=user_pseudo,
+            product_allowed=p_allowed,
+            product_version="pilot-product-v1",
+            training_allowed=new_t,
+            training_version="pilot-training-v1",
+            created_at_ms=current.created_at_ms if current else now_ms,
+            updated_at_ms=now_ms,
+        )
+        pilot_service.store.save_consent(new_state)
+        return _command_reply(ctx, f"Training usage updated to: {'ON' if new_t else 'OFF'}")
+
+    return _command_reply(ctx, "Usage: `/consent [status|product on|product off|training on|training off]`")
+
+
+async def cmd_privacy(ctx: CommandContext) -> OutboundMessage:
+    text = (ctx.args or "").strip().lower()
+    pilot_service = getattr(ctx.loop, "pilot_service", None)
+    if not pilot_service:
+        return _command_reply(ctx, "Pilot service is not enabled.")
+
+    if text == "delete":
+        sender_id = ctx.msg.sender_id or ctx.msg.chat_id
+        user_pseudo = pilot_service.hasher.hash_identity("user", f"{ctx.msg.channel}:{sender_id}")
+        res = pilot_service.store.delete_by_pseudonym(user_pseudo)
+        return _command_reply(
+            ctx,
+            f"🗑️ Privacy deletion completed: {res['turn_count']} turns, {res['artifact_count']} artifacts removed.",
+        )
+
+    return _command_reply(ctx, "Usage: `/privacy delete`")
+
+
 def register_builtin_commands(router: CommandRouter) -> None:
     """Register the default set of slash commands."""
     router.priority("/stop", cmd_stop)
@@ -1046,3 +1139,7 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/help", cmd_help)
     router.exact("/pairing", cmd_pairing)
     router.prefix("/pairing ", cmd_pairing)
+    router.exact("/consent", cmd_consent)
+    router.prefix("/consent ", cmd_consent)
+    router.exact("/privacy", cmd_privacy)
+    router.prefix("/privacy ", cmd_privacy)

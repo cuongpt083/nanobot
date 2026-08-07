@@ -1643,6 +1643,11 @@ def replay_transcript_to_ui_messages(
         turn_fields: dict[str, Any] | None = None,
         created_at_ms: int | None = None,
     ) -> None:
+        """Legacy transcript replay: fold a reasoning_delta event into messages.
+
+        Retained solely for replay of existing session transcripts. Not used
+        for new turns; the live WebUI stream silently drops reasoning events.
+        """
         turn_fields = turn_fields or {}
         for i in range(len(prev) - 1, -1, -1):
             candidate = prev[i]
@@ -1748,12 +1753,22 @@ def replay_transcript_to_ui_messages(
             return
 
     def close_reasoning(prev: list[dict[str, Any]]) -> None:
+        """Legacy transcript replay: clear the streaming flag on reasoning.
+
+        Retained solely for replay of existing session transcripts. Not used
+        for new turns; the live WebUI stream silently drops reasoning events.
+        """
         for i in range(len(prev) - 1, -1, -1):
             if prev[i].get("reasoningStreaming"):
                 prev[i] = {**prev[i], "reasoningStreaming": False}
                 return
 
     def is_reasoning_only_placeholder(m: dict[str, Any]) -> bool:
+        """Legacy transcript replay: check if a message is a reasoning-only placeholder.
+
+        Retained solely for replay of existing session transcripts. Not used
+        for new turns; the live WebUI stream silently drops reasoning events.
+        """
         return (
             m.get("role") == "assistant"
             and m.get("kind") != "trace"
@@ -1768,6 +1783,11 @@ def replay_transcript_to_ui_messages(
         return bool(m and m.get("kind") == "trace")
 
     def prune_reasoning_only() -> None:
+        """Legacy transcript replay: remove reasoning-only placeholders from the message list.
+
+        Retained solely for replay of existing session transcripts. Not used
+        for new turns; the live WebUI stream silently drops reasoning events.
+        """
         nonlocal messages
         kept: list[dict[str, Any]] = []
         for i, m in enumerate(messages):

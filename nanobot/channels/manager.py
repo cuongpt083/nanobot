@@ -816,6 +816,9 @@ class ChannelManager:
         """Send one outbound message without retry policy."""
         event = outbound_event_from_message(msg)
         show_reasoning = getattr(channel, "show_reasoning", True)
+        # permits_event runs before sanitize intentionally: we reject reasoning
+        # events (when show_reasoning is False) before any content processing or
+        # metrics/instrumentation that would otherwise touch reasoning payloads.
         if not self.presentation_policy.permits_event(event, show_reasoning):
             return
 
