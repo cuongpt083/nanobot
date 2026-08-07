@@ -26,7 +26,7 @@ scripts/pilot_curate.py (Consent filter + Deduplication + Quality heuristics)
 Run `scripts/pilot_export.py` to read turns from the SQLite store. Cursor state is saved to `~/.nanobot/pilot/export_cursor.json` for incremental exports.
 
 ```bash
-uv run python scripts/pilot_export.py --db-path ~/.nanobot/pilot_events.db --output ~/.nanobot/pilot/exported_turns.jsonl
+uv run python3 scripts/pilot_export.py --db-path ~/.nanobot/pilot_events.db --output ~/.nanobot/pilot/exported_turns.jsonl
 ```
 
 ## Step 2: Curating & Splitting Dataset
@@ -34,7 +34,7 @@ uv run python scripts/pilot_export.py --db-path ~/.nanobot/pilot_events.db --out
 Run `scripts/pilot_curate.py` to filter `training_eligible == True` turns, deduplicate by `turn_id`, calculate quality metrics, and split deterministically (`random_state=42`).
 
 ```bash
-uv run python scripts/pilot_curate.py --input ~/.nanobot/pilot/exported_turns.jsonl --output-dir ~/.nanobot/pilot/curated
+uv run python3 scripts/pilot_curate.py --input ~/.nanobot/pilot/exported_turns.jsonl --output-dir ~/.nanobot/pilot/curated
 ```
 
 ## Data Governance & Privacy

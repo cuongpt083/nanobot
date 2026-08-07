@@ -16,13 +16,13 @@ This guide details the fine-tuning process for `Qwen/Qwen3-4B-Instruct` using QL
 
 2. **Run QLoRA Training:**
    ```bash
-   uv run python scripts/pilot_finetune.py --config scripts/pilot_finetune_config.yaml
+   uv run python3 scripts/pilot_finetune.py --config scripts/pilot_finetune_config.yaml
    ```
 
 3. **Convert to GGUF and Quantize:**
    ```bash
    # Convert merged HF model to FP16 GGUF
-   python ~/.nanobot/llama.cpp/convert.py /tmp/qwen3-4b-pilot-merged/ \
+   python3 ~/.nanobot/llama.cpp/convert.py /tmp/qwen3-4b-pilot-merged/ \
        --outfile /tmp/qwen3-4b-pilot-fp16.gguf \
        --outtype f16
 

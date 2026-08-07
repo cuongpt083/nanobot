@@ -15,5 +15,5 @@ This document tracks quality, cost, and latency evaluation metrics for the Qwen3
 ## Running Evaluation Script
 
 ```bash
-uv run python scripts/pilot_evaluate.py --test-set ~/.nanobot/pilot/curated/test.jsonl --report ~/.nanobot/pilot/evaluation_results.jsonl
+uv run python3 scripts/pilot_evaluate.py --test-set ~/.nanobot/pilot/curated/test.jsonl --report ~/.nanobot/pilot/evaluation_results.jsonl
 ```
