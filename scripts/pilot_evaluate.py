@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluation benchmarks script for SLM vs Teacher LLM outputs."""
+"""Evaluation benchmarks script for SLM vs Teacher LLM outputs (Phase A & B)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import argparse
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 def compute_exact_match(target: str, prediction: str) -> float:
@@ -58,13 +58,18 @@ def evaluate_dataset(
     input_file: Path | str,
     output_report: Path | str = "~/.nanobot/pilot/evaluation_results.jsonl",
 ) -> dict[str, Any]:
-    """Evaluate SLM vs expected outputs on held-out dataset."""
+    """Evaluate SLM vs expected outputs on held-out dataset and compute Phase A value gate decision."""
     input_path = Path(input_file).expanduser()
     output_path = Path(output_report).expanduser()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not input_path.exists():
-        res = {"samples_evaluated": 0, "exact_match": 0.0, "rouge_l": 0.0}
+        res = {
+            "samples_evaluated": 0,
+            "exact_match": 0.0,
+            "rouge_l": 0.0,
+            "phase_a_decision": "inconclusive",
+        }
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(res, f)
         return res
@@ -77,7 +82,12 @@ def evaluate_dataset(
                 samples.append(json.loads(line))
 
     if not samples:
-        res = {"samples_evaluated": 0, "exact_match": 0.0, "rouge_l": 0.0}
+        res = {
+            "samples_evaluated": 0,
+            "exact_match": 0.0,
+            "rouge_l": 0.0,
+            "phase_a_decision": "inconclusive",
+        }
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(res, f)
         return res
@@ -95,11 +105,20 @@ def evaluate_dataset(
     em_avg = em_total / count
     f1_avg = f1_total / count
 
+    decision: Literal["go", "no_go", "inconclusive"]
+    if count < 10:
+        decision = "inconclusive"
+    elif em_avg >= 0.7 and f1_avg >= 0.6:
+        decision = "go"
+    else:
+        decision = "no_go"
+
     metrics = {
         "timestamp_ms": int(time.time() * 1000),
         "samples_evaluated": count,
         "exact_match": em_avg,
         "rouge_l": f1_avg,
+        "phase_a_decision": decision,
     }
 
     with open(output_path, "a", encoding="utf-8") as f:
@@ -115,7 +134,7 @@ def main() -> None:
     args = parser.parse_args()
 
     res = evaluate_dataset(input_file=args.test_set, output_report=args.report)
-    print(f"Evaluated {res['samples_evaluated']} samples: Exact Match={res['exact_match']:.4f}, ROUGE-L={res['rouge_l']:.4f}")
+    print(f"Evaluated {res['samples_evaluated']} samples: Exact Match={res['exact_match']:.4f}, ROUGE-L={res['rouge_l']:.4f}, Decision={res['phase_a_decision']}")
 
 
 if __name__ == "__main__":

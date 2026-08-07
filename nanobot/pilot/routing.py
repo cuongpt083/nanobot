@@ -39,6 +39,7 @@ class RoutingInput:
     content: str
     media_types: tuple[str, ...] = ()
     available_tools: tuple[str, ...] = ()
+    required_tool_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,20 +58,17 @@ def route_turn(
     config: Config | PilotRoutingConfig | PilotConfig | None = None,
     circuit: Any | None = None,
 ) -> RoutingDecision:
-    """Classify an inbound turn deterministically into a RouteClass and preset targets.
-
-    Classification uses normalized text length, keyword/shape patterns, media presence,
-    and available tools. The reason_code is guaranteed to be a fixed enum-like string.
-    """
+    """Classify an inbound turn deterministically into a RouteClass and preset targets."""
     pilot_cfg = getattr(config, "pilot", config) if config is not None else None
     routing_cfg = getattr(pilot_cfg, "routing", pilot_cfg) if pilot_cfg is not None else None
 
     content_strip = input_data.content.strip()
+    tools_to_check = input_data.required_tool_names if input_data.required_tool_names else input_data.available_tools
 
-    # 1. Tool-heavy check
-    if any(t in _HEAVY_TOOL_NAMES for t in input_data.available_tools) or len(input_data.available_tools) > 3:
+    # 1. Tool-heavy check based on required/available tools
+    if any(t in _HEAVY_TOOL_NAMES for t in tools_to_check) or len(tools_to_check) > 3:
         route_class: RouteClass = "tool_heavy"
-        reason_code = "TOOL_HEAVY_AVAILABLE"
+        reason_code = "TOOL_HEAVY_AVAILABLE" if not input_data.required_tool_names else "TOOL_HEAVY_REQUIRED"
     # 2. Math/Logic check
     elif _MATH_LOGIC_PATTERN.search(content_strip):
         route_class = "reasoning"
@@ -102,7 +100,11 @@ def route_turn(
 
         threshold = getattr(student_cfg, "complexity_threshold", 0.5)
         classifier = TaskComplexityClassifier(threshold=threshold)
-        decision_kind, _ = classifier.classify(content_strip, list(input_data.available_tools))
+        decision_kind, _ = classifier.classify(
+            content_strip,
+            required_tools=list(tools_to_check),
+            has_media=bool(input_data.media_types),
+        )
         if decision_kind == "simple":
             route_class = "student"
             reason_code = f"{reason_code}_STUDENT_ELIGIBLE"

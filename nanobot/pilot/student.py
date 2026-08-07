@@ -1,37 +1,65 @@
-"""Student SLM inference service using llama-cpp-python with fallback."""
+"""Student SLM inference service using llama-cpp-python."""
 
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 from typing import Any, Iterator
+
+from nanobot.pilot.distillation.registry import StudentModelResolver
+
+
+class StudentUnavailableError(Exception):
+    """Raised when the Student SLM model or inference engine is unavailable."""
 
 
 class StudentInferenceService:
-    """Thread-safe SLM inference service."""
+    """Thread-safe SLM inference service binding llama-cpp-python."""
 
     def __init__(
         self,
-        model_path: Path | str = "~/.nanobot/models/qwen3-4b-pilot-q5_k_m.gguf",
+        active_model_id: str = "qwen3-4b-pilot-q5_k_m",
         context_length: int = 4096,
+        resolver: StudentModelResolver | None = None,
     ) -> None:
-        self.model_path = str(Path(model_path).expanduser())
+        self.active_model_id = active_model_id
         self.context_length = context_length
+        self._resolver = resolver or StudentModelResolver()
         self._lock = threading.Lock()
         self._llama: Any = None
+        self._load_error: str | None = None
 
-        # Try importing llama_cpp
+        # Resolve path and try importing llama_cpp
         try:
-            from llama_cpp import Llama  # pyright: ignore[reportMissingImports]
+            model_path = self._resolver.resolve(self.active_model_id)
+            if model_path.exists():
+                from llama_cpp import Llama  # type: ignore[import-untyped,reportUnknownVariableType,reportMissingImports]
 
-            if Path(self.model_path).exists():
                 self._llama = Llama(
-                    model_path=self.model_path,
+                    model_path=str(model_path),
                     n_ctx=self.context_length,
                     verbose=False,
                 )
-        except Exception:
+            else:
+                self._load_error = f"Model file for {active_model_id!r} does not exist"
+        except Exception as err:
             self._llama = None
+            self._load_error = str(err)
+
+    @property
+    def is_available(self) -> bool:
+        """Return True if model is loaded and ready for inference."""
+        return self._llama is not None
+
+    def health_snapshot(self) -> dict[str, Any]:
+        """Return content-free health snapshot."""
+        return {
+            "status": "ok" if self.is_available else "degraded",
+            "active_model_id": self.active_model_id,
+            "context_length": self.context_length,
+            "is_available": self.is_available,
+            "queue_depth": 0,
+            "load_error": self._load_error if not self.is_available else None,
+        }
 
     def generate(
         self,
@@ -40,27 +68,23 @@ class StudentInferenceService:
         temperature: float = 0.7,
     ) -> dict[str, Any]:
         """Generate response text and token metrics."""
-        with self._lock:
-            if self._llama is not None:
-                output = self._llama(
-                    prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                )
-                text = output["choices"][0]["text"]
-                usage = output.get("usage", {"prompt_tokens": len(prompt) // 4, "completion_tokens": len(text) // 4})
-                return {
-                    "text": text,
-                    "usage": usage,
-                    "stop_reason": "stop",
-                }
+        if not self.is_available:
+            raise StudentUnavailableError(
+                f"Student model {self.active_model_id!r} unavailable: {self._load_error}"
+            )
 
-            # Fallback stub for environments without GGUF model binary
-            text = f"[SLM Fallback Response to: {prompt[:30]}]"
+        with self._lock:
+            output = self._llama(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            text = output["choices"][0]["text"]
+            usage = output.get("usage", {"prompt_tokens": 0, "completion_tokens": 0})
             return {
                 "text": text,
-                "usage": {"prompt_tokens": len(prompt) // 4, "completion_tokens": len(text) // 4},
-                "stop_reason": "stop",
+                "usage": usage,
+                "stop_reason": output["choices"][0].get("finish_reason", "stop"),
             }
 
     def generate_stream(
@@ -69,6 +93,34 @@ class StudentInferenceService:
         max_tokens: int = 512,
         temperature: float = 0.7,
     ) -> Iterator[dict[str, Any]]:
-        """Stream response chunks."""
-        res = self.generate(prompt, max_tokens=max_tokens, temperature=temperature)
-        yield {"content_delta": res["text"], "stop_reason": "stop", "usage": res["usage"]}
+        """Stream response chunks incrementally."""
+        if not self.is_available:
+            raise StudentUnavailableError(
+                f"Student model {self.active_model_id!r} unavailable: {self._load_error}"
+            )
+
+        with self._lock:
+            stream_output = self._llama(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True,
+            )
+            total_prompt_tokens = 0
+            total_completion_tokens = 0
+
+            for chunk in stream_output:
+                choice = chunk["choices"][0]
+                delta_text = choice.get("text", "")
+                if delta_text:
+                    total_completion_tokens += 1
+                    yield {"content_delta": delta_text, "stop_reason": None, "usage": None}
+
+            yield {
+                "content_delta": "",
+                "stop_reason": "stop",
+                "usage": {
+                    "prompt_tokens": total_prompt_tokens,
+                    "completion_tokens": total_completion_tokens,
+                },
+            }

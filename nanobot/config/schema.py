@@ -446,12 +446,14 @@ class PilotRetentionConfig(Base):
 
 class PilotStudentConfig(Base):
     enabled: bool = False
+    active_model_id: str = "qwen3-4b-pilot-q5_k_m"
     model_path: str = "~/.nanobot/models/qwen3-4b-pilot-q5_k_m.gguf"
     context_length: int = 4096
     max_tokens: int = 2048
     temperature: float = 0.7
     concurrent_instances: int = 1
     complexity_threshold: float = 0.5
+    teacher_preset: str = "deepseek-v4-flash"
     teacher_provider: str = "deepseek"
     llama_cpp_path: str = "~/.nanobot/llama.cpp/"
 

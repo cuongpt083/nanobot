@@ -1,21 +1,30 @@
-# SLM Distillation & Teacher-Student Architecture Plan
+# Layered Inference & SLM Distillation Architecture Plan
 
 > **Prerequisite:** The Pilot Exit Gate (defined in the consolidated plan, Part 4) must be passed before any work on this plan begins. This plan is a sub-plan of `docs/superpowers/plans/2026-08-07-pilot-consolidated-implementation-plan.md` (Part 5).
 >
-> **Exit gate verification (run before any task below):**
+> **Pilot exit gate verification (run before any task below):**
 > 1. Confirm that `PilotGate.state == "passed"` in the PilotService health snapshot.
-> 2. Confirm the SQLite pilot store has at least 100 training-eligible turns (`SELECT COUNT(*) FROM turns WHERE training_eligible = 1`).
-> 3. Run `pytest tests/pilot/ -k "gate or exit" -q` — all must pass.
-> If any check fails, stop and do not begin this plan.
+> 2. Run `pytest tests/pilot/ -k "gate or exit" -q` — all must pass.
+> If either check fails, stop and do not begin this plan.
+>
+> **Experimental data gate (before E.20–E.22 or any data-backed E.25 run):** Confirm the SQLite pilot
+> store has at least 100 training-eligible turns (`SELECT COUNT(*) FROM turns WHERE training_eligible = 1`).
+> This threshold permits pipeline experiments only; it is not evidence that a model is safe to activate.
 
-- [ ] Verify exit gate: confirm Part 4 is complete, store has ≥100 training-eligible rows, and Part 4 gate tests pass. If not, abort.
+- [ ] Verify the Pilot exit gate before all work. Separately verify ≥100 training-eligible rows before
+  E.20–E.22 or data-backed E.25. If the data gate is not met, E.27.1 and isolated E.23/E.24 engineering
+  may proceed, but export/training/evaluation automation must wait. Record that the 100-row threshold
+  authorizes experiments only; production activation requires the separate evidence gate below.
 
-**Goal:** Build a governed, observable data curation and fine-tuning pipeline from the SQLite pilot
-store, fine-tune Qwen3-4B-Instruct-2507 Q5_K_M as a primary student model, and deploy a
-teacher-student architecture where the SLM handles simple tasks independently and plans complex
-tasks under LLM teacher (DeepSeek V4 Flash) review. All long-running distillation work runs in the
-background and is observable and safely controllable from an authenticated WebUI operations surface
-unlocked via an interactive **Expert Mode** configuration toggle, eliminating manual `config.json` editing.
+**Goal:** First prove a layered inference runtime in which an independently deployable local student
+model handles narrowly eligible simple tasks and falls back deterministically to a configurable
+teacher preset for everything else. Measure quality, latency, fallback rate, and teacher-cost savings
+before investing in automated distillation. If that runtime demonstrates value, build a governed,
+observable data curation and fine-tuning pipeline from the SQLite pilot store, fine-tune the BF16
+`Qwen/Qwen3-4B-Instruct-2507` base through QLoRA, and convert the merged model to a Q5_K_M GGUF
+artifact for deployment. Long-running distillation work runs outside the chat path and is exposed
+through an authenticated operations surface. **Expert UI** is progressive disclosure only: it never
+enables backend services, grants mutation authority, changes consent, or activates a model.
 
 **Architecture:**
 
@@ -39,8 +48,7 @@ flowchart TD
     end
 
     subgraph Teacher[LLM Teacher]
-        DS[DeepSeek V4 Flash]
-        REVIEWER[Plan Review Service]
+        TEACHER[Configurable Teacher Preset]
     end
 
     subgraph Routing[Inference Router]
@@ -59,12 +67,10 @@ flowchart TD
     USER[User] --> ROUTER[Deterministic Model Router]
     ROUTER --> CLASSIFIER
     CLASSIFIER -- Simple task --> STUDENT
-    CLASSIFIER -- Complex task --> DS
-    CLASSIFIER -. Optional bounded preflight .-> STUDENT
-    STUDENT -- Private structured plan --> REVIEWER
-    REVIEWER -- Private memo only --> DS
+    CLASSIFIER -- Complex/tool/media task --> TEACHER
     STUDENT -- Simple answer --> USER
-    DS -- Final answer --> USER
+    STUDENT -. Typed failure/timeout .-> TEACHER
+    TEACHER -- Final answer --> USER
 
     USER -->|feedback| FEEDBACK[Feedback Service]
     FEEDBACK --> STORE
@@ -85,33 +91,53 @@ flowchart TD
     API --> AUDIT
 ```
 
-## Dependencies
+## Phased dependencies
 
 ```
-E.20 Data Curation ──► E.21 Format Conversion ──► E.22 Fine-tune Qwen3-4B-2507
+Phase A — prove layered inference value
+
+E.27.1 Registry/Resolver ─┬─► E.20 Governed Evaluation Snapshot
+                         └─► E.23 Base Student Inference ─► E.24 Simple-task Routing/Fallback
+                                      │                                  │
+                                      └──────────────────┬───────────────┘
+                                                         ▼
+                                          E.25 Runtime Evaluation ─► E.26 Telemetry
+                                                         │
+                                                         ▼
+                                              E.29a Read-only Overview
+
+Phase B — only after the layered-runtime value gate passes
+
+E.20 Curated Train/Validation/Test ─► E.21 Format Conversion ─► E.22 Fine-tune/Merge/Quantize
+                                                                       │
+                                                                       ▼
+                                                           E.25 Candidate Evaluation
                                                           │
                                                           ▼
-                                         E.27.1 Artifact Registry & Job Store
+                                         E.27.2 Coordinator/Activation Gates
                                                           │
                                                           ▼
-                                                   E.23 SLM Inference
-                                                          │
-                                              ┌───────────┼───────────┐
-                                              ▼           ▼           ▼
-                                         E.24 Teacher-   E.25         E.26
-                                         Student         Evaluation   Telemetry
-                                         Orchestrator
-                                              │             │           │
-                                              └─────────────┴───────────┘
-                                                            ▼
-                                         E.27.2 Pipeline Coordinator & Gates
-                                                            │
-                                                            ▼
-                                              E.28 Operations API & Controls
-                                                            │
-                                                            ▼
-                                              E.29 WebUI Operations Dashboard
+                                      E.28 Operations API ─► E.29b–E.29e Controls
 ```
+
+**Layered-runtime value gate:** Phase B automation and the full operations control plane do not begin
+until a base, non-fine-tuned student has been benchmarked against teacher-only routing on representative
+held-out traffic. The recorded decision must cover student answer quality, p50/p95 latency, time to
+first token, fallback/error rate, route coverage, teacher token/cost savings, and host resource use.
+An inconclusive or negative result stops the milestone without treating the pipeline scaffolding as a
+reason to continue.
+
+**Production activation evidence gate:** 100 eligible rows are enough to exercise export and training,
+but never enough by themselves to activate a candidate. Activation requires representative held-out
+coverage per supported route/language class, no leakage findings, a passing quality non-regression
+gate, bounded fallback/error regression, acceptable latency/resource use, and explicit operator
+approval. Store sample counts and uncertainty/effect-size evidence; do not encode a universal fixed
+row count as a substitute for coverage.
+
+**Phase gate enforcement:** E.27.1, E.23, E.24, E.26, and the non-training portion of E.20/E.25 may
+build the Phase A evidence path. Do not begin E.21, E.22, E.27.2, E.28 mutation controls, or
+E.29b–E.29e unless the immutable Phase A decision is `go`. E.29a remains read-only. A later code agent
+must treat this as an implementation prerequisite, not merely a release recommendation.
 
 ## Tech Stack
 
@@ -123,7 +149,8 @@ E.20 Data Curation ──► E.21 Format Conversion ──► E.22 Fine-tune Qwe
   preparation, fine-tuning, evaluation, conversion, and inference compatibility checks
 - Student model: a Q5_K_M GGUF registered under an opaque `ArtifactRegistry` model ID; its local
   location is server-private
-- DeepSeek V4 Flash API (teacher model)
+- A configurable tool-capable teacher preset; `deepseek-v4-flash` is the initial benchmark default,
+  not an architectural constant
 - Hugging Face `datasets` / local JSONL for fine-tuning data
 - `rouge-score` for ROUGE-L evaluation
 - `sentence-transformers` (all-MiniLM-L6-v2) for semantic similarity
@@ -141,27 +168,66 @@ tests, lint, and type checks pass.
 
 - `[x] [PLAN-DONE]` — the requirement has been reviewed and made implementation-ready in this plan.
 - `[ ] [IMPLEMENT]` — code/work remains; agents must not infer completion from a `[PLAN-DONE]` marker.
+- `[ ] [PARTIAL-SCAFFOLD]` — files and baseline tests exist, but the revised acceptance contract is
+  incomplete and no implementation checkbox should be treated as complete.
+- `[ ] [REWORK-REQUIRED]` — existing code materially conflicts with the revised contract and must be
+  corrected before extending it.
+- `[ ] [NOT-STARTED]` — no implementation matching the task contract exists yet.
 - `[NEW]` — a new implementation task introduced by the operations/WebUI expansion.
 - `[REVISED]` — an existing task whose implementation contract was materially changed; read it in full
   before extending an existing scaffold.
 
 | Task | Planning status | Implementation status | Agent filter |
 |---|---|---|---|
-| E.20 Data curation | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[REVISED]` |
-| E.21 Conversation format | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[REVISED]` |
-| E.22 Fine-tuning/quantization | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[REVISED]` |
-| E.23 Student inference | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[REVISED]` |
-| E.24 Teacher-student orchestration | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[REVISED]` |
-| E.25 Evaluation | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[REVISED]` |
-| E.26 Runtime telemetry | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[REVISED]` |
-| E.27 Background coordinator/lineage | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[NEW]` |
-| E.28 Operations API/events | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[NEW]` |
-| E.29 WebUI operations dashboard | `[x] [PLAN-DONE]` | `[ ] [IMPLEMENT]` | `[NEW]` |
+| E.20 Data curation | `[x] [PLAN-DONE]` | `[ ] [REWORK-REQUIRED]` | `[REVISED]` |
+| E.21 Conversation format | `[x] [PLAN-DONE]` | `[ ] [PARTIAL-SCAFFOLD]` | `[REVISED]` |
+| E.22 Fine-tuning/quantization | `[x] [PLAN-DONE]` | `[ ] [PARTIAL-SCAFFOLD]` | `[REVISED]` |
+| E.23 Student inference | `[x] [PLAN-DONE]` | `[ ] [REWORK-REQUIRED]` | `[REVISED]` |
+| E.24 Layered routing/fallback | `[x] [PLAN-DONE]` | `[ ] [REWORK-REQUIRED]` | `[REVISED]` |
+| E.25 Evaluation | `[x] [PLAN-DONE]` | `[ ] [PARTIAL-SCAFFOLD]` | `[REVISED]` |
+| E.26 Runtime telemetry | `[x] [PLAN-DONE]` | `[ ] [PARTIAL-SCAFFOLD]` | `[REVISED]` |
+| E.27 Background coordinator/lineage | `[x] [PLAN-DONE]` | `[ ] [NOT-STARTED]` | `[NEW]` |
+| E.28 Operations API/events | `[x] [PLAN-DONE]` | `[ ] [NOT-STARTED]` | `[NEW]` |
+| E.29a Layered inference overview | `[x] [PLAN-DONE]` | `[ ] [NOT-STARTED]` | `[NEW]` |
+| E.29b–E.29e Operations controls | `[x] [PLAN-DONE]` | `[ ] [NOT-STARTED]` | `[NEW]` |
 
 - [x] [PLAN-DONE] Reconciled the plan with the current provider factory, `LLMProvider`, pilot routing,
   gateway composition, privacy boundary, and existing scaffold status.
 - [x] [PLAN-DONE] Finalized background job, artifact-lineage, operations API, and WebUI requirements.
-- [ ] [IMPLEMENT] Verify the Pilot exit gate before beginning any E.20–E.29 implementation task.
+- [ ] [IMPLEMENT] Verify the Pilot exit gate before beginning any E.20–E.29 implementation task and
+  verify the separate experimental data gate before E.20–E.22 or data-backed E.25.
+
+### Current implementation audit (2026-08-07)
+
+- Baseline evidence: the 20 existing focused tests for E.20–E.26 pass, and Ruff passes for their
+  current implementation/test files. These tests predate the revised contracts below and therefore do
+  not complete any task or acceptance checkbox by themselves.
+- **E.20 — rework required:** exporter uses a turn-ID-only cursor, derives eligibility from current
+  consent, writes ineligible/incomplete rows, appends non-atomically, lacks manifests/split-group HMAC,
+  and retains raw tool trajectory values. The current test explicitly expects both eligible and
+  ineligible rows, contrary to the revised governed export contract.
+- **E.21 — partial scaffold:** JSONL conversion and basic length filtering exist, but tokenizer chat
+  template pinning/hashes, assistant-only masking evidence, immutable manifests, split-group removal,
+  and activation-ineligible reasoning artifacts are incomplete.
+- **E.22 — partial scaffold:** config loading and a mock/dry-run pipeline exist, but real QLoRA training,
+  clean merge, pinned llama.cpp conversion/quantization, registry staging, checkpoint recovery,
+  cancellation/quarantine, and final artifact verification are incomplete. Do not extend E.22 until
+  the Phase A value gate is `go`.
+- **E.23 — rework required:** provider/service scaffolds exist, but unavailable models currently emit a
+  fabricated successful fallback response, streaming is one buffered final chunk, token counts are
+  approximated, configuration uses a raw path, and pool/backpressure/cancellation/backend verification
+  are absent.
+- **E.24 — rework required:** route/provider scaffolds exist, but routing still treats globally
+  available tools as required tools, lacks the pure eligibility override and validated preset fallback,
+  and the orchestrator performs the now-deferred planning/review loop and direct step execution.
+- **E.25 — partial scaffold:** basic exact/overlap/similarity calculations exist, but immutable held-out
+  lineage, paired base/layered/teacher execution, coverage/uncertainty, value/activation gate artifacts,
+  private per-sample evidence, and bounded cost/resource comparison are incomplete.
+- **E.26 — partial scaffold:** basic student counters and health fields exist, but the revised bounded
+  metrics, backend/pool/queue/TTFT telemetry, `layered_inference` capability state, configuration docs,
+  and staging evidence are incomplete.
+- **E.27–E.29 — not started:** no matching distillation registry/coordinator, operations API/events, or
+  layered-inference/operations WebUI implementation and tests exist.
 
 To list only new scope, run:
 
@@ -206,6 +272,9 @@ rg -n '^[-] \[ \] \[IMPLEMENT\]|^- \[ \]' docs/superpowers/plans/2026-08-07-pilo
 - Runtime configuration is split into `hot_apply`, `drain_and_reload`, and `next_job_only` fields.
   The API validates and previews impact before apply. Every running job keeps its immutable config
   snapshot even if defaults change later.
+- UI disclosure, service availability, mutation authorization, student routing, and model activation
+  are independent states. An Expert UI preference may reveal advanced controls but has no authority to
+  change any of the other four states.
 - Resource guards cover free disk, RAM, VRAM, GPU temperature when available, queue capacity, teacher
   token/cost budget, and minimum training-eligible sample count. A guard pauses or rejects new work
   with a stable reason code and never takes down the chat path.
@@ -256,11 +325,10 @@ with this section, follow this section and amend the later bullet in the same pu
   only from explicit channel/request metadata or a bounded deterministic request heuristic. Existing
   `available_tools` is retained only for compatibility and must not by itself route a turn to
   `tool_heavy` or disqualify it from student routing.
-- **AgentRunner remains the sole tool executor.** The SLM may draft a structured plan, but it never
-  executes a tool and never directly asks the teacher provider to execute one. Complex turns retain
-  the original teacher runtime and normal `AgentRunner` tool loop. Any student planning memo is an
-  optional bounded private input to teacher review, never user-visible content or an authority to call
-  tools. See E.24 integration contract.
+- **AgentRunner remains the sole tool executor.** The SLM handles only requests classified as simple
+  and tool-free; it never executes a tool or asks the teacher provider to execute one. Complex, media,
+  reasoning, and tool-required turns go directly to the original teacher runtime and normal
+  `AgentRunner` tool loop. No student planning/review preflight exists in this milestone.
 - **Provider registration follows this repository.** Add a `student` `ProviderSpec` and a dedicated
   `student` branch in `nanobot/providers/factory.py::_make_provider_core`; do not add a nonexistent
   `PROVIDER_ALIAS_MAP` or `_generate`/`_generate_stream` abstraction. The provider implements the
@@ -268,6 +336,18 @@ with this section, follow this section and amend the later bullet in the same pu
 - **Configuration changes are transactional.** Parse configuration with Pydantic, persist through the
   existing configuration owner, validate referenced logical artifact IDs before committing, and reload
   only the affected service. A bad hot update leaves the last known-good config and student model live.
+- **Expert UI is not a capability or permission.** Store it as a bounded WebUI preference (local to the
+  browser unless a future authenticated user-preference owner exists). Never persist it through the SLM
+  operations config endpoint and never use it for server authorization. Server bootstrap remains the
+  authority for feature availability, enabled state, read access, and mutation access.
+- **Runtime configuration and data governance stay separate.** The layered-model UI may configure
+  student/teacher presets, routing thresholds, context/output limits, and model activation by opaque
+  artifact ID. Capture consent, retention, and redaction policy remain in their existing dedicated
+  privacy flows and cannot be changed by Expert UI or SLM operations controls.
+- **No model paths in WebUI/API.** Model import/registration is a server-local CLI or a separately
+  authorized native-host flow. Browser-visible configuration selects only verified logical artifact
+  IDs from `ArtifactRegistry`; local GGUF and toolchain paths are never returned to or accepted from
+  the generic browser surface.
 
 ---
 
@@ -589,7 +669,7 @@ only bounded sanitized diagnostics, and delete/quarantine partial staging output
 - Create: `tests/pilot/test_student.py`
 
 **Interfaces:**
-- `StudentInferenceService`: loads a GGUF model through `llama-cpp-python`, exposes
+- `StudentInferenceService`: loads a verified compatible GGUF model through `llama-cpp-python`, exposes
   `generate()` and true incremental `generate_stream()`, and reports the effective compute
   backend.
 - `StudentProvider`: wraps `StudentInferenceService` as a standard `LLMProvider` (alias `"student"`).
@@ -632,7 +712,9 @@ only bounded sanitized diagnostics, and delete/quarantine partial staging output
   `nanobot/providers/factory.py::_make_provider_core`.
 
 - [ ] Implement `StudentInferenceService` that:
-  - Loads the fine-tuned Qwen3-4B Q5_K_M GGUF model via `llama-cpp-python` `Llama` class.
+  - Loads a registry-verified Qwen3-4B-compatible Q5_K_M GGUF model via `llama-cpp-python` `Llama`
+    class. Phase A uses a non-fine-tuned baseline artifact; Phase B may activate a fine-tuned candidate
+    only after the production activation evidence gate passes.
   - Receives a resolved, server-private model path from a `StudentModelResolver` using
     `PilotStudentConfig.active_model_id`; config/API/WebUI only see the logical artifact ID. Expand
     and validate the path at that resolver boundary and do not expose it in provider errors or health
@@ -716,7 +798,7 @@ only bounded sanitized diagnostics, and delete/quarantine partial staging output
 - [ ] Run: `uv run ruff check nanobot/providers/student_provider.py nanobot/pilot/student.py tests/providers/test_student_provider.py tests/pilot/test_student.py`
 - [ ] Commit: `git add pyproject.toml nanobot/providers/student_provider.py nanobot/pilot/student.py tests/providers/test_student_provider.py tests/pilot/test_student.py && git commit -m "feat(pilot): add gpu-aware streaming slm inference"`
 
-### Task E.24 [REVISED]: Teacher-Student orchestration and task complexity classifier
+### Task E.24 [REVISED]: Layered student routing, deterministic fallback, and complexity classifier
 
 **Files:**
 - Create: `nanobot/pilot/orchestrator.py`
@@ -728,73 +810,19 @@ only bounded sanitized diagnostics, and delete/quarantine partial staging output
 - Modify: `nanobot/config/schema.py` (add/validate student routing configuration)
 - Modify: `nanobot/pilot/routing.py` (add a pure student-eligibility override)
 - Modify: `nanobot/agent/loop.py` only at the existing pilot routing admission point to apply the
-  override and install an optional private teacher-review memo
+  student-eligibility override
 
 **Interfaces:**
 - `TaskComplexityClassifier`: a pure, deterministic classifier returning a bounded score, class, and
   reason code; it does not call an LLM or inspect global tool registration.
-- `TeacherStudentOrchestrator`: prepares an optional private planning memo for a teacher turn. It does
-  not send a final answer, execute tools, mutate session history, or replace `AgentRunner`.
-- `StudentPlan` / `PlanReview`: strict, versioned structured schemas used only in the private
-  preflight path. Parse failures and unavailable preflight services degrade to the normal teacher turn.
+- `TeacherStudentOrchestrator`: resolves either the student runtime or the unchanged teacher runtime
+  from the pure routing decision. It does not issue a second review request, send a final answer,
+  execute tools, mutate session history, or replace `AgentRunner`.
 
-**Plan JSON schema (shared between SLM and teacher):**
-```python
-@dataclass(frozen=True)
-class StudentPlanStep:
-    index: int
-    objective: str
-    needs_teacher_tool: bool = False
-
-@dataclass(frozen=True)
-class StudentPlan:
-    schema_version: Literal[1]
-    task_summary: str
-    steps: list[StudentPlanStep]
-    estimated_complexity: Literal["simple", "moderate", "high"]
-    requires_teacher_tools: bool
-```
-The SLM generates JSON constrained to this schema. Validate maximum steps (8), each string length
-(500 characters), total serialized bytes (8 KiB), contiguous step indexes, and
-`requires_teacher_tools == any(step.needs_teacher_tool)`. Invalid output is discarded rather than
-repaired or sent to the teacher.
-
-```python
-@dataclass(frozen=True)
-class PlanReview:
-    schema_version: Literal[1]
-    decision: Literal["approved", "revisions", "rejected"]
-    issue_codes: list[Literal["MISSING_STEP", "UNSAFE", "TOOL_REQUIRED", "OFF_TOPIC", "INCORRECT"]]
-    revised_plan: StudentPlan | None = None
-```
-
-`PlanReview` does not carry a free-form reasoning field. Private source plan/review text is kept only
-in memory for the current turn and is not added to session history, pilot capture, logs, metrics,
-runtime events, audit records, or WebUI/API responses. Persist only aggregate decision/issue codes.
-
-**Teacher review system prompt template:**
-```
-You are a plan review service for a teacher-student AI system. The student model (SLM) has
-generated a plan for the user's request. Your job is to review the plan for correctness,
-completeness, and safety.
-
-User request: {user_request}
-
-Student plan:
-{plan_json}
-
-Respond with a JSON object containing:
-- "schema_version": 1
-- "decision": "approved" | "revisions" | "rejected"
-- "issue_codes": zero or more of "MISSING_STEP", "UNSAFE", "TOOL_REQUIRED", "OFF_TOPIC", "INCORRECT"
-- "revised_plan": a complete StudentPlan object only if decision is "revisions"; otherwise null
-
-Rules:
-- APPROVE if the plan is correct, complete, safe, and would produce a good answer.
-- REVISE only if a complete corrected structured plan can be supplied.
-- REJECT if the plan is fundamentally wrong, unsafe, or off-topic.
-- Do not include prose outside the JSON object or a free-form explanation.
-```
+Complex-task student planning and teacher review are deliberately deferred. They add one student call
+and one teacher-review call before the normal teacher turn, so they may increase latency and cost with
+no proven quality benefit. Reconsider them only after Phase A metrics show a specific failure mode that
+a bounded preflight is expected to improve and an experiment demonstrates a positive net effect.
 
 **Execution and integration contract:**
 
@@ -812,19 +840,15 @@ Rules:
    in `make_provider()` for the student provider, not merely recorded in `RoutingDecision.fallback_presets`.
    A student unavailable/context/timeout error therefore reaches the teacher through the normal
    `FallbackProvider` path and yields exactly one final answer.
-4. For every non-student route, the original teacher preset/runtime is unchanged. When
-   `review_complex_plans=True`, `TeacherStudentOrchestrator` may run a bounded preflight using a leased
-   student instance and a tool-free teacher review request. It returns either no memo or a validated
-   private memo. The normal teacher `AgentRunner` turn then remains the only component that invokes
-   tools and produces the final answer.
-5. A preflight timeout, schema failure, cancellation, or unavailable student/teacher is non-fatal to
-   the user turn: record one stable aggregate reason code and continue directly with the original
-   teacher runtime. No retries are performed by the preflight after the normal fallback chain starts.
+4. For every non-student route, including complex, reasoning, media, and tool-required requests, the
+   original teacher preset/runtime is unchanged. No student preflight or teacher-review request runs.
+5. `AgentRunner` remains the only component that invokes tools and produces the user-visible final
+   answer. The orchestrator records only bounded routing/fallback telemetry.
 
 The `AgentLoop` change is limited to its existing `_build_turn` pilot-routing block: construct
 `RoutingInput(required_tool_names=...)`, call the two pure routing functions, resolve the selected
-runtime, and attach an in-memory private preflight memo through the established turn-context/hook
-boundary. Do not add WebUI transport fields or direct tool execution to `AgentLoop`.
+runtime, and preserve the original decision metadata for telemetry. Do not add WebUI transport fields,
+review prompts, private memos, or direct tool execution to `AgentLoop`.
 
 **`PilotConfig` extension (in `nanobot/config/schema.py`):**
 ```python
@@ -845,10 +869,6 @@ class PilotStudentConfig(Base):
     n_ubatch: int = 128
     stream_queue_capacity: int = 32
     complexity_threshold: float = 0.5  # 0.0 = all to student, 1.0 = all to teacher
-    review_complex_plans: bool = False
-    preflight_timeout_seconds: float = 3.0
-    max_preflight_prompt_chars: int = 8_000
-    max_preflight_plan_bytes: int = 8_192
 
 class PilotConfig(Base):
     ... existing fields ...
@@ -859,6 +879,10 @@ that `student_preset` and `teacher_preset` exist, differ, student preset uses pr
 teacher preset is tool-capable, `active_model_id` resolves to a compatible registered artifact, numeric
 bounds are positive/safe, and `context_length >= max_tokens`. Paths to model files and llama.cpp tools
 belong only to server-private artifact/toolchain configuration, never to this WebUI-readable config.
+The current scaffold fields `model_path`, `teacher_provider`, and `llama_cpp_path` are not the final
+contract. Add a one-time validated migration to `active_model_id`/`teacher_preset` where unambiguous,
+emit a bounded deprecation warning, and fail with remediation when a path cannot be safely imported;
+never silently discard an existing operator configuration.
 
 **`complexity_threshold` behavior:**
 - The `TaskComplexityClassifier` produces a raw `complexity_score` float between 0.0 and 1.0 and a
@@ -875,7 +899,8 @@ belong only to server-private artifact/toolchain configuration, never to this We
   rewriting a string reason code.
 - [ ] Add and validate `PilotStudentConfig` as shown above. Add the `student` provider registry/factory
   path and student-specific deterministic teacher fallback chain; do not introduce a parallel provider
-  alias map.
+  alias map. Cover migration from the existing scaffold fields and ensure serialized WebUI/API payloads
+  cannot contain the legacy paths.
 - [ ] Implement `TaskComplexityClassifier`:
   - Heuristic rules with fixed `complexity_score` values:
     - Short messages (< 100 chars, no code blocks, no math symbols, no media) → 0.1
@@ -890,17 +915,12 @@ belong only to server-private artifact/toolchain configuration, never to this We
 - [ ] Implement `TeacherStudentOrchestrator`:
   - **Simple path:** select `StudentProvider` through the normal runtime resolver. A typed failure is
     handled by its teacher fallback chain; orchestration does not synthesize a response.
-  - **Complex preflight (off by default):** create a bounded `StudentPlan`, validate it, call the
-    configured teacher preset once with tools disabled to obtain a schema-constrained `PlanReview`, and
-    derive a private memo only from a valid approved/revised plan. The memo tells the normal teacher to
-    treat the draft as untrusted and independently verify it.
-  - **Normal execution:** invoke neither student nor teacher tools from the orchestrator. The normal
-    teacher `AgentRunner` turn receives the memo and remains responsible for all tool calls, retries,
-    session history, and the one user-visible final answer.
-  - Bound preflight to one student plan and one teacher review per turn; no revision loop. On any
-    failure, discard the memo and proceed with teacher-only execution.
-  - Mark all preflight requests non-capturable and exclude their content from session history; record
-    only duration, outcome, and fixed issue/fallback codes.
+  - **Teacher path:** send every non-eligible request directly to the original teacher runtime without
+    a student planning call or a separate teacher-review call.
+  - **Normal execution:** invoke neither student nor teacher tools from the orchestrator. The selected
+    `AgentRunner` runtime remains responsible for all tool calls, retries, session history, and the one
+    user-visible final answer.
+  - Record only bounded route, latency, health, and fallback codes; never record user content.
 - [ ] Write failing tests for:
   - Classification: simple Q&A scores 0.1 → `"simple"`; code blocks score 0.8 → `"complex"`;
     threshold equality is complex; a registry containing many tools does not become tool-heavy; an
@@ -910,13 +930,11 @@ belong only to server-private artifact/toolchain configuration, never to this We
     metadata and builds teacher fallback in the actual factory chain.
   - Config: missing/same presets, wrong provider, non-tool-capable teacher, invalid artifact, and
     unsafe numeric bounds fail validation without loading a model.
-  - Preflight: valid plan/review produces only a bounded in-memory memo; invalid JSON/schema/oversize,
-    student timeout, teacher timeout, review rejection, cancellation, and concurrent turns discard it
-    without changing the normal teacher route.
   - Integration: `AgentRunner` remains the only tool caller and only one final answer is delivered;
-    session/capture/log/event/metrics spies prove no plan/review content leaks.
+    complex/tool/media requests do not call the student; session/capture/log/event/metrics spies prove
+    no user content leaks through routing telemetry.
 - [ ] Run: `uv run pytest tests/pilot/test_orchestrator.py tests/pilot/test_complexity.py -q`
-- [ ] Commit: `git add nanobot/pilot/orchestrator.py nanobot/pilot/complexity.py tests/pilot/test_orchestrator.py tests/pilot/test_complexity.py nanobot/config/schema.py nanobot/pilot/routing.py nanobot/providers/registry.py nanobot/providers/factory.py nanobot/agent/loop.py && git commit -m "feat(pilot): add safe teacher-student routing and review"`
+- [ ] Commit: `git add nanobot/pilot/orchestrator.py nanobot/pilot/complexity.py tests/pilot/test_orchestrator.py tests/pilot/test_complexity.py nanobot/config/schema.py nanobot/pilot/routing.py nanobot/providers/registry.py nanobot/providers/factory.py nanobot/agent/loop.py && git commit -m "feat(pilot): add layered student routing and fallback"`
 
 ### Task E.25 [REVISED]: Evaluation benchmarks for SLM quality
 
@@ -927,6 +945,15 @@ belong only to server-private artifact/toolchain configuration, never to this We
 
 **Interfaces:**
 - `pilot_evaluate.py` runs the SLM and teacher on the held-out test set and reports quality/cost/latency metrics.
+
+**Two evaluation modes:**
+- **Phase A runtime-value benchmark:** compare an unmodified registered base student, teacher-only,
+  and layered routing on the same governed held-out snapshot. Produce an immutable `go|no_go|inconclusive`
+  decision artifact for the layered-runtime value gate. A `no_go` or `inconclusive` result prevents
+  E.22 automation and E.27.2–E.29e from starting, while preserving the teacher-only runtime.
+- **Phase B candidate benchmark:** compare each fine-tuned candidate with the active/base student and
+  teacher baseline. This mode supplies evidence to the production activation gate; completing training
+  never implies activation eligibility.
 
 **Evaluation protocol:**
 - Read only the immutable `test` split and validate its manifest/hash against the candidate model
@@ -970,13 +997,17 @@ belong only to server-private artifact/toolchain configuration, never to this We
   - Measures latency, tokens/second, and cost per 1000 requests (teacher cost from token counts and
     provider pricing; local SLM cost from configured host/GPU energy and amortization estimates, with
     `unknown` rather than zero when no local cost model is configured).
+  - Emits a versioned value-gate decision for Phase A and an activation-gate decision for Phase B.
+    Both include sample coverage and uncertainty; neither may infer success from a raw sample count.
 - [ ] Track metrics over time through E.27's immutable evaluation artifacts and registry; do not append
   unbounded, unaudited JSONL files outside the artifact lifecycle.
 - [ ] Write failing tests for: metric computation correctness (known strings produce expected
   ROUGE-L/similarity scores); test-split-only enforcement; paired prompt order; deterministic settings;
   coverage/inconclusive behavior; empty test set; missing fields/manifests; teacher evaluator schema
   failure; private per-sample artifact access; and aggregate-result content-leak scans.
-- [ ] Document baseline results in `docs/pilot/evaluation-results.md` (compare teacher-only vs. teacher-student vs. student-only) with a table of metrics per route class.
+- [ ] Document baseline results in `docs/pilot/evaluation-results.md` (compare teacher-only vs.
+  layered routing vs. student-only) with a table of metrics per route class and the explicit Phase A
+  `go|no_go|inconclusive` decision.
 - [ ] Run: `uv run pytest tests/pilot/test_evaluate.py -q` and `uv run ruff check scripts/pilot_evaluate.py`
 - [ ] Commit: `git add scripts/pilot_evaluate.py tests/pilot/test_evaluate.py docs/pilot/evaluation-results.md && git commit -m "feat(pilot): add slm evaluation benchmarks"`
 
@@ -992,6 +1023,9 @@ belong only to server-private artifact/toolchain configuration, never to this We
 **Interfaces:**
 - `PilotMetrics` gains student-specific counters and histograms.
 - `GET /api/pilot/health` gains a `student` section.
+- Existing bootstrap/settings capability metadata gains
+  `layered_inference: {available, enabled, status, read_allowed}` independently of the Phase B
+  `slm_operations` capability. E.29a must not require the distillation coordinator.
 
 - [ ] Add student-specific metrics to `PilotMetrics`:
   - `student_requests_total` by bounded `route_class` and `status` labels.
@@ -999,7 +1033,6 @@ belong only to server-private artifact/toolchain configuration, never to this We
     generation tokens/second histograms.
   - Current active requests, bounded inference queue depth/capacity, queue wait time, and rejected or
     cancelled request totals.
-  - Teacher review count by `approved`, `revisions`, and `rejected`; revision rounds histogram.
   - Student-to-teacher fallback total by stable reason code and teacher-only request total.
   - Input/output token totals and estimated teacher cost. Local SLM cost is reported as host resource
     consumption, not incorrectly hard-coded to zero.
@@ -1063,9 +1096,10 @@ belong only to server-private artifact/toolchain configuration, never to this We
 - **E.27.1 (foundation; prerequisite for E.23):** implement `types.py`, `store.py`, `registry.py`,
   their migrations/tests, server-private artifact resolution, and read-only resource snapshots. This
   gives E.23 a `StudentModelResolver` and gives E.20–E.22 immutable manifests a canonical owner.
-- **E.27.2 (coordination; after E.23–E.26):** implement `coordinator.py`, `stages.py`, resource locks,
-  stage adapters, activation gates, automatic triggers, and the operational documentation. E.28 begins
-  only after E.27.2 passes.
+- **E.27.2 (coordination; after E.23–E.26 and a Phase A `go` decision):** implement
+  `coordinator.py`, `stages.py`, resource locks, stage adapters, activation gates, and operational
+  documentation. Begin with manual triggers; automatic triggers remain disabled until repeated manual
+  runs demonstrate recovery and resource safety. E.28 mutation controls begin only after E.27.2 passes.
 
 **Store schema and invariants:**
 
@@ -1121,6 +1155,13 @@ capture snapshot ─► governed export ─► curate/split ─► conversation 
   - `gpu_exclusive`: fine-tune, merge, GGUF conversion/quantization when GPU-assisted, evaluation.
   - `model_reload`: activation and rollback after inference drain.
   Only compatible classes may overlap, and chat inference keeps configurable GPU headroom priority.
+- [ ] **E.27.2:** Run training, conversion, quantization, and evaluation workers in supervised child
+  processes rather than gateway threads. Native-library crashes, accelerator out-of-memory failures,
+  and worker cancellation must not terminate or wedge the gateway. Persist worker PID/attempt identity
+  privately, bound IPC payloads to content-free progress records, and recover orphaned attempts after
+  restart. Embedded `llama-cpp-python` remains acceptable for the low-concurrency Phase A inference
+  adapter, but production deployment must retain an interface boundary that permits a supervised
+  `llama-server` backend if benchmarked isolation/concurrency requires it.
 - [ ] **E.27.2:** Add stage adapters around E.20–E.25. Each adapter reports processed/total units, safe counters,
   throughput, elapsed time, ETA when statistically meaningful, checkpoint ID, and stable status code.
 - [ ] **E.27.2:** Persist stage-specific aggregate summaries:
@@ -1141,14 +1182,17 @@ capture snapshot ─► governed export ─► curate/split ─► conversation 
 - [ ] **E.27.2:** Implement cooperative pause, resume, cancel, and retry. Fine-tuning pause first writes and
   verifies a checkpoint; conversion/quantization cancellation quarantines partial outputs. Retrying
   an irreversible or non-idempotent step requires a new attempt and never overwrites prior artifacts.
-- [ ] **E.27.2:** Implement automatic triggers with safe defaults: minimum new eligible samples, optional cron
-  schedule, maximum one pipeline run at a time, cost/resource budgets, and a manual-only activation
-  default. Debounce bursts and record the trigger reason.
+- [ ] **E.27.2:** Implement manual triggers first with minimum new eligible samples, maximum one pipeline
+  run at a time, and cost/resource budgets. Add optional cron automation only after documented repeated
+  manual-run success; keep it disabled by default. Activation always remains manual by default.
+  Debounce bursts and record the trigger reason.
 - [ ] **E.27.2:** Implement dataset/model lineage and comparison. A promoted model records base model, training
   dataset, format policy, fine-tune config, quantization config, evaluation report, and predecessor.
-- [ ] **E.27.2:** Implement evaluation gates before activation: minimum sample coverage, no leakage findings,
-  maximum quality regression, maximum fallback/error-rate regression, latency/TTFT budget, and
-  required operator approval. A failed gate cannot be bypassed without an explicit audited override.
+- [ ] **E.27.2:** Implement the production activation evidence gate: representative per-route/language
+  sample coverage, uncertainty/effect-size evidence, no leakage findings, maximum quality regression,
+  maximum fallback/error-rate regression, latency/TTFT/resource budgets, and required operator
+  approval. The experimental 100-row threshold is never an activation criterion. A failed gate cannot
+  be bypassed without an explicit audited override.
 - [ ] **E.27.2:** Implement atomic activation with inference drain, startup smoke test, canary percentage, automatic
   rollback threshold, and retained previous known-good model. Failed activation restores the previous
   model without affecting the teacher path. Canary selection is deterministic per opaque turn ID using
@@ -1181,6 +1225,10 @@ capture snapshot ─► governed export ─► curate/split ─► conversation 
 - Modify: `nanobot/config/schema.py`
 
 **Read API:**
+- Reuse the existing authenticated WebUI capability/settings owner for discovery and enablement. It
+  exposes a Phase B `slm_operations` capability state even while disabled:
+  `unavailable|disabled|install_required|restart_required|initializing|ready|degraded`. Enabling the
+  capability is distinct from showing Expert UI and from granting mutation permission.
 - `GET /api/pilot/slm/overview` — current pipeline, capture, dataset, training, evaluation, inference,
   alerts, and active-model summary.
 - `GET /api/pilot/slm/jobs?cursor=&limit=&type=&state=` and
@@ -1192,18 +1240,24 @@ capture snapshot ─► governed export ─► curate/split ─► conversation 
 - `GET /api/pilot/slm/audit?cursor=&limit=` — bounded content-free operator action history.
 
 **Composition and lifecycle:**
+- Capability discovery and a safe disabled overview are available independently of coordinator
+  creation, avoiding a bootstrap loop where the browser needs a disabled API in order to enable it.
 - The gateway composition root creates `DistillationCoordinator` only after the Pilot exit gate,
-  `PilotService`, `ArtifactRegistry`, and `PilotSlmOperationsConfig.enabled` are available. It calls
-  `await coordinator.start()` before channels accept WebUI requests and `await coordinator.stop()`
-  before the capture/artifact stores close.
+  Phase A value gate, `PilotService`, `ArtifactRegistry`, required optional dependencies, and
+  `PilotSlmOperationsConfig.enabled` are available. It calls `await coordinator.start()` before
+  operations routes report `ready` and `await coordinator.stop()` before stores close. Chat channels
+  may start with operations in `initializing` or `degraded`; operations startup never blocks teacher
+  message delivery.
 - `ChannelManager` receives an optional coordinator dependency and passes it through
   `build_gateway_services()` to `GatewayHTTPHandler`; do not create a second coordinator per WebSocket
   connection or HTTP request. CLI/direct-agent modes without a gateway may create the same coordinator
   from one shared application lifecycle but expose no WebUI routes.
-- Bootstrap advertises only `slm_operations: {enabled, mutations_allowed}`. The browser must not infer
-  permission from local state; server routes remain authoritative. When unavailable, read endpoints
-  return a safe `disabled` snapshot and mutation endpoints return `404`/`403` without revealing paths
-  or internal dependency names.
+- Bootstrap advertises separate capability records:
+  `layered_inference: {available, enabled, status, read_allowed}` from E.26 and
+  `slm_operations: {available, enabled, status, read_allowed, mutations_allowed}` from E.28. The browser must
+  not infer permission from Expert UI or local state; server routes remain authoritative. When
+  unavailable, read endpoints return a safe bounded capability/disabled snapshot and mutation
+  endpoints return `404`/`403` without revealing paths or internal dependency names.
 
 **Mutation API:**
 - `POST /api/pilot/slm/pipelines/run` starts a full pipeline or selected safe stage range.
@@ -1211,7 +1265,8 @@ capture snapshot ─► governed export ─► curate/split ─► conversation 
   `expected_version`.
 - `POST /api/pilot/slm/config/validate` previews validation and operational impact without writing.
 - `PUT /api/pilot/slm/config` applies an allowlisted patch with `expected_version`; secrets and raw
-  filesystem paths are not readable or writable through this surface.
+  filesystem paths are not readable or writable through this surface. It does not enable the
+  operations capability, grant mutations, alter capture consent/redaction, or store Expert UI state.
 - `POST /api/pilot/slm/models/{model_id}/activate` supports canary parameters and requires a passing
   gate or an explicit override reason code.
 - `POST /api/pilot/slm/models/rollback` restores the previous known-good model.
@@ -1234,14 +1289,17 @@ capture snapshot ─► governed export ─► curate/split ─► conversation 
 Every mutation requires the action to be present in the coordinator's server-generated
 `allowed_actions`; the HTTP layer does not infer transitions itself.
 
-- [ ] Require the existing WebUI bearer token for every read. Mutations additionally require a local
-  browser request, `PilotSlmOperationsConfig.allow_mutations=True`, an idempotency key, and current
-  resource version. Return `401/403/409/422/429` distinctly.
+- [ ] Require the existing WebUI bearer token for every read. Mutations additionally require
+  `PilotSlmOperationsConfig.allow_mutations=True`, an idempotency key, and current resource version.
+  If local-only mutation policy is enabled, determine locality from the direct socket peer; honor
+  forwarded headers only behind an explicitly configured trusted proxy. Document behavior for LAN,
+  VPN, Caddy, and native-host access. Return `401/403/409/422/429` distinctly.
 - [ ] Add `PilotSlmOperationsConfig` under `PilotConfig.operations` with `enabled=False`,
   `allow_mutations=False`, history/page-size bounds, refresh/event rate limits, job concurrency,
   budgets, auto-trigger settings, canary defaults, and artifact retention. Validate that operations
-  cannot be enabled unless `PilotDistillationConfig.enabled` and the Pilot exit gate are both true;
-  security-sensitive defaults remain off.
+  cannot be enabled unless `PilotDistillationConfig.enabled`, the Pilot exit gate, and the Phase A
+  value gate are all satisfied; security-sensitive defaults remain off. Persist through the existing
+  atomic configuration owner instead of writing `config.json` from a parallel API implementation.
 - [ ] Parse request bodies through narrow typed schemas, cap body size, reject unknown fields, and
   map all errors to stable codes. Never serialize arbitrary exception objects.
 - [ ] Make commands idempotent and race-safe. Duplicate idempotency keys return the original result;
@@ -1254,16 +1312,20 @@ Every mutation requires the action to be present in the coordinator's server-gen
   POSIX/Windows paths.
 - [ ] Write API tests for authentication, local-only mutations, disabled controls, validation preview,
   idempotency, optimistic concurrency, pagination limits, rate limits, job actions, activation gate,
-  override audit, rollback, reconnect/refetch behavior, singleton lifecycle/start-stop ordering, and
-  unavailable coordinator.
+  override audit, rollback, capability-disabled discovery/enable/restart states, trusted-proxy locality,
+  reconnect/refetch behavior, singleton lifecycle/start-stop ordering, and unavailable coordinator.
 - [ ] Run: `uv run pytest tests/webui/test_slm_operations_api.py tests/webui/test_slm_operations_routes.py -q`
 - [ ] Run: `uv run ruff check nanobot/webui/slm_operations_api.py nanobot/webui/slm_operations_routes.py nanobot/webui/slm_operations_events.py`
 - [ ] Commit: `git add nanobot/cli/gateway_runtime.py nanobot/channels/manager.py nanobot/webui nanobot/config/schema.py nanobot/bus/runtime_events.py tests/webui && git commit -m "feat(webui): add authenticated slm operations api"`
 
-### Task E.29 [NEW]: WebUI SLM Operations dashboard and safe operator controls
+### Task E.29 [NEW]: Phased WebUI for layered inference and SLM operations
+
+E.29 is intentionally split into reviewable deliveries. E.29a belongs to Phase A and is read-only.
+E.29b–E.29e belong to Phase B and cannot begin until the layered-runtime value gate returns `go` and
+their corresponding E.27/E.28 backend contracts pass.
 
 **Files:**
-- Create: `webui/src/components/slm-operations/ExpertModeToggle.tsx`
+- Create: `webui/src/components/settings/ExpertUiToggle.tsx`
 - Create: `webui/src/components/slm-operations/SlmOperationsView.tsx`
 - Create: `webui/src/components/slm-operations/PipelineOverview.tsx`
 - Create: `webui/src/components/slm-operations/CaptureDatasetPanel.tsx`
@@ -1274,58 +1336,89 @@ Every mutation requires the action to be present in the coordinator's server-gen
 - Create: `webui/src/hooks/useSlmOperations.ts`
 - Create: `webui/src/lib/slm-operations-api.ts`
 - Create: `webui/src/lib/slm-operations-types.ts`
-- Create: `webui/src/tests/slm-operations-view.test.tsx`
-- Create: `webui/src/tests/slm-operations-controls.test.tsx`
-- Modify: `webui/src/components/settings/SettingsView.tsx` or the owning top-level navigation
+- Create: focused tests per E.29 delivery instead of one all-encompassing component suite
+- Modify: `webui/src/components/settings/SettingsView.tsx` and the owning top-level navigation
 - Modify: WebUI locale files for at least English and Vietnamese
 
-**Information architecture:**
-- **Expert Mode Toggle & Discovery Surface:** An explicit `[Expert Mode]` toggle switch in WebUI Settings (`Settings -> Advanced`). When OFF, displays a clean introductory feature card explaining local SLM inference & distillation. Toggling to ON enables the full SLM Operations control plane and visual configuration panel, automatically persisting settings via `PUT /api/pilot/slm/config` to `~/.nanobot/config.json` without requiring manual JSON editing.
-- **SLM & Student Model Visual Configurator:** Form controls for `GGUF Model Path`, `Context Length` (4096), `Max Output Tokens` (2048), `Temperature` (0.7), `Complexity Threshold` (0.5), `Teacher Fallback Provider` (DeepSeek V4 Flash), and `Data Consent & Redaction` toggles.
-- **Overview:** pipeline DAG with per-stage state/progress, active alerts, next scheduled run, active
-  model, current capture/dataset/training/evaluation/inference summaries, and last successful run.
+**Information architecture and authority boundaries:**
+- **Expert UI preference:** place the toggle under `Settings → Models → Layered AI` (or the existing
+  Capabilities surface), not the security-focused `Settings → Advanced`. It only reveals advanced
+  explanatory/configuration fields and is stored as a bounded browser preference. Toggling it never
+  calls `PUT /api/pilot/slm/config`, installs dependencies, starts the coordinator, grants mutation
+  access, enables student routing, changes consent/redaction, or activates a model.
+- **Capability discovery:** always show a small Layered AI capability card when the server advertises
+  `layered_inference` as available or installable. Enabling local inference support uses the existing
+  authenticated capability/settings owner and shows `install_required`, `restart_required`,
+  `initializing`, `ready`, or `degraded` explicitly. The Phase B `slm_operations` capability is enabled
+  separately after its value/backend gates pass. Both are separate from Expert UI and mutation
+  permission.
+- **Layered-model configuration:** select `student_preset`, `teacher_preset`, and a verified
+  `active_model_id` from server-provided options; configure context length, max output tokens,
+  temperature, concurrency/backend tuning, and complexity threshold within server-provided bounds.
+  Never display or accept a GGUF/toolchain filesystem path. Model import is CLI or an explicitly
+  authorized native-host flow. Consent, retention, and redaction remain in dedicated privacy surfaces.
+- **Overview:** active teacher/student presets, deterministic route distribution, fallback rate,
+  student health/backend, TTFT/latency/throughput, host resource use, value-gate decision, and data
+  freshness. Add the full pipeline DAG only after E.27.2 exists.
 - **Capture & Dataset:** eligible sample growth, capture/write/drop rates, redaction-rule counts,
-  export cursor freshness, curation rejection/deduplication, split sizes, token-length distributions,
-  dataset lineage, and leakage-scan/gate status. No row-level prompt, answer, or reasoning viewer.
+  export freshness, curation rejection/deduplication, split sizes, token-length distributions, dataset
+  lineage, and leakage-scan/gate status. No row-level prompt, answer, or reasoning viewer.
 - **Training:** active phase, epoch/step, loss curves, learning rate, throughput, ETA, checkpoints,
   GPU/RAM/VRAM/temperature, resource guard state, and sanitized failure remediation.
 - **Evaluation & Deployment:** side-by-side model versions, quality/latency/cost/fallback trends,
-  route-class breakdown, teacher preference, evaluation gates, canary status, activate and rollback.
-- **Inference:** backend/offload, model/quantization/context, pool utilization, queue depth, TTFT,
-  prompt/decode throughput, p50/p95 latency, cancellations/errors, route distribution, reviews,
-  revisions, and teacher fallbacks.
-- **Configuration & Audit:** typed configuration editor grouped by hot-apply/reload/next-job fields,
+  route-class coverage and uncertainty, evaluation gates, canary status, activate, and rollback.
+- **Configuration & Audit:** typed configuration grouped by hot-apply/reload/next-job impact,
   validation preview, diff confirmation, effective version, recent operator actions, and result codes.
 
-- [ ] Add an SLM Operations navigation item only when the bootstrap capability says the feature is
-  enabled. Read-only mode remains useful when mutations are disabled.
+**E.29a — capability discovery and read-only layered-runtime overview (Phase A):**
+- [ ] Add the Layered AI capability card, Expert UI preference, and read-only overview after E.23–E.26.
+  The navigation item appears when `available=true`; disabled/install/restart states lead to setup,
+  while `ready` opens the overview. Read-only mode remains useful when mutations are disabled.
+- [ ] Show active logical model ID/hash prefix, teacher/student preset names, backend/offload, pool/queue,
+  TTFT, p50/p95 latency, route coverage, fallback/error rate, estimated savings, and Phase A value-gate
+  status. Never expose local paths, prompts, answers, reasoning, identities, or raw errors.
+- [ ] Add loading/disabled/install-required/restart-required/initializing/empty/stale/error/read-only and
+  responsive/accessibility tests.
+- [ ] Commit E.29a independently: `feat(webui): add layered inference overview`.
+
+**E.29b — background job visibility and controls (Phase B):**
+- [ ] Add pipeline DAG, bounded job history, stage progress, resource guards, and run/pause/resume/
+  cancel/retry controls only after E.27.2 and the matching E.28 APIs pass.
+- [ ] Disable impossible actions from server-provided `allowed_actions`; handle `409` by presenting the
+  newer state and requiring reconfirmation. Service-impacting actions require a confirmation dialog
+  describing checkpoint behavior, fallback availability, and config version.
+- [ ] Commit E.29b independently: `feat(webui): add slm pipeline job controls`.
+
+**E.29c — model evaluation and deployment (Phase B):**
+- [ ] Add bounded model/version comparison, route-class coverage and uncertainty, evaluation evidence,
+  canary status, activate, and rollback. A failed or inconclusive gate is not visually represented as
+  deployable; audited override remains a distinct high-friction action.
+- [ ] Commit E.29c independently: `feat(webui): add slm evaluation and deployment controls`.
+
+**E.29d — typed configuration (Phase B):**
+- [ ] Render only server-allowlisted fields and verified artifact/preset choices. Use server-provided
+  types, ranges, allowed values, and operational impact. Show validation/diff preview before apply and
+  identify hot apply, student drain/reload, restart-required, or next-job-only behavior.
+- [ ] Do not include Expert UI state, operations enablement, mutation authorization, model paths,
+  consent, retention, or redaction in this patch surface.
+- [ ] Commit E.29d independently: `feat(webui): add typed slm configuration`.
+
+**E.29e — audit, charts, and operational polish (Phase B):**
+- [ ] Add content-free operator audit history and threshold alerts for capture drops, stale exports,
+  leakage failure, insufficient evidence, loss divergence, disk/RAM/VRAM pressure, overheating,
+  evaluation regression, high fallback rate, model down, and automatic rollback.
+- [ ] Downsample bounded time series and state their aggregation window. Meet keyboard navigation,
+  focus management, non-color status, reduced-motion, narrow-screen, and English/Vietnamese locale
+  requirements.
+- [ ] Commit E.29e independently: `feat(webui): complete slm operations observability`.
+
+**Shared client behavior and verification:**
 - [ ] Use REST for initial/reconnect snapshots and WebSocket events only to invalidate/refetch affected
-  entities. Poll at a bounded fallback interval with exponential backoff; pause polling when the page
-  is hidden and resume with a full snapshot.
-- [ ] Show stale-data and disconnected states explicitly. Never present the last cached state as live;
-  include server timestamp and snapshot age.
-- [ ] Add safe controls for run, pause, resume, cancel, retry, configuration apply, activate, canary,
-  and rollback. Destructive or service-impacting actions require a confirmation dialog summarizing
-  affected job/model, checkpoint behavior, fallback availability, and config version.
-- [ ] Disable impossible actions from the server-provided allowed-action set rather than reconstructing
-  the state machine in React. Handle `409` by showing the newer state and requiring reconfirmation.
-- [ ] Configuration fields use server-provided types, ranges, allowed values, and operational impact.
-  Show a validation/diff preview before apply and identify whether it is immediate, drains/reloads the
-  student, or affects only future jobs.
-- [ ] Add threshold-based visual alerts for capture drops, stale exports, leakage-scan failure,
-  insufficient samples, loss divergence, disk/RAM/VRAM pressure, GPU overheating, evaluation
-  regression, high fallback rate, model down, and automatic rollback. Alerts include stable reason
-  codes and documented remediation links, never raw errors.
-- [ ] Charts downsample bounded time series client-side or server-side and state their aggregation
-  window. Do not request unbounded metric history.
-- [ ] Meet keyboard navigation, focus management, non-color status indicators, reduced-motion, and
-  narrow-screen requirements. Provide English and Vietnamese strings for all new controls/statuses.
-- [ ] Add component tests for loading/empty/stale/error/read-only states, live progress updates,
-  reconnect/refetch, confirmation flows, validation errors, optimistic concurrency conflicts, gate
-  failure/override, rollback, bounded histories, privacy-safe rendering, accessibility, and responsive
-  layout.
-- [ ] Run: `cd webui && bun run test` and `cd webui && bun run build`.
-- [ ] Commit: `git add webui/src && git commit -m "feat(webui): add slm operations dashboard"`
+  entities. Poll with bounded exponential backoff, pause when hidden, and resume with a full snapshot.
+- [ ] Show stale/disconnected states and snapshot age; never present cached state as live.
+- [ ] Add focused tests in each delivery for privacy-safe rendering, bounded histories, reconnect,
+  optimistic conflicts, confirmation flows, accessibility, and responsive layout as applicable.
+- [ ] For every E.29 delivery, run `cd webui && bun run test` and `cd webui && bun run build`.
 
 ---
 
@@ -1337,32 +1430,38 @@ Every mutation requires the action to be present in the coordinator's server-gen
 | Fine-tuning format | E.21 | Format correctness, token count estimation |
 | Qwen3-4B fine-tuning | E.22 | LoRA structure, GGUF export, config validation |
 | SLM inference | E.23 | Prompt format, streaming, token counting, concurrent isolation |
-| Teacher-student orchestration | E.24 | Complexity classification, plan generation, teacher review, fallback |
+| Layered inference routing | E.24 | Complexity classification, strict eligibility, direct teacher routing, deterministic fallback |
 | Evaluation | E.25 | Metric computation, baseline results, cost/latency comparison |
 | Runtime telemetry | E.26 | Bounded metrics, GPU/backend health, queue and fallback visibility |
 | Background execution | E.27 | Persistent state machine, restart recovery, pause/cancel/retry, resource guards |
 | Dataset/model lineage | E.27 | Immutable manifests, hashes, checkpoints, gates, activation and rollback |
 | Operations API | E.28 | Auth/local-only mutation policy, idempotency, concurrency, privacy-safe payloads |
-| WebUI observability | E.29 | End-to-end pipeline, capture, dataset, training, evaluation and inference views |
-| WebUI intervention | E.28–E.29 | Validated config, job controls, canary activation, audited override and rollback |
+| Layered-runtime value gate | E.20, E.23–E.26 | Base-student benchmark, route coverage, quality/latency/cost/resource decision evidence |
+| WebUI Phase A observability | E.29a | Capability lifecycle and privacy-safe read-only layered inference overview |
+| WebUI Phase B observability | E.29b–E.29e | Pipeline, capture, dataset, training, evaluation, inference and audit views |
+| WebUI intervention | E.28, E.29b–E.29d | Validated config, job controls, activation evidence, audited override and rollback |
 
 ## Hardware Requirements
 
 | Stage | Recommended | Minimum |
 |-------|-------------|---------|
 | Fine-tuning (QLoRA) | 24 GB VRAM (RTX 3090/4090, A10G) | 16 GB VRAM (RTX 4060 Ti) |
-| SLM inference (Q5_K_M) | 8 GB RAM (CPU) or 6 GB VRAM (GPU) | 4 GB RAM (CPU, slower) |
+| SLM inference (Q5_K_M) | 8 GB RAM (CPU) or 6 GB VRAM (GPU) | 6 GB RAM lab-only; validate model + KV-cache headroom on target host |
 | Data curation | 4 GB RAM, any CPU | 2 GB RAM |
 | Evaluation | 8 GB RAM | 4 GB RAM |
 | Operations state/metrics | 5 GB free disk plus configured artifact budget | 1 GB free disk |
 
 ## Deferred Follow-on Items
 
-These are out of scope for this plan but should be considered after the teacher-student architecture is operational:
+These are out of scope for this plan but should be considered only after the layered runtime is
+operational and its relevant value/evidence gates pass:
 
 1. Multi-SLM ensemble routing (multiple student models, best-of-n selection).
 2. Automated data labeling and reward model training.
 3. SLM-specific tool fine-tuning (function calling capability).
-4. Statistically powered experimentation beyond the bounded canary rollout in E.27–E.29.
-5. Quantization-aware training (QAT) for even smaller model sizes.
-6. Remote multi-operator RBAC and approval workflows; E.28 mutations remain local-only.
+4. Complex-task student plan generation plus a separate teacher-review preflight. Require an explicit
+   hypothesis and benchmark showing net quality/cost/latency benefit before adding it.
+5. Automated distillation triggers before repeated manual-run recovery/resource evidence exists.
+6. Quantization-aware training (QAT) for even smaller model sizes.
+7. Statistically powered experimentation beyond the bounded canary rollout in E.27–E.29.
+8. Remote multi-operator RBAC and approval workflows; E.28 mutations remain local-only.

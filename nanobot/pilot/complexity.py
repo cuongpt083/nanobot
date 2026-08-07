@@ -1,4 +1,4 @@
-"""Task complexity classifier for Teacher-Student routing."""
+"""Task complexity classifier for Layered Inference routing."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ class TaskComplexityClassifier:
     def classify(
         self,
         message: str,
-        tools_available: list[str] | None = None,
+        required_tools: list[str] | None = None,
         has_media: bool = False,
     ) -> tuple[Literal["simple", "complex"], float]:
         text = message.strip()
@@ -29,7 +29,7 @@ class TaskComplexityClassifier:
             score = 0.9
         elif _CODE_PATTERN.search(text):
             score = 0.8
-        elif (tools_available and len(tools_available) > 3) or any(t in _HEAVY_TOOLS for t in (tools_available or [])):
+        elif required_tools and (len(required_tools) > 0 or any(t in _HEAVY_TOOLS for t in required_tools)):
             score = 0.85
         elif _MULTISTEP_PATTERN.search(text):
             score = 0.75

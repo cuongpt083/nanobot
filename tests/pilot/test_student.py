@@ -1,20 +1,19 @@
 """Tests for StudentInferenceService."""
 
-from nanobot.pilot.student import StudentInferenceService
+import pytest
+
+from nanobot.pilot.student import StudentInferenceService, StudentUnavailableError
 
 
-def test_student_inference_service_fallback() -> None:
-    service = StudentInferenceService(model_path="nonexistent.gguf")
-    res = service.generate(prompt="Hello")
+def test_student_inference_service_unavailable() -> None:
+    service = StudentInferenceService(active_model_id="nonexistent.gguf")
+    assert not service.is_available
+    snapshot = service.health_snapshot()
+    assert snapshot["status"] == "degraded"
+    assert snapshot["is_available"] is False
 
-    assert "text" in res
-    assert "usage" in res
-    assert res["stop_reason"] == "stop"
+    with pytest.raises(StudentUnavailableError):
+        service.generate(prompt="Hello")
 
-
-def test_student_inference_streaming() -> None:
-    service = StudentInferenceService(model_path="nonexistent.gguf")
-    chunks = list(service.generate_stream(prompt="Hello"))
-
-    assert len(chunks) == 1
-    assert "content_delta" in chunks[0]
+    with pytest.raises(StudentUnavailableError):
+        list(service.generate_stream(prompt="Hello"))
