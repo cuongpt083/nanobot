@@ -125,7 +125,9 @@ repo_gateway_pids() {
 stop_repo_gateway_processes() {
     local pid state
     local -a pids=()
-    mapfile -t pids < <(repo_gateway_pids)
+    while IFS= read -r pid || [[ -n "${pid}" ]]; do
+        [[ -n "${pid}" ]] && pids+=("${pid}")
+    done < <(repo_gateway_pids)
     ((${#pids[@]} > 0)) || return 0
 
     info "Stopping foreground gateway process(es): ${pids[*]}"
@@ -164,7 +166,9 @@ stop_gateway() {
     # Foreground launches have no state file, so discover only gateway processes
     # whose cwd/arguments belong to this checkout and stop those as a fallback.
     local -a foreground_pids=()
-    mapfile -t foreground_pids < <(repo_gateway_pids)
+    while IFS= read -r pid || [[ -n "${pid}" ]]; do
+        [[ -n "${pid}" ]] && foreground_pids+=("${pid}")
+    done < <(repo_gateway_pids)
     local runtime_status=0
     service_action stop || runtime_status=$?
     if ((${#foreground_pids[@]} > 0)); then
