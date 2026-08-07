@@ -44,19 +44,50 @@ Use --dry-run to print what would happen without installing or starting setup.
 EOF
 }
 
-find_python() {
-  for candidate in python3 python; do
-    if command -v "$candidate" >/dev/null 2>&1; then
-      if "$candidate" - <<'PY' >/dev/null 2>&1
+check_python_version() {
+  candidate="$1"
+  [ -n "$candidate" ] || return 1
+  executable=""
+  if command -v "$candidate" >/dev/null 2>&1; then
+    executable="$(command -v "$candidate")"
+  elif [ -x "$candidate" ]; then
+    executable="$candidate"
+  fi
+
+  if [ -n "$executable" ]; then
+    if "$executable" - <<'PY' >/dev/null 2>&1
 import sys
 raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
 PY
-      then
-        printf '%s\n' "$candidate"
-        return 0
-      fi
+    then
+      printf '%s\n' "$executable"
+      return 0
     fi
+  fi
+  return 1
+}
+
+find_python() {
+  if command -v uv >/dev/null 2>&1; then
+    uv_py="$(uv python find ">=3.11" 2>/dev/null || true)"
+    if [ -n "$uv_py" ]; then
+      res="$(check_python_version "$uv_py")" && { printf '%s\n' "$res"; return 0; }
+    fi
+  fi
+
+  for name in python3.13 python3.12 python3.11 python3 python; do
+    res="$(check_python_version "$name")" && { printf '%s\n' "$res"; return 0; }
   done
+
+  for path in \
+    /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3 \
+    /usr/local/bin/python3.13 /usr/local/bin/python3.12 /usr/local/bin/python3.11 /usr/local/bin/python3 \
+    "$HOME/.local/share/uv/python"/*/bin/python3 \
+    "$HOME/.pyenv/shims/python3"
+  do
+    res="$(check_python_version "$path")" && { printf '%s\n' "$res"; return 0; }
+  done
+
   return 1
 }
 
