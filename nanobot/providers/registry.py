@@ -147,6 +147,16 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         backend="openai_compat",
         is_direct=True,
     ),
+    # === Local Student SLM Provider =========================================
+    ProviderSpec(
+        name="student",
+        keywords=("student", "qwen3-4b-student"),
+        env_key="",
+        display_name="Student SLM",
+        backend="student",
+        is_direct=True,
+        is_local=True,
+    ),
 
     # === Azure OpenAI (direct API calls with API version 2024-10-21) =====
     ProviderSpec(

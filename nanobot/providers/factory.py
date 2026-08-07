@@ -143,7 +143,11 @@ def _make_provider_core(
     spec = setup.spec
     backend = setup.backend
 
-    if backend == "openai_codex":
+    if backend == "student":
+        from nanobot.providers.student_provider import StudentProvider
+
+        provider = StudentProvider()
+    elif backend == "openai_codex":
         from nanobot.providers.openai_codex_provider import OpenAICodexProvider
 
         provider = OpenAICodexProvider(

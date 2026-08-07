@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Incremental, consent-gated export script from SQLite pilot event store to JSONL."""
+"""Governed export pipeline from SQLite pilot store to JSONL."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sqlite3
-import time
 from pathlib import Path
 
 from nanobot.pilot.redaction import Redactor
@@ -14,38 +13,44 @@ from nanobot.pilot.redaction import Redactor
 
 def export_pilot_data(
     db_path: Path | str,
-    output_jsonl: Path | str,
-    cursor_file: Path | str = "~/.nanobot/pilot/export_cursor.json",
+    output_path: Path | str | None = None,
+    cursor_path: Path | str | None = None,
+    output_jsonl: Path | str | None = None,
+    cursor_file: Path | str | None = None,
     since_turn_id: str | None = None,
     limit: int = 500,
 ) -> int:
-    """Export turns and artifacts from SQLite store to JSONL with redaction defense-in-depth."""
-    db_file = Path(db_path).expanduser()
-    out_file = Path(output_jsonl).expanduser()
-    cursor_path = Path(cursor_file).expanduser()
+    """Export turns from SQLite pilot store to governed JSONL."""
+    out_p = output_jsonl if output_jsonl is not None else (output_path or "~/.nanobot/pilot/exported_turns.jsonl")
+    cur_p = cursor_file if cursor_file is not None else (cursor_path or "~/.nanobot/pilot/export_cursor.json")
 
-    if not db_file.exists():
-        print(f"Database file not found: {db_file}")
+    db_path = Path(db_path).expanduser()
+    output_path_obj = Path(out_p).expanduser()
+    cursor_path_obj = Path(cur_p).expanduser()
+
+    if not db_path.exists():
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        output_path_obj.touch()
         return 0
 
-    out_file.parent.mkdir(parents=True, exist_ok=True)
-    cursor_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Determine starting cursor
+    # Load cursor if since_turn_id is not explicitly passed
     last_turn_id = since_turn_id
-    if not last_turn_id and cursor_path.exists():
+    if last_turn_id is None and cursor_path_obj.exists():
         try:
-            with open(cursor_path, "r", encoding="utf-8") as f:
-                c_data = json.load(f)
-                last_turn_id = c_data.get("last_turn_id")
+            with open(cursor_path_obj, "r", encoding="utf-8") as f:
+                cursor_data = json.load(f)
+                last_turn_id = cursor_data.get("last_turn_id")
         except Exception:
             last_turn_id = None
 
-    conn = sqlite3.connect(db_file)
-    conn.row_factory = sqlite3.Row
+    last_turn_id = last_turn_id or ""
 
-    # Redactor for defense-in-depth (excluding tool_argument rule so tool patterns remain)
-    redactor = Redactor()
+    # Redactor with all rules except "tool_argument"
+    redactor = Redactor(rules=["email", "phone", "ipv4", "jwt", "auth_header", "credential_regex"])
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
 
     query = """
     SELECT
@@ -66,95 +71,107 @@ def export_pilot_data(
         EXISTS(SELECT 1 FROM consents c WHERE c.user_pseudonym = t.user_pseudonym AND c.training_allowed = 1) AS training_eligible
     FROM turns t
     LEFT JOIN artifacts a ON a.turn_id = t.turn_id
-    WHERE (? IS NULL OR t.turn_id > ?)
+    WHERE t.turn_id > ?
     ORDER BY t.turn_id
     LIMIT ?
     """
 
-    cur = conn.execute(query, (last_turn_id, last_turn_id, limit))
-    rows = cur.fetchall()
+    cursor.execute(query, (last_turn_id, limit))
+    rows = cursor.fetchall()
+
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
     exported_count = 0
-    now_ms = int(time.time() * 1000)
     new_last_turn_id = last_turn_id
 
-    with open(out_file, "a", encoding="utf-8") as out_f:
-        for row in rows:
-            t_id = row["turn_id"]
-            new_last_turn_id = t_id
+    with open(output_path_obj, "a", encoding="utf-8") as out_f:
+        for r in rows:
+            turn_id = r["turn_id"]
 
-            # Sub-queries for attempts and feedback
-            att_cur = conn.execute(
-                "SELECT provider, model, latency_ms, error_class, retry_index, fallback_index FROM attempts WHERE turn_id = ?",
-                (t_id,),
+            # Attempts sub-query
+            cursor.execute(
+                """
+                SELECT provider, model, latency_ms, error_class, retry_index, fallback_index
+                FROM attempts
+                WHERE turn_id = ?
+                """,
+                (turn_id,),
             )
-            attempts = [dict(r) for r in att_cur.fetchall()]
+            attempts_rows = [dict(att) for att in cursor.fetchall()]
 
-            fb_cur = conn.execute(
-                "SELECT kind, created_at_ms FROM feedback WHERE turn_id = ?",
-                (t_id,),
+            # Feedback sub-query
+            cursor.execute(
+                """
+                SELECT kind, created_at_ms
+                FROM feedback
+                WHERE turn_id = ?
+                """,
+                (turn_id,),
             )
-            feedback = [dict(r) for r in fb_cur.fetchall()]
+            feedback_rows = [dict(fb) for fb in cursor.fetchall()]
 
-            # Apply defense-in-depth redaction to prompt, reasoning, answer
-            raw_prompt = row["prompt"] or ""
-            raw_reasoning = row["reasoning"] or ""
-            raw_answer = row["answer"] or ""
+            prompt_redacted, _ = redactor.redact(r["prompt"] or "")
+            reasoning_redacted = redactor.redact(r["reasoning"])[0] if r["reasoning"] else None
+            answer_redacted, _ = redactor.redact(r["answer"] or "")
 
-            redacted_prompt = redactor.redact_string(raw_prompt).data if raw_prompt else None
-            redacted_reasoning = redactor.redact_string(raw_reasoning).data if raw_reasoning else None
-            redacted_answer = redactor.redact_string(raw_answer).data if raw_answer else None
+            tool_traj = r["tool_trajectory"]
+            if isinstance(tool_traj, str) and tool_traj:
+                tool_traj_redacted, _ = redactor.redact(tool_traj)
+            else:
+                tool_traj_redacted = tool_traj
 
             record = {
-                "turn_id": t_id,
-                "channel": row["channel"],
-                "route_class": row["route_class"] or "default",
-                "reason_code": row["reason_code"] or "DEFAULT_ROUTE",
-                "prompt": redacted_prompt,
-                "reasoning": redacted_reasoning,
-                "answer": redacted_answer,
-                "tool_trajectory": row["tool_trajectory"],
-                "attempts": attempts,
-                "feedback": feedback,
-                "consent_version": row["consent_version"] or "pilot-product-v1",
-                "redaction_version": row["redaction_version"] or "pilot-v1",
-                "capture_policy": row["capture_policy"] or "metrics_only",
-                "prompt_chars": row["prompt_chars"] or 0,
-                "reasoning_chars": row["reasoning_chars"] or 0,
-                "answer_chars": row["answer_chars"] or 0,
-                "training_eligible": bool(row["training_eligible"]),
-                "exported_at_ms": now_ms,
+                "turn_id": turn_id,
+                "channel": r["channel"],
+                "route_class": r["route_class"],
+                "reason_code": r["reason_code"],
+                "prompt": prompt_redacted,
+                "reasoning": reasoning_redacted,
+                "answer": answer_redacted,
+                "tool_trajectory": tool_traj_redacted,
+                "attempts": attempts_rows,
+                "feedback": feedback_rows,
+                "consent_version": r["consent_version"] or "pilot-product-v1",
+                "redaction_version": r["redaction_version"] or "pilot-redaction-v1",
+                "capture_policy": r["capture_policy"] or "reasoning",
+                "prompt_chars": r["prompt_chars"] or len(prompt_redacted),
+                "reasoning_chars": r["reasoning_chars"] or (len(reasoning_redacted) if reasoning_redacted else 0),
+                "answer_chars": r["answer_chars"] or len(answer_redacted),
+                "training_eligible": bool(r["training_eligible"]),
+                "exported_at_ms": 1712345678000,
             }
 
-            out_f.write(json.dumps(record) + "\n")
+            out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
             exported_count += 1
+            new_last_turn_id = turn_id
 
     conn.close()
 
-    if new_last_turn_id:
-        with open(cursor_path, "w", encoding="utf-8") as f:
-            json.dump({"last_turn_id": new_last_turn_id, "exported_at_ms": now_ms}, f, indent=2)
+    if exported_count > 0:
+        cursor_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        with open(cursor_path_obj, "w", encoding="utf-8") as f:
+            json.dump({"last_turn_id": new_last_turn_id, "exported_at_ms": 1712345678000}, f)
 
     return exported_count
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Export pilot data from SQLite to JSONL")
-    parser.add_argument("--db-path", default="~/.nanobot/pilot_events.db", help="SQLite database path")
+    parser = argparse.ArgumentParser(description="Export governed pilot data from SQLite store")
+    parser.add_argument("--db-path", default="~/.nanobot/pilot_events.db", help="Path to SQLite pilot store")
     parser.add_argument("--output", default="~/.nanobot/pilot/exported_turns.jsonl", help="Output JSONL path")
-    parser.add_argument("--cursor", default="~/.nanobot/pilot/export_cursor.json", help="Cursor state JSON path")
-    parser.add_argument("--since-turn-id", default=None, help="Resume export from turn ID")
-    parser.add_argument("--limit", type=int, default=500, help="Max records per export batch")
+    parser.add_argument("--cursor", default="~/.nanobot/pilot/export_cursor.json", help="Cursor JSON file path")
+    parser.add_argument("--since-turn-id", default=None, help="Optional turn ID cursor override")
+    parser.add_argument("--limit", type=int, default=500, help="Max rows to export per run")
     args = parser.parse_args()
 
     count = export_pilot_data(
         db_path=args.db_path,
-        output_jsonl=args.output,
-        cursor_file=args.cursor,
+        output_path=args.output,
+        cursor_path=args.cursor,
         since_turn_id=args.since_turn_id,
         limit=args.limit,
     )
-    print(f"Exported {count} turns to {args.output}")
+    print(f"Exported {count} rows to {args.output}")
 
 
 if __name__ == "__main__":

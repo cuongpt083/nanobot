@@ -96,6 +96,17 @@ def route_turn(
         route_class = "default"
         reason_code = "DEFAULT_GENERAL"
 
+    student_cfg = getattr(pilot_cfg, "student", None)
+    if student_cfg is not None and getattr(student_cfg, "enabled", False):
+        from nanobot.pilot.complexity import TaskComplexityClassifier
+
+        threshold = getattr(student_cfg, "complexity_threshold", 0.5)
+        classifier = TaskComplexityClassifier(threshold=threshold)
+        decision_kind, _ = classifier.classify(content_strip, list(input_data.available_tools))
+        if decision_kind == "simple":
+            route_class = "student"
+            reason_code = f"{reason_code}_STUDENT_ELIGIBLE"
+
     primary_preset = route_class
     fallback_presets: tuple[str, ...] = ()
 

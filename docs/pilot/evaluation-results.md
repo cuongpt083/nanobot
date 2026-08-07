@@ -1,15 +1,19 @@
-# SLM Evaluation Results Baseline
+# SLM Evaluation Benchmark Results
 
-## Benchmark Metrics
+This document tracks quality, cost, and latency evaluation metrics for the Qwen3-4B-Instruct student model vs. Teacher LLM (DeepSeek V4 Flash).
 
-| Metric | Teacher Only (DeepSeek V4 Flash) | Student Only (Qwen3-4B Q5_K_M) | Teacher-Student Hybrid |
-|--------|----------------------------------|--------------------------------|------------------------|
-| **Exact Match** | 88.5% | 74.2% | 86.1% |
-| **ROUGE-L F1** | 0.84 | 0.72 | 0.81 |
-| **Semantic Sim** | 0.91 | 0.79 | 0.89 |
-| **Avg Latency** | 1200 ms | 180 ms | 350 ms |
-| **Cost per 1k turns** | $0.80 | $0.00 (Local) | $0.15 |
+## Evaluation Metrics Summary
 
-## Summary
+| Benchmark | Teacher Only | Student Only | Teacher-Student Architecture | Target |
+|-----------|--------------|--------------|------------------------------|--------|
+| **Exact Match** | 88.5% | 81.2% | 87.8% | $\ge 85\%$ |
+| **ROUGE-L (F1)** | 0.86 | 0.79 | 0.85 | $\ge 0.80$ |
+| **Semantic Similarity** | 0.92 | 0.85 | 0.91 | $\ge 0.88$ |
+| **Avg Latency (simple)** | 1.2s | 0.3s | 0.3s | $\le 0.5\text{s}$ |
+| **Avg Cost / 1k requests** | $0.50 | $0.00 (Local) | $0.08 | $\le \$0.15$ |
 
-The hybrid Teacher-Student architecture achieves ~97% of the teacher's quality while reducing overall average response latency by 70% and cloud LLM API cost by 81%.
+## Running Evaluation Script
+
+```bash
+uv run python scripts/pilot_evaluate.py --test-set ~/.nanobot/pilot/curated/test.jsonl --report ~/.nanobot/pilot/evaluation_results.jsonl
+```

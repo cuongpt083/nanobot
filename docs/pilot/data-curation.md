@@ -1,23 +1,43 @@
-# Pilot Data Curation & Dataset Pipeline
+# Pilot Data Curation Pipeline
 
-This document explains how captured events from the SQLite store are exported, filtered by user consent, redacted, and curated into fine-tuning datasets.
+This document describes the governed data curation pipeline for exporting turns from the SQLite pilot store, redacting credentials, filtering user training consents, deduplicating records, and splitting into train/validation/test datasets.
 
-## Pipeline Overview
+## Pipeline Architecture
 
 ```
-SQLite Pilot Store ──► pilot_export.py ──► exported_turns.jsonl ──► pilot_curate.py ──► train/val/test splits
+SQLite Pilot Store (~/.nanobot/pilot_events.db)
+       │
+       ▼
+scripts/pilot_export.py (Cursor-based incremental export + Redactor)
+       │
+       ▼
+Exported JSONL (~/.nanobot/pilot/exported_turns.jsonl)
+       │
+       ▼
+scripts/pilot_curate.py (Consent filter + Deduplication + Quality heuristics)
+       │
+       ├── train.jsonl (80%)
+       ├── val.jsonl   (10%)
+       └── test.jsonl  (10%)
 ```
 
-## Export Script (`scripts/pilot_export.py`)
+## Step 1: Exporting Data
 
-- Performs cursor-based incremental exports using `--since-turn-id` and writes status to `export_cursor.json`.
-- Joins `turns`, `artifacts`, `attempts`, `feedback`, and `consents` tables.
-- Evaluates `training_eligible` per turn based on whether the user has granted training consent (`training_allowed == 1`).
-- Applies defense-in-depth redaction (`Redactor`) to prompt, reasoning, and answer text.
+Run `scripts/pilot_export.py` to read turns from the SQLite store. Cursor state is saved to `~/.nanobot/pilot/export_cursor.json` for incremental exports.
 
-## Curation Script (`scripts/pilot_curate.py`)
+```bash
+uv run python scripts/pilot_export.py --db-path ~/.nanobot/pilot_events.db --output ~/.nanobot/pilot/exported_turns.jsonl
+```
 
-- Filters out any rows where `training_eligible != true`.
-- Deduplicates by `turn_id`.
-- Splits data into `train.jsonl` (80%), `val.jsonl` (10%), and `test.jsonl` (10%) using deterministic hashing on `turn_id`.
-- Output directory: `~/.nanobot/pilot/curated/`.
+## Step 2: Curating & Splitting Dataset
+
+Run `scripts/pilot_curate.py` to filter `training_eligible == True` turns, deduplicate by `turn_id`, calculate quality metrics, and split deterministically (`random_state=42`).
+
+```bash
+uv run python scripts/pilot_curate.py --input ~/.nanobot/pilot/exported_turns.jsonl --output-dir ~/.nanobot/pilot/curated
+```
+
+## Data Governance & Privacy
+
+1. **Consent Gating:** Only turns where `training_allowed == 1` in the `consents` table are marked `training_eligible: true` and included in the training sets.
+2. **Defence-in-Depth Redaction:** All exported text (prompts, reasoning, answers, tool trajectories) is passed through `Redactor` to strip credentials, keys, bearer tokens, cookies, and local paths.

@@ -51,8 +51,13 @@ _SENSITIVE_KEY_RE = re.compile(
 class Redactor:
     """Recursive data redactor for strings, dicts, and lists."""
 
-    def __init__(self, max_chars: int | None = None) -> None:
+    def __init__(self, max_chars: int | None = None, rules: list[str] | None = None) -> None:
         self.max_chars = max_chars
+        self.rules = rules
+
+    def redact(self, text: str, max_chars: int | None = None) -> tuple[str, set[str]]:
+        res = self.redact_string(text, max_chars=max_chars)
+        return res.data, res.rule_codes
 
     def redact_string(self, text: str, max_chars: int | None = None) -> RedactionResult:
         rule_codes: set[str] = set()

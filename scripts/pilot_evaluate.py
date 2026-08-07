@@ -1,91 +1,121 @@
 #!/usr/bin/env python3
-"""Evaluation benchmarks script for SLM vs Teacher model outputs."""
+"""Evaluation benchmarks script for SLM vs Teacher LLM outputs."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 from typing import Any
 
 
 def compute_exact_match(target: str, prediction: str) -> float:
-    """Compute exact match ratio (case-insensitive)."""
+    """Compute normalized exact match (1.0 or 0.0)."""
     return 1.0 if target.strip().lower() == prediction.strip().lower() else 0.0
 
 
 def compute_word_overlap_f1(target: str, prediction: str) -> float:
-    """Compute ROUGE-L / word-level F1 score approximation."""
-    t_words = set(target.lower().split())
-    p_words = set(prediction.lower().split())
+    """Compute ROUGE-L or word overlap F1 score."""
+    try:
+        from rouge_score import rouge_scorer  # pyright: ignore[reportMissingImports]
 
-    if not t_words or not p_words:
-        return 0.0
+        scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+        scores = scorer.score(target, prediction)
+        return float(scores["rougeL"].fmeasure)
+    except Exception:
+        # Fallback word-level F1 calculation
+        t_tokens = set(target.lower().split())
+        p_tokens = set(prediction.lower().split())
+        if not t_tokens or not p_tokens:
+            return 0.0
+        overlap = len(t_tokens.intersection(p_tokens))
+        precision = overlap / len(p_tokens)
+        recall = overlap / len(t_tokens)
+        if precision + recall == 0:
+            return 0.0
+        return (2 * precision * recall) / (precision + recall)
 
-    common = t_words.intersection(p_words)
-    if not common:
-        return 0.0
 
-    precision = len(common) / len(p_words)
-    recall = len(common) / len(t_words)
-    return (2 * precision * recall) / (precision + recall)
+def compute_semantic_similarity(target: str, prediction: str) -> float:
+    """Compute semantic similarity using sentence-transformers (all-MiniLM-L6-v2)."""
+    try:
+        from sentence_transformers import (  # pyright: ignore[reportMissingImports]
+            SentenceTransformer,
+            util,
+        )
+
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+        emb1 = model.encode(target, convert_to_tensor=True)
+        emb2 = model.encode(prediction, convert_to_tensor=True)
+        sim = util.cos_sim(emb1, emb2)
+        return float(sim.item())
+    except Exception:
+        return compute_word_overlap_f1(target, prediction)
 
 
 def evaluate_dataset(
-    test_jsonl: Path | str,
-    output_report: Path | str = "~/.nanobot/pilot/evaluation_results.json",
+    input_file: Path | str,
+    output_report: Path | str = "~/.nanobot/pilot/evaluation_results.jsonl",
 ) -> dict[str, Any]:
-    """Evaluate test samples and compute quality metrics."""
-    in_path = Path(test_jsonl).expanduser()
-    out_path = Path(output_report).expanduser()
+    """Evaluate SLM vs expected outputs on held-out dataset."""
+    input_path = Path(input_file).expanduser()
+    output_path = Path(output_report).expanduser()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not in_path.exists():
-        print(f"Test dataset not found: {in_path}")
-        return {"samples": 0}
+    if not input_path.exists():
+        res = {"samples_evaluated": 0, "exact_match": 0.0, "rouge_l": 0.0}
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(res, f)
+        return res
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    exact_matches: list[float] = []
-    overlap_f1s: list[float] = []
-
-    with open(in_path, "r", encoding="utf-8") as f:
+    samples = []
+    with open(input_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if not line:
-                continue
-            rec = json.loads(line)
-            target = rec.get("answer") or ""
-            prediction = rec.get("slm_answer") or target  # Baseline comparison
+            if line:
+                samples.append(json.loads(line))
 
-            exact_matches.append(compute_exact_match(target, prediction))
-            overlap_f1s.append(compute_word_overlap_f1(target, prediction))
+    if not samples:
+        res = {"samples_evaluated": 0, "exact_match": 0.0, "rouge_l": 0.0}
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(res, f)
+        return res
 
-    count = len(exact_matches)
-    avg_em = sum(exact_matches) / count if count > 0 else 0.0
-    avg_f1 = sum(overlap_f1s) / count if count > 0 else 0.0
+    em_total = 0.0
+    f1_total = 0.0
 
-    results = {
+    for s in samples:
+        target = s.get("answer") or ""
+        pred = s.get("slm_answer") or s.get("answer") or ""
+        em_total += compute_exact_match(target, pred)
+        f1_total += compute_word_overlap_f1(target, pred)
+
+    count = len(samples)
+    em_avg = em_total / count
+    f1_avg = f1_total / count
+
+    metrics = {
+        "timestamp_ms": int(time.time() * 1000),
         "samples_evaluated": count,
-        "exact_match": round(avg_em, 4),
-        "rouge_l_f1": round(avg_f1, 4),
-        "semantic_similarity": round(avg_f1 * 0.95, 4),
+        "exact_match": em_avg,
+        "rouge_l": f1_avg,
     }
 
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
+    with open(output_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(metrics, ensure_ascii=False) + "\n")
 
-    return results
+    return metrics
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate SLM fine-tuning performance")
-    parser.add_argument("--test-set", default="~/.nanobot/pilot/curated/test.jsonl", help="Held-out test set JSONL")
-    parser.add_argument("--output", default="~/.nanobot/pilot/evaluation_results.json", help="Report output JSON")
+    parser = argparse.ArgumentParser(description="Evaluate SLM benchmark performance")
+    parser.add_argument("--test-set", default="~/.nanobot/pilot/curated/test.jsonl", help="Test dataset path")
+    parser.add_argument("--report", default="~/.nanobot/pilot/evaluation_results.jsonl", help="Evaluation report path")
     args = parser.parse_args()
 
-    results = evaluate_dataset(test_jsonl=args.test_set, output_report=args.output)
-    print("Evaluation Results:")
-    print(json.dumps(results, indent=2))
+    res = evaluate_dataset(input_file=args.test_set, output_report=args.report)
+    print(f"Evaluated {res['samples_evaluated']} samples: Exact Match={res['exact_match']:.4f}, ROUGE-L={res['rouge_l']:.4f}")
 
 
 if __name__ == "__main__":

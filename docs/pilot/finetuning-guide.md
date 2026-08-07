@@ -1,29 +1,34 @@
-# Qwen3-4B QLoRA Fine-Tuning & Quantization Guide
+# Qwen3-4B Fine-Tuning Guide
+
+This guide details the fine-tuning process for `Qwen/Qwen3-4B-Instruct` using QLoRA and quantization to GGUF format (`Q5_K_M`).
 
 ## Hardware Requirements
 
-- **Fine-Tuning (QLoRA)**: Minimum 16 GB VRAM (RTX 4060 Ti / RTX 3090 / A10G recommended 24 GB VRAM).
-- **GGUF SLM Inference**: 8 GB RAM (CPU) or 6 GB VRAM (GPU).
+| Setup | Recommended | Minimum |
+|-------|-------------|---------|
+| Fine-tuning (QLoRA) | 24 GB VRAM (RTX 3090/4090) | 16 GB VRAM |
+| Inference (GGUF Q5_K_M) | 8 GB RAM (CPU) / 6 GB VRAM | 4 GB RAM |
 
-## Pipeline Execution
+## Step-by-Step Pipeline
 
-1. Prepare ChatML training dataset:
+1. **Prepare SFT Dataset:**
+   Ensure curated ChatML JSONL file exists at `~/.nanobot/pilot/sft_train.jsonl` (generated via `scripts/pilot_prepare_ft.py`).
+
+2. **Run QLoRA Training:**
    ```bash
-   python scripts/pilot_prepare_ft.py --input ~/.nanobot/pilot/curated/train.jsonl --output ~/.nanobot/pilot/curated/train_chatml.jsonl
+   uv run python scripts/pilot_finetune.py --config scripts/pilot_finetune_config.yaml
    ```
 
-2. Validate configuration:
+3. **Convert to GGUF and Quantize:**
    ```bash
-   python scripts/pilot_finetune.py --config scripts/pilot_finetune_config.yaml --dry-run
-   ```
+   # Convert merged HF model to FP16 GGUF
+   python ~/.nanobot/llama.cpp/convert.py /tmp/qwen3-4b-pilot-merged/ \
+       --outfile /tmp/qwen3-4b-pilot-fp16.gguf \
+       --outtype f16
 
-3. Run fine-tuning and export:
-   ```bash
-   python scripts/pilot_finetune.py --config scripts/pilot_finetune_config.yaml
-   ```
-
-4. GGUF Quantization (`llama.cpp`):
-   ```bash
-   python ~/.nanobot/llama.cpp/convert.py /tmp/qwen3-4b-pilot-merged/ --outfile /tmp/qwen3-4b-pilot-fp16.gguf --outtype f16
-   ~/.nanobot/llama.cpp/llama-quantize /tmp/qwen3-4b-pilot-fp16.gguf ~/.nanobot/models/qwen3-4b-pilot-q5_k_m.gguf q5_k_m
+   # Quantize FP16 to Q5_K_M
+   ~/.nanobot/llama.cpp/llama-quantize \
+       /tmp/qwen3-4b-pilot-fp16.gguf \
+       ~/.nanobot/models/qwen3-4b-pilot-q5_k_m.gguf \
+       q5_k_m
    ```
