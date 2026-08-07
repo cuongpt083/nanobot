@@ -6,8 +6,10 @@
 
 http://__NANOBOT_LISTEN__ {
     reverse_proxy 127.0.0.1:8765 {
-        # Forward the original Host header to the upstream
-        header_up Host {host}
+        # Forward the original Host header (including port) to the upstream.
+        # {hostport} preserves the port so the gateway's bootstrap response
+        # constructs a WebSocket URL with the correct port (e.g., ws://host:8181/).
+        header_up Host {hostport}
         # Forward the original protocol scheme (http/https) for ws/wss detection
         header_up X-Forwarded-Proto {scheme}
         # WebSocket upgrade headers are forwarded automatically by Caddy v2 reverse_proxy.
