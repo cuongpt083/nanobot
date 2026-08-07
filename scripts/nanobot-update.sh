@@ -4,6 +4,10 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+readonly NANOBOT_HOME_DIR="${NANOBOT_HOME:-${HOME}/.nanobot}"
+readonly VENV_DIR="${NANOBOT_VENV_DIR:-${NANOBOT_HOME_DIR}/.venv}"
+readonly VENV_PYTHON="${VENV_DIR}/bin/python"
+readonly VENV_PIP="${VENV_DIR}/bin/pip"
 
 SERVICE_NAME="${NANOBOT_SERVICE_NAME:-}"
 PULL_SOURCE=1
@@ -28,7 +32,7 @@ Actions:
   update       Stop nanobot, pull the current branch, sync dependencies,
                rebuild the WebUI, and start nanobot again.
   start        Start the gateway in the background.
-  stop         Stop the background gateway.
+  stop         Stop the gateway, whether background or foreground.
   restart      Stop and start the gateway.
   status       Show gateway status.
   logs         Follow gateway logs.
@@ -41,6 +45,8 @@ Options:
   -h, --help             Show this help.
 
 Environment:
+  NANOBOT_VENV_DIR      Python virtual environment (default: ~/.nanobot/.venv).
+  NANOBOT_HOME          Nanobot data directory used for the default venv path.
   NANOBOT_SERVICE_NAME   Use a systemd user service instead of the built-in
                          background gateway, for example nanobot-gateway.
   NANOBOT_SKIP_WEBUI_BUILD=1  Equivalent to --no-webui.
@@ -51,14 +57,37 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
+run_python() {
+    if [[ -x "${VENV_PYTHON}" ]]; then
+        "${VENV_PYTHON}" "$@"
+    elif command -v uv >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/uv.lock" ]]; then
+        (cd -- "${REPO_ROOT}" && uv run --no-sync python "$@")
+    else
+        require_command python3
+        (cd -- "${REPO_ROOT}" && python3 "$@")
+    fi
+}
+
+run_pip() {
+    if [[ -x "${VENV_PIP}" ]]; then
+        "${VENV_PIP}" "$@"
+    elif [[ -x "${VENV_PYTHON}" ]]; then
+        "${VENV_PYTHON}" -m pip "$@"
+    else
+        require_command python3
+        (cd -- "${REPO_ROOT}" && python3 -m pip "$@")
+    fi
+}
+
 run_nanobot() {
-    if command -v uv >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/uv.lock" ]]; then
+    if [[ -x "${VENV_PYTHON}" ]]; then
+        (cd -- "${REPO_ROOT}" && "${VENV_PYTHON}" -m nanobot "$@")
+    elif command -v uv >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/uv.lock" ]]; then
         (cd -- "${REPO_ROOT}" && uv run --no-sync nanobot "$@")
     elif command -v nanobot >/dev/null 2>&1; then
         nanobot "$@"
     else
-        require_command python3
-        (cd -- "${REPO_ROOT}" && python3 -m nanobot "$@")
+        run_python -m nanobot "$@"
     fi
 }
 
@@ -79,23 +108,87 @@ service_action() {
     fi
 }
 
+repo_gateway_pids() {
+    local pid args cwd
+    while read -r pid args; do
+        [[ "${pid}" =~ ^[0-9]+$ ]] || continue
+        [[ "${pid}" -ne "$$" ]] || continue
+        [[ -r "/proc/${pid}/cmdline" ]] || continue
+        [[ "${args}" == *nanobot* && "${args}" == *gateway* ]] || continue
+        [[ "${args}" != *nanobot-update.sh* ]] || continue
+        cwd="$(readlink "/proc/${pid}/cwd" 2>/dev/null || true)"
+        [[ "${cwd}" == "${REPO_ROOT}" || "${args}" == *"${REPO_ROOT}"* ]] || continue
+        printf '%s\n' "${pid}"
+    done < <(ps -eo pid=,args=)
+}
+
+stop_repo_gateway_processes() {
+    local pid state
+    local -a pids=()
+    mapfile -t pids < <(repo_gateway_pids)
+    ((${#pids[@]} > 0)) || return 0
+
+    info "Stopping foreground gateway process(es): ${pids[*]}"
+    for pid in "${pids[@]}"; do
+        kill -TERM "${pid}" 2>/dev/null || true
+    done
+
+    local deadline=$((SECONDS + TIMEOUT))
+    while (( SECONDS < deadline )); do
+        local remaining=0
+        for pid in "${pids[@]}"; do
+            if kill -0 "${pid}" 2>/dev/null; then
+                state="$(ps -o stat= -p "${pid}" 2>/dev/null | tr -d ' ' || true)"
+                [[ "${state}" == Z* ]] || remaining=1
+            fi
+        done
+        (( remaining == 0 )) && return 0
+        sleep 1
+    done
+
+    for pid in "${pids[@]}"; do
+        if kill -0 "${pid}" 2>/dev/null; then
+            printf 'Warning: gateway PID %s did not stop; sending SIGKILL.\n' "${pid}" >&2
+            kill -KILL "${pid}" 2>/dev/null || true
+        fi
+    done
+}
+
+stop_gateway() {
+    if [[ -n "${SERVICE_NAME}" ]]; then
+        service_action stop
+        return 0
+    fi
+
+    # The built-in runtime handles --background processes via its state file.
+    # Foreground launches have no state file, so discover only gateway processes
+    # whose cwd/arguments belong to this checkout and stop those as a fallback.
+    local -a foreground_pids=()
+    mapfile -t foreground_pids < <(repo_gateway_pids)
+    local runtime_status=0
+    service_action stop || runtime_status=$?
+    if ((${#foreground_pids[@]} > 0)); then
+        stop_repo_gateway_processes
+        return 0
+    fi
+    return "${runtime_status}"
+}
+
 sync_dependencies() {
-    if command -v uv >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/uv.lock" ]]; then
+    if [[ -x "${VENV_PIP}" || -x "${VENV_PYTHON}" ]]; then
+        info "Installing Python dependencies with ${VENV_DIR}"
+        (cd -- "${REPO_ROOT}" && run_pip install -e '.[dev]')
+    elif command -v uv >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/uv.lock" ]]; then
         info "Syncing Python dependencies with uv"
         (cd -- "${REPO_ROOT}" && uv sync --all-extras --dev)
     else
-        require_command python3
         info "Installing Python dependencies with pip"
-        (cd -- "${REPO_ROOT}" && python3 -m pip install -e '.[dev]')
+        (cd -- "${REPO_ROOT}" && run_pip install -e '.[dev]')
     fi
 
     if (( INSTALL_CHANNELS )); then
         info "Installing channel dependencies"
-        if command -v uv >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/uv.lock" ]]; then
-            (cd -- "${REPO_ROOT}" && uv run --no-sync python -m scripts.install_channel_dependencies --all-channels)
-        else
-            (cd -- "${REPO_ROOT}" && python3 -m scripts.install_channel_dependencies --all-channels)
-        fi
+        (cd -- "${REPO_ROOT}" && run_python -m scripts.install_channel_dependencies --all-channels)
     fi
 }
 
@@ -115,7 +208,7 @@ build_webui() {
 }
 
 update() {
-    service_action stop
+    stop_gateway
 
     if (( PULL_SOURCE )); then
         require_command git
@@ -157,7 +250,12 @@ main() {
     cd -- "${REPO_ROOT}"
     case "${action}" in
         update) update ;;
-        start|stop|restart|status|logs) service_action "${action}" ;;
+        start|status|logs) service_action "${action}" ;;
+        stop) stop_gateway ;;
+        restart)
+            stop_gateway
+            service_action start
+            ;;
         -h|--help|help) usage ;;
         *) usage >&2; die "unknown action: ${action}" ;;
     esac
