@@ -65,6 +65,8 @@ import { useTranslation } from "react-i18next";
 
 import { channelUiPresentation } from "@/channel-plugins/registry";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { ExpertUiToggle, EXPERT_UI_STORAGE_KEY } from "@/components/settings/ExpertUiToggle";
+import { LayeredInferenceOverview } from "@/components/settings/LayeredInferenceOverview";
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
 import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
 import { ToggleButton } from "@/components/settings/ToggleButton";
@@ -648,6 +650,13 @@ export function SettingsView({
   const [nanobotFeaturesLoading, setNanobotFeaturesLoading] = useState(true);
   const [mcpPresetsLoading, setMcpPresetsLoading] = useState(true);
   const [automationsLoading, setAutomationsLoading] = useState(false);
+  const [expertModeEnabled, setExpertModeEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(EXPERT_UI_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const [saving, setSaving] = useState(false);
   const [modelPresetCreating, setModelPresetCreating] = useState(false);
   const [modelConfigurationSaving, setModelConfigurationSaving] = useState(false);
@@ -2053,6 +2062,19 @@ export function SettingsView({
       case "models":
         return (
           <div className="space-y-8">
+            <ExpertUiToggle
+              onChange={(enabled) => {
+                setExpertModeEnabled(enabled);
+              }}
+            />
+            {expertModeEnabled && (
+              <LayeredInferenceOverview
+                status={settings?.runtime_capabilities?.layered_inference?.status ?? "ready"}
+                activeModelId="qwen3-4b-pilot-q5_k_m"
+                teacherPreset="deepseek-v4-flash"
+                phaseADecision="go"
+              />
+            )}
             <ModelsSettings
               token={token}
               form={form}

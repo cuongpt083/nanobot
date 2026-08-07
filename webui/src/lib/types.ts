@@ -421,6 +421,12 @@ export interface RuntimeCapabilities {
   can_pick_folder: boolean;
   can_open_logs: boolean;
   can_export_diagnostics: boolean;
+  layered_inference?: {
+    available: boolean;
+    enabled: boolean;
+    status: string;
+    read_allowed: boolean;
+  };
 }
 
 export interface ProviderModelInfo {
