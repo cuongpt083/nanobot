@@ -2119,6 +2119,102 @@ def test_webui_yes_creates_config_and_enables_local_websocket(
     assert "Press Ctrl+C here to stop nanobot" in compact_output
 
 
+def test_webui_migrates_legacy_wildcard_in_pilot_mode(monkeypatch, tmp_path: Path) -> None:
+    config_file = tmp_path / "config.json"
+    config_file.write_text(
+        json.dumps(
+            {
+                "pilot": {"enabled": True},
+                "channels": {
+                    "websocket": {
+                        "enabled": True,
+                        "tokenIssueSecret": "existing-bootstrap-secret",
+                        "allowFrom": ["*"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    _patch_webui_provider_ready(monkeypatch)
+    _patch_gateway_ports_free(monkeypatch)
+    monkeypatch.setattr("nanobot.cli.webui.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.webui._run_gateway", lambda *_args, **_kwargs: None)
+
+    result = runner.invoke(app, ["webui", "--config", str(config_file), "--yes", "--no-open"])
+
+    assert result.exit_code == 0
+    websocket = json.loads(config_file.read_text(encoding="utf-8"))["channels"]["websocket"]
+    assert websocket["allowFrom"] == ["webui"]
+
+
+def test_webui_restarts_managed_gateway_after_pilot_websocket_migration(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from nanobot.gateway import GatewayStatus, RuntimeResult
+
+    config_file = tmp_path / "config.json"
+    config_file.write_text(
+        json.dumps(
+            {
+                "pilot": {"enabled": True},
+                "channels": {
+                    "websocket": {
+                        "enabled": True,
+                        "tokenIssueSecret": "existing-bootstrap-secret",
+                        "allowFrom": ["*"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen: dict[str, object] = {}
+    _patch_webui_provider_ready(monkeypatch)
+    monkeypatch.setattr("nanobot.cli.webui.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.webui._gateway_health_ready", lambda *_args: True)
+    monkeypatch.setattr("nanobot.cli.webui._webui_endpoint_reachable", lambda *_args: False)
+    monkeypatch.setattr("nanobot.cli.webui._tcp_endpoint_reachable", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        "nanobot.cli.webui._open_webui_browser",
+        lambda url, **kwargs: seen.update(opened_url=url, open_kwargs=kwargs),
+    )
+    monkeypatch.setattr(
+        "nanobot.cli.webui._attach_to_background_gateway",
+        lambda runtime: seen.__setitem__("attached_runtime", runtime),
+    )
+    monkeypatch.setattr(
+        "nanobot.cli.webui._run_gateway",
+        lambda *_args, **_kwargs: pytest.fail("managed gateway should be restarted"),
+    )
+
+    class _FakeRuntime:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def status(self):
+            return GatewayStatus(
+                running=True,
+                pid=123,
+                state_path=tmp_path / "gateway.json",
+                log_path=tmp_path / "gateway.log",
+            )
+
+        def restart(self, options, *, timeout_s: int) -> RuntimeResult:
+            seen.update(restart_options=options, restart_timeout=timeout_s)
+            return RuntimeResult(True, "gateway_started_background", self.status())
+
+    monkeypatch.setattr("nanobot.gateway.GatewayRuntime", _FakeRuntime)
+
+    result = runner.invoke(app, ["webui", "--config", str(config_file), "--yes"])
+
+    assert result.exit_code == 0
+    assert seen["restart_timeout"] == 20
+    assert seen["attached_runtime"]
+    assert seen["open_kwargs"] == {}
+
+
 def test_webui_yes_starts_first_run_without_provider_setup(monkeypatch, tmp_path: Path) -> None:
     config_file = tmp_path / "config.json"
     seen: dict[str, object] = {}

@@ -15,7 +15,13 @@ describe("bootstrap helpers", () => {
 
   it("prefers the server-provided websocket URL over the current dev host", () => {
     expect(deriveWsUrl("/", "tok en", "ws://127.0.0.1:8765/")).toBe(
-      "ws://127.0.0.1:8765/?token=tok%20en",
+      "ws://127.0.0.1:8765/?token=tok%20en&client_id=webui",
+    );
+  });
+
+  it("includes the stable WebUI client id for pilot allowlists", () => {
+    expect(deriveWsUrl("/", "tok", "ws://127.0.0.1:8765/")).toBe(
+      "ws://127.0.0.1:8765/?token=tok&client_id=webui",
     );
   });
 
@@ -28,7 +34,7 @@ describe("bootstrap helpers", () => {
       },
     });
     expect(deriveWsUrl("/", "tok", "ws://127.0.0.1:8765/")).toBe(
-      "ws://192.168.1.100:8765/?token=tok",
+      "ws://192.168.1.100:8765/?token=tok&client_id=webui",
     );
   });
 
@@ -41,19 +47,19 @@ describe("bootstrap helpers", () => {
       },
     });
     expect(deriveWsUrl("/ws", "tok", "ws://127.0.0.1:8899/ws")).toBe(
-      "ws://127.0.0.1:8899/ws?token=tok",
+      "ws://127.0.0.1:8899/ws?token=tok&client_id=webui",
     );
   });
 
   it("preserves the host socket bridge URL", () => {
     expect(deriveWsUrl("/", "tok en", "nanobot-host://engine/")).toBe(
-      "nanobot-host://engine/?token=tok%20en",
+      "nanobot-host://engine/?token=tok%20en&client_id=webui",
     );
   });
 
   it("falls back to the current window host for legacy bootstrap payloads", () => {
     expect(deriveWsUrl("/", "tok")).toBe(
-      "ws://localhost:3000/?token=tok",
+      "ws://localhost:3000/?token=tok&client_id=webui",
     );
   });
 

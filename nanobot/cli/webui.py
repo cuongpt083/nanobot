@@ -221,6 +221,15 @@ def webui(
 
     gateway_ready = _gateway_health_ready(runtime_config.gateway.host, effective_gateway_port)
     webui_ready = _webui_endpoint_reachable(webui_url)
+    if changed_webui and gateway_ready and not webui_ready and runtime.status().running:
+        result = runtime.restart(start_options, timeout_s=20)
+        if result.ok:
+            console.print("[green]Gateway restarted to apply the WebUI configuration.[/green]")
+            if not no_open:
+                _open_webui_browser(webui_url)
+            _attach_to_background_gateway(runtime)
+            return
+        console.print(f"[yellow]Gateway could not be restarted: {result.message}[/yellow]")
     if gateway_ready and webui_ready:
         console.print("[yellow]Gateway is already running; attaching to the existing WebUI.[/yellow]")
         console.print(

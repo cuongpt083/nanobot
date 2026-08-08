@@ -266,7 +266,8 @@ def _ensure_local_webui_channel(
     needs_enable = not model.enabled
     needs_port = port is not None and model.port != port
     needs_secret = not model.token_issue_secret.strip() and not model.token.strip()
-    if not needs_enable and not needs_port and not needs_secret:
+    needs_pilot_allowlist_migration = config.pilot.enabled and "*" in model.allow_from
+    if not needs_enable and not needs_port and not needs_secret and not needs_pilot_allowlist_migration:
         return False, False
 
     target_port = port if port is not None else model.port
@@ -274,7 +275,10 @@ def _ensure_local_webui_channel(
     console.print("[bold]Local WebUI setup[/bold]")
     console.print(f"  URL: [cyan]http://127.0.0.1:{target_port}[/cyan]")
     console.print("  Bind: [cyan]127.0.0.1 only[/cyan] (not exposed to your LAN)")
-    console.print("  Auth: generated WebUI bootstrap secret stored in config")
+    if needs_secret:
+        console.print("  Auth: generated WebUI bootstrap secret stored in config")
+    else:
+        console.print("  Auth: existing WebUI bootstrap secret preserved")
     console.print(
         "  LAN access requires an explicit host change plus a WebUI password in config."
     )
@@ -298,6 +302,11 @@ def _ensure_local_webui_channel(
         model.token_issue_secret = secrets.token_urlsafe(32)
         changed = True
         generated_secret = True
+    if needs_pilot_allowlist_migration:
+        model.allow_from = [entry for entry in model.allow_from if entry != "*"]
+        if "webui" not in model.allow_from:
+            model.allow_from.append("webui")
+        changed = True
 
     setattr(config.channels, "websocket", model.model_dump(by_alias=True, exclude_none=True))
     return changed, generated_secret
