@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections import OrderedDict
 from contextlib import suppress
 from pathlib import Path
@@ -56,6 +57,8 @@ class ZaloChannel(BaseChannel):
         self._processed_ids: OrderedDict[str, None] = OrderedDict()
         self._event_queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
         self._qr_code = ""
+        self._qr_image = ""
+        self._qr_payload = ""
         self._login_error = ""
         self._logged_in = asyncio.Event()
         self._qr_ready = asyncio.Event()
@@ -75,10 +78,14 @@ class ZaloChannel(BaseChannel):
 
     def _on_bridge_event(self, event: str, payload: dict[str, Any]) -> None:
         if event == "qr":
-            code = str(payload.get("code") or "").strip()
-            if code:
-                self._qr_code = code
+            self._qr_code = str(payload.get("code") or "").strip() or self._qr_code
+            image = normalize_zalo_qr_image(str(payload.get("image") or ""))
+            if image:
+                self._qr_image = image
                 self._qr_ready.set()
+            decoded = str(payload.get("payload") or "").strip()
+            if decoded:
+                self._qr_payload = decoded
         elif event == "qr_declined":
             self._login_error = "QR login was declined on the phone."
             self._logged_in.set()
@@ -91,21 +98,46 @@ class ZaloChannel(BaseChannel):
             self._logged_in.set()
         self._event_queue.put_nowait((event, payload))
 
-    def _print_qr_code(self, code: str) -> None:
+    def _print_login_qr(self) -> None:
         self.logger.info("Scan this QR with the Zalo app on your phone")
+        image_path = self._write_official_qr_image()
+        text = self._qr_payload.strip()
+        if not text:
+            if image_path is not None:
+                self.logger.info(
+                    "Open {} and scan it with Zalo. The session id is not a login QR.",
+                    image_path,
+                )
+            return
         try:
             import segno  # pyright: ignore[reportMissingImports]
 
             make_qr = getattr(segno, "make_qr", None)
             if not callable(make_qr):
                 raise RuntimeError("segno.make_qr is unavailable")
-            printer = getattr(make_qr(code), "terminal", None)
+            printer = getattr(make_qr(text), "terminal", None)
             if callable(printer):
                 printer(compact=True)
             else:
-                self.logger.info("QR payload: {}", code)
+                self.logger.info("QR payload: {}", text)
         except Exception:
-            self.logger.info("QR payload: {}", code)
+            if image_path is not None:
+                self.logger.info("Scan the official QR image at {}", image_path)
+            else:
+                self.logger.info("QR payload: {}", text)
+
+    def _write_official_qr_image(self) -> Path | None:
+        if not self._qr_image:
+            return None
+        try:
+            raw = self._qr_image.split(",", 1)[-1]
+            path = self._credentials_path().parent / "login-qr.png"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(base64.b64decode(raw))
+            self.logger.info("Official Zalo QR image saved at {}", path)
+            return path
+        except Exception:
+            return None
 
     async def _ensure_bridge(self) -> ZaloBridge:
         if self._bridge is not None and self._bridge.running:
@@ -135,6 +167,8 @@ class ZaloChannel(BaseChannel):
                     self._bridge = None
 
             self._qr_code = ""
+            self._qr_image = ""
+            self._qr_payload = ""
             self._login_error = ""
             self._logged_in = asyncio.Event()
             self._qr_ready = asyncio.Event()
@@ -149,8 +183,11 @@ class ZaloChannel(BaseChannel):
                     login_task.cancel()
                 self.logger.error("Timed out waiting for a Zalo QR code")
                 return False
-            if self._qr_code:
-                self._print_qr_code(self._qr_code)
+            for _ in range(20):
+                if self._qr_payload:
+                    break
+                await asyncio.sleep(0.05)
+            self._print_login_qr()
             try:
                 result = await login_task
             except ZaloBridgeError as exc:
@@ -242,10 +279,12 @@ class ZaloChannel(BaseChannel):
         return None
 
     async def connect_start_qr(self, *, force: bool = False) -> str:
-        """Start QR login for the WebUI connector and return the QR payload string."""
+        """Start QR login for the WebUI connector and return the official QR image."""
         if not force and local_state_present(self.config):
             return ""
         self._qr_code = ""
+        self._qr_image = ""
+        self._qr_payload = ""
         self._login_error = ""
         self._logged_in = asyncio.Event()
         self._qr_ready = asyncio.Event()
@@ -260,7 +299,7 @@ class ZaloChannel(BaseChannel):
         except TimeoutError as exc:
             await self.connect_cancel()
             raise ZaloBridgeError("Timed out waiting for a Zalo QR code") from exc
-        return self._qr_code
+        return self._qr_image
 
     async def connect_poll_qr(self) -> dict[str, Any]:
         if self._login_error:
@@ -285,7 +324,7 @@ class ZaloChannel(BaseChannel):
                 "message": "Zalo is connected.",
                 "account": self._own_user_id,
             }
-        return {"status": "pending", "qr_url": self._qr_code}
+        return {"status": "pending", "qr_url": self._qr_image}
 
     async def connect_cancel(self) -> None:
         task = self._connect_login_task
@@ -360,3 +399,12 @@ class ZaloChannel(BaseChannel):
             if path.is_file():
                 attachments.append({"path": str(path)})
         return attachments
+
+
+def normalize_zalo_qr_image(image: str) -> str:
+    raw = image.strip()
+    if not raw:
+        return ""
+    if raw.startswith("data:image"):
+        return raw
+    return f"data:image/png;base64,{raw}"

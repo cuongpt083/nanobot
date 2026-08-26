@@ -19,7 +19,11 @@ _BRIDGE_PACKAGE = {
     "name": "nanobot-zalo-bridge",
     "private": True,
     "type": "module",
-    "dependencies": {"zca-js": "2.1.2"},
+    "dependencies": {
+        "jsqr": "1.4.0",
+        "pngjs": "7.0.0",
+        "zca-js": "2.1.2",
+    },
 }
 _ZCA_JS_VERSION = "2.1.2"
 _REQUEST_TIMEOUT_S = 180.0
@@ -79,7 +83,10 @@ def ensure_bridge_install(runtime_dir: Path | None = None) -> Path:
     stamp = dest / ".nanobot-bridge-stamp"
     package_json = dest / "package.json"
     bridge_js = dest / "zalo-bridge.mjs"
-    expected_stamp = f"{_ZCA_JS_VERSION}:{script_hash}"
+    expected_stamp = (
+        f"{_ZCA_JS_VERSION}:{script_hash}:"
+        f"{json.dumps(_BRIDGE_PACKAGE['dependencies'], sort_keys=True)}"
+    )
     current_stamp = stamp.read_text(encoding="utf-8").strip() if stamp.is_file() else ""
     node_modules = dest / "node_modules" / "zca-js"
     if current_stamp != expected_stamp or not node_modules.is_dir() or not bridge_js.is_file():

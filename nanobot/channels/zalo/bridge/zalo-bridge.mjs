@@ -5,7 +5,7 @@
  * Protocol (stdin/stdout, one JSON object per line):
  *   request:  {"id":"1","method":"login_qr","params":{}}
  *   response: {"id":"1","ok":true,"result":{...}}
- *   event:    {"event":"qr","payload":{"code":"..."}}
+ *   event:    {"event":"qr","payload":{"code":"...","image":"data:image/png;base64,..."}}
  */
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
@@ -51,6 +51,33 @@ function reply(id, result) {
 
 function replyError(id, message) {
   writeLine({ id, ok: false, error: message });
+}
+
+function toImageDataUrl(image) {
+  const raw = String(image || "").trim();
+  if (!raw) {
+    return "";
+  }
+  return raw.startsWith("data:image") ? raw : `data:image/png;base64,${raw}`;
+}
+
+async function decodeQrPayload(image) {
+  const dataUrl = toImageDataUrl(image);
+  const marker = "base64,";
+  const index = dataUrl.indexOf(marker);
+  if (index < 0) {
+    return "";
+  }
+  try {
+    const { PNG } = await import("pngjs");
+    const jsQR = (await import("jsqr")).default;
+    const buffer = Buffer.from(dataUrl.slice(index + marker.length), "base64");
+    const png = PNG.sync.read(buffer);
+    const result = jsQR(Uint8ClampedArray.from(png.data), png.width, png.height);
+    return result?.data ? String(result.data) : "";
+  } catch {
+    return "";
+  }
 }
 
 function errorMessage(error) {
@@ -227,14 +254,11 @@ async function loginQr() {
     }
     switch (event.type) {
       case LoginQRCallbackEventType.QRCodeGenerated: {
-        const image = String(event.data?.image || "");
-        emit("qr", {
-          code: String(event.data?.code || ""),
-          image: image.startsWith("data:image")
-            ? image
-            : image
-              ? `data:image/png;base64,${image}`
-              : "",
+        const code = String(event.data?.code || "");
+        const image = toImageDataUrl(event.data?.image);
+        emit("qr", { code, image, payload: "" });
+        void decodeQrPayload(image).then((payload) => {
+          emit("qr", { code, image, payload });
         });
         break;
       }

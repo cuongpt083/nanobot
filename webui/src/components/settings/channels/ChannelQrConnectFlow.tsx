@@ -97,6 +97,10 @@ export function ChannelQrConnectFlow({
       setQrDataUrl("");
       return;
     }
+    if (connect.qr_url.startsWith("data:image")) {
+      setQrDataUrl(connect.qr_url);
+      return;
+    }
     let cancelled = false;
     void QRCode.toDataURL(connect.qr_url, {
       width: 184,

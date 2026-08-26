@@ -16,7 +16,7 @@ from nanobot.channels.zalo.messages import (
     group_message_is_addressed,
     normalize_inbound_message,
 )
-from nanobot.channels.zalo.runtime import ZaloChannel
+from nanobot.channels.zalo.runtime import ZaloChannel, normalize_zalo_qr_image
 from nanobot.channels.zalo.state import local_state_present
 from nanobot.channels.zalo.validation import validate
 
@@ -204,3 +204,36 @@ def test_thread_id_strips_group_prefix() -> None:
     assert ZaloChannel._chat_is_group("group:555", None) is True
     assert ZaloChannel._chat_is_group("111", {"is_group": True}) is True
     assert ZaloChannel._chat_is_group("111", None) is False
+
+
+def test_normalize_zalo_qr_image() -> None:
+    assert normalize_zalo_qr_image("abc") == "data:image/png;base64,abc"
+    assert normalize_zalo_qr_image("data:image/png;base64,abc") == "data:image/png;base64,abc"
+    assert normalize_zalo_qr_image("  ") == ""
+
+
+def test_qr_event_uses_official_image_not_session_code() -> None:
+    channel = _make_channel()
+    session_code = "VMW1P.1.1787723203557.e0ef5a97d02d547d38753486189ee6a6"
+    channel._on_bridge_event(
+        "qr",
+        {
+            "code": session_code,
+            "image": "iVBORw0KGgo=",
+            "payload": "https://id.zalo.me/account?continue=https%3A%2F%2Fzalo.me%2Fpc",
+        },
+    )
+    assert channel._qr_image == "data:image/png;base64,iVBORw0KGgo="
+    assert session_code not in channel._qr_image
+    assert channel._qr_payload.startswith("https://id.zalo.me/")
+    assert channel._qr_ready.is_set()
+    assert channel._qr_image.startswith("data:image/")
+
+
+@pytest.mark.asyncio
+async def test_connect_poll_returns_official_qr_image() -> None:
+    channel = _make_channel()
+    channel._qr_image = "data:image/png;base64,official"
+    status = await channel.connect_poll_qr()
+    assert status["status"] == "pending"
+    assert status["qr_url"] == "data:image/png;base64,official"
