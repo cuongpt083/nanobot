@@ -2534,7 +2534,16 @@ def test_webui_yes_still_refuses_invalid_custom_model_setup(
 def test_open_webui_browser_redacts_bootstrap_secret(monkeypatch, capsys) -> None:
     opened: list[str] = []
     url = "http://127.0.0.1:8765/#/?bootstrapSecret=super-secret"
-    monkeypatch.setattr("webbrowser.open", lambda value: opened.append(value))
+
+    class _Browser:
+        name = "firefox"
+
+        def open(self, value: str) -> bool:
+            opened.append(value)
+            return True
+
+    monkeypatch.setattr(cli_webui_support, "_has_graphical_session", lambda: True)
+    monkeypatch.setattr("webbrowser.get", lambda *_args, **_kwargs: _Browser())
 
     cli_webui_support._open_webui_browser(url, wait=False)
 
@@ -2542,6 +2551,50 @@ def test_open_webui_browser_redacts_bootstrap_secret(monkeypatch, capsys) -> Non
     output = _strip_ansi(capsys.readouterr().out)
     assert "bootstrapSecret=<redacted>" in output
     assert "super-secret" not in output
+
+
+def test_open_webui_browser_skips_lynx(monkeypatch, capsys) -> None:
+    url = "http://127.0.0.1:8765/#/?bootstrapSecret=super-secret"
+
+    class _Lynx:
+        name = "lynx"
+
+        def open(self, _value: str) -> bool:
+            raise AssertionError("lynx should not be launched for the WebUI")
+
+    monkeypatch.setattr(cli_webui_support, "_has_graphical_session", lambda: True)
+    monkeypatch.setattr("webbrowser.get", lambda *_args, **_kwargs: _Lynx())
+
+    cli_webui_support._open_webui_browser(url, wait=False)
+
+    output = _strip_ansi(capsys.readouterr().out)
+    assert "Open this URL in a desktop browser:" in output
+    assert "bootstrapSecret=<redacted>" in output
+    assert "super-secret" not in output
+
+
+def test_open_webui_browser_skips_headless_linux(monkeypatch, capsys) -> None:
+    opened: list[str] = []
+    url = "http://127.0.0.1:8765/#/?bootstrapSecret=super-secret"
+
+    class _Firefox:
+        name = "firefox"
+
+        def open(self, value: str) -> bool:
+            opened.append(value)
+            return True
+
+    monkeypatch.setattr(cli_webui_support.sys, "platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr("webbrowser.get", lambda *_args, **_kwargs: _Firefox())
+
+    cli_webui_support._open_webui_browser(url, wait=False)
+
+    assert opened == []
+    output = _strip_ansi(capsys.readouterr().out)
+    assert "Open this URL in a desktop browser:" in output
+    assert "No graphical session detected" in output
 
 
 def test_webui_foreground_attaches_to_existing_managed_gateway(monkeypatch, tmp_path: Path) -> None:

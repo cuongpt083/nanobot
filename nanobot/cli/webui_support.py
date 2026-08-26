@@ -1,10 +1,11 @@
 """Shared WebUI setup, URL, health, and browser helpers."""
 
+import os
 import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import typer
 from pydantic import ValidationError
@@ -40,7 +41,9 @@ __all__ = [
     "_gateway_instance_command",
     "_host_for_local_browser",
     "_load_webui_setup_config",
+    "_has_graphical_session",
     "_open_webui_browser",
+    "_resolve_webui_browser",
     "_prepare_webui_bundle_for_gateway",
     "_print_foreground_port_conflict",
     "_print_webui_foreground_lifecycle",
@@ -417,18 +420,82 @@ def _print_foreground_port_conflict(
     )
 
 
-def _open_webui_browser(url: str, *, wait: bool = True) -> None:
-    """Open the WebUI in the user's default browser, with a copyable fallback."""
+class _BrowserOpener(Protocol):
+    def open(self, url: str) -> bool: ...
+
+
+_TEXT_BROWSERS = frozenset({
+    "elinks",
+    "links",
+    "links2",
+    "lynx",
+    "w3m",
+    "www-browser",
+})
+
+
+def _has_graphical_session() -> bool:
+    """Return whether this process can reasonably launch a desktop browser."""
+    if sys.platform in {"win32", "darwin"}:
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _browser_basename(browser: object) -> str:
+    raw = str(getattr(browser, "basename", None) or getattr(browser, "name", "") or "")
+    return Path(raw).name.lower()
+
+
+def _is_text_browser(browser: object) -> bool:
+    name = _browser_basename(browser)
+    return name in _TEXT_BROWSERS or any(name.endswith(f"-{item}") for item in _TEXT_BROWSERS)
+
+
+def _resolve_webui_browser() -> _BrowserOpener | None:
+    """Pick a desktop browser, or None when auto-open would launch lynx/w3m/headless."""
     import webbrowser
 
+    try:
+        browser = webbrowser.get()
+    except webbrowser.Error:
+        return None
+    if _is_text_browser(browser):
+        return None
+    if not _has_graphical_session():
+        return None
+    opener = getattr(browser, "open", None)
+    if not callable(opener):
+        return None
+    return browser
+
+
+def _open_webui_browser(url: str, *, wait: bool = True) -> None:
+    """Open the WebUI in a desktop browser, with a copyable fallback.
+
+    Text browsers such as lynx cannot render the React workbench and dump
+    connection noise into the CLI. Skip them and print the URL instead.
+    """
     if wait:
         _wait_for_webui(url)
     display_url = _webui_display_url(url)
+    browser = _resolve_webui_browser()
+    if browser is None:
+        console.print(f"[cyan]Open this URL in a desktop browser:[/cyan] {display_url}")
+        if not _has_graphical_session():
+            console.print(
+                "[dim]No graphical session detected. Skip lynx/w3m — use a desktop "
+                "browser, or SSH tunnel to this host and open the URL locally.[/dim]"
+            )
+        return
     try:
-        webbrowser.open(url)
-        console.print(f"[green]✓[/green] Opened WebUI: [cyan]{display_url}[/cyan]")
+        opened = bool(browser.open(url))
     except Exception as exc:
         console.print(f"[yellow]Could not open browser ({exc}); visit {display_url}[/yellow]")
+        return
+    if opened:
+        console.print(f"[green]✓[/green] Opened WebUI: [cyan]{display_url}[/cyan]")
+    else:
+        console.print(f"[yellow]Could not open a desktop browser; visit {display_url}[/yellow]")
 
 
 def _print_webui_foreground_lifecycle(*, attached: bool) -> None:
