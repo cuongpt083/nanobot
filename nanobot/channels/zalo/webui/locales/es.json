@@ -1,0 +1,42 @@
+{
+  "description": "Chatea con nanobot desde una cuenta personal de Zalo.",
+  "requirements": "Node.js 18+, app de Zalo, gateway",
+  "setup": {
+    "primaryAction": "Conectar Zalo",
+    "docsLabel": "Abrir guía de Zalo",
+    "officialLabel": "Abrir Zalo",
+    "tryIt": "Tras iniciar sesión por QR, envía un DM al usuario conectado.",
+    "summary": "Zalo inicia sesión con un QR mediante la API no oficial zca-js de cuenta personal. La automatización puede provocar la suspensión de la cuenta.",
+    "steps": [
+      "Haz clic en Conectar y escanea el QR con la app de Zalo.",
+      "Mantén el gateway local activo mientras Zalo recibe mensajes.",
+      "Envía un mensaje directo de prueba para confirmar la conexión."
+    ],
+    "fields": {
+      "allowFrom": {
+        "label": "Usuarios permitidos",
+        "placeholder": "IDs de usuario de Zalo, separados por comas",
+        "help": "Déjalo vacío para usar códigos de emparejamiento."
+      },
+      "groupPolicy": {
+        "label": "Comportamiento en grupos",
+        "choices": {
+          "mention": "Solo menciones",
+          "open": "Todos los mensajes",
+          "allowlist": "Lista de permitidos"
+        }
+      }
+    }
+  },
+  "custom": {
+    "qrAlt": "Código QR de inicio de sesión de Zalo",
+    "scanTitle": "Escanear con Zalo",
+    "scanDescription": "Usa la app de Zalo en el teléfono para escanear este código. nanobot guarda la sesión localmente tras el inicio de sesión.",
+    "waiting": "Esperando el escaneo de Zalo...",
+    "connected": "Zalo está conectado.",
+    "stopped": "Inicio de sesión de Zalo detenido.",
+    "connecting": "Conectando...",
+    "expired": "El inicio de sesión de Zalo expiró. Vuelve a escanear para reconectar.",
+    "failed": "No se pudo conectar Zalo. Inténtalo de nuevo."
+  }
+}

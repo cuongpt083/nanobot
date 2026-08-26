@@ -1119,6 +1119,7 @@ describe("Settings channels", () => {
       ["signal", "Signal", "Open Signal setup"],
       ["msteams", "Microsoft Teams", "Open Teams setup"],
       ["napcat", "NapCat", "Open NapCat setup"],
+      ["zalo", "Zalo", "Open Zalo setup"],
     ] as const;
     const hiddenChannels = [["mochat", "MoChat"]] as const;
 
@@ -1134,7 +1135,7 @@ describe("Settings channels", () => {
             features: channels.map(([name, displayName]) => ({
               name,
               display_name: displayName,
-              webui: ["feishu", "weixin"].includes(name) ? "webui/index.tsx" : "webui/index.ts",
+              webui: ["feishu", "weixin", "zalo"].includes(name) ? "webui/index.tsx" : "webui/index.ts",
               type: "channel",
               enabled: name === "websocket",
               installed: true,

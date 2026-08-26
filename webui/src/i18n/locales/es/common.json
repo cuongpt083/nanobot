@@ -813,7 +813,8 @@
         "wechat": "WeChat",
         "wecom": "WeCom",
         "weixin": "WeChat",
-        "whatsapp": "WhatsApp"
+        "whatsapp": "WhatsApp",
+        "zalo": "Zalo"
       },
       "schedule": {
         "at": "A las {{time}}",

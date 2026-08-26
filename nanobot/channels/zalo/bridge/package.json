@@ -1,0 +1,9 @@
+{
+  "name": "nanobot-zalo-bridge",
+  "private": true,
+  "type": "module",
+  "description": "zca-js sidecar used by the nanobot Zalo channel (OpenClaw zalouser protocol).",
+  "dependencies": {
+    "zca-js": "2.1.2"
+  }
+}

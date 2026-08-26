@@ -300,6 +300,7 @@ Examples:
 ```bash
 nanobot channels login whatsapp
 nanobot channels login weixin
+nanobot channels login zalo
 nanobot channels status
 ```
 

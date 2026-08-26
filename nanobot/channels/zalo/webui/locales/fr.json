@@ -1,0 +1,42 @@
+{
+  "description": "Discutez avec nanobot depuis un compte Zalo personnel.",
+  "requirements": "Node.js 18+, application Zalo, passerelle",
+  "setup": {
+    "primaryAction": "Connecter Zalo",
+    "docsLabel": "Ouvrir le guide Zalo",
+    "officialLabel": "Ouvrir Zalo",
+    "tryIt": "Après la connexion QR, envoyez un DM au compte connecté.",
+    "summary": "Zalo se connecte par QR via l’API non officielle zca-js de compte personnel. L’automatisation peut entraîner une suspension de compte.",
+    "steps": [
+      "Cliquez sur Connecter et scannez le QR avec l’application Zalo.",
+      "Gardez la passerelle locale active pendant que Zalo reçoit les messages.",
+      "Envoyez un message privé de test pour confirmer la connexion."
+    ],
+    "fields": {
+      "allowFrom": {
+        "label": "Utilisateurs autorisés",
+        "placeholder": "IDs utilisateur Zalo, séparés par des virgules",
+        "help": "Laissez vide pour utiliser les codes d’appariement."
+      },
+      "groupPolicy": {
+        "label": "Comportement de groupe",
+        "choices": {
+          "mention": "Mentions uniquement",
+          "open": "Tous les messages",
+          "allowlist": "Liste d’autorisation"
+        }
+      }
+    }
+  },
+  "custom": {
+    "qrAlt": "QR de connexion Zalo",
+    "scanTitle": "Scanner avec Zalo",
+    "scanDescription": "Scannez ce code avec l’application Zalo. nanobot enregistre la session localement après la connexion.",
+    "waiting": "En attente du scan Zalo...",
+    "connected": "Zalo est connecté.",
+    "stopped": "Connexion Zalo arrêtée.",
+    "connecting": "Connexion...",
+    "expired": "La connexion Zalo a expiré. Scannez à nouveau pour reconnecter.",
+    "failed": "Impossible de connecter Zalo. Réessayez."
+  }
+}

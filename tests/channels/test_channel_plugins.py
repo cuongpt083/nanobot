@@ -282,7 +282,7 @@ def test_channels_config_has_no_per_channel_fields():
 
 @pytest.mark.parametrize(
     "name",
-    ["websocket", "telegram", "discord", "slack", "email", "feishu", "matrix", "weixin", "whatsapp"],
+    ["websocket", "telegram", "discord", "slack", "email", "feishu", "matrix", "weixin", "whatsapp", "zalo"],
 )
 def test_special_setup_validation_is_owned_by_channel_package(name: str):
     plugin = load_channel_package(name)
@@ -2664,6 +2664,7 @@ def test_optional_dependency_metadata_for_enable():
         "wecom",
         "weixin",
         "whatsapp",
+        "zalo",
     }
     assert channel_names.isdisjoint(deps)
     expected_channel_dependencies = {
@@ -2703,6 +2704,7 @@ def test_optional_dependency_metadata_for_enable():
             "neonize>=0.3.18.post0,<0.4.0",
             "segno>=1.6.1,<2.0.0",
         ),
+        "zalo": ("segno>=1.6.1,<2.0.0",),
     }
     for name, expected in expected_channel_dependencies.items():
         plugin = load_channel_package(name)

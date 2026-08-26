@@ -812,7 +812,8 @@
         "wechat": "微信",
         "wecom": "企業微信",
         "weixin": "微信",
-        "whatsapp": "WhatsApp"
+        "whatsapp": "WhatsApp",
+        "zalo": "Zalo"
       },
       "schedule": {
         "at": "於 {{time}}",

@@ -1,0 +1,42 @@
+{
+  "description": "Trò chuyện với nanobot từ tài khoản Zalo cá nhân.",
+  "requirements": "Node.js 18+, ứng dụng Zalo, gateway",
+  "setup": {
+    "primaryAction": "Kết nối Zalo",
+    "docsLabel": "Mở hướng dẫn Zalo",
+    "officialLabel": "Mở Zalo",
+    "tryIt": "Sau khi đăng nhập QR, gửi tin nhắn riêng đến tài khoản đã kết nối.",
+    "summary": "Zalo đăng nhập bằng mã QR qua API tài khoản cá nhân zca-js (không chính thức). Tự động hóa Zalo có thể dẫn đến khóa tài khoản.",
+    "steps": [
+      "Nhấn Kết nối và quét QR bằng ứng dụng Zalo trên điện thoại.",
+      "Giữ gateway cục bộ chạy khi Zalo nhận tin nhắn.",
+      "Gửi tin nhắn riêng thử để xác nhận kết nối."
+    ],
+    "fields": {
+      "allowFrom": {
+        "label": "Người dùng được phép",
+        "placeholder": "ID người dùng Zalo, phân tách bằng dấu phẩy",
+        "help": "Để trống để dùng mã ghép cặp."
+      },
+      "groupPolicy": {
+        "label": "Hành vi trong nhóm",
+        "choices": {
+          "mention": "Chỉ khi được nhắc",
+          "open": "Mọi tin nhắn",
+          "allowlist": "Danh sách cho phép"
+        }
+      }
+    }
+  },
+  "custom": {
+    "qrAlt": "Mã QR đăng nhập Zalo",
+    "scanTitle": "Quét bằng Zalo",
+    "scanDescription": "Quét bằng ứng dụng Zalo trên điện thoại. nanobot lưu phiên tài khoản cục bộ sau khi đăng nhập.",
+    "waiting": "Đang chờ quét Zalo...",
+    "connected": "Zalo đã kết nối.",
+    "stopped": "Đăng nhập Zalo đã dừng.",
+    "connecting": "Đang kết nối...",
+    "expired": "Đăng nhập Zalo đã hết hạn. Hãy quét lại để kết nối lại.",
+    "failed": "Không thể kết nối Zalo. Hãy thử lại."
+  }
+}

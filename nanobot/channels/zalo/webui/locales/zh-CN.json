@@ -1,0 +1,42 @@
+{
+  "description": "通过 Zalo 个人账号与 nanobot 聊天。",
+  "requirements": "Node.js 18+、Zalo 手机应用、网关",
+  "setup": {
+    "primaryAction": "连接 Zalo",
+    "docsLabel": "打开 Zalo 配置指南",
+    "officialLabel": "打开 Zalo",
+    "tryIt": "二维码登录完成后，向已连接的账户发送一条 Zalo 私信。",
+    "summary": "Zalo 通过 zca-js 非官方个人账号接口扫码登录。使用自动化可能导致账号被封。",
+    "steps": [
+      "点击连接，用手机 Zalo 扫描二维码。",
+      "Zalo 接收消息期间请保持本地网关运行。",
+      "发送一条私信测试，确认账户已连接。"
+    ],
+    "fields": {
+      "allowFrom": {
+        "label": "允许的用户",
+        "placeholder": "Zalo 用户 ID，用逗号分隔",
+        "help": "留空以使用配对码。"
+      },
+      "groupPolicy": {
+        "label": "群聊行为",
+        "choices": {
+          "mention": "仅在被提及时",
+          "open": "所有消息",
+          "allowlist": "白名单"
+        }
+      }
+    }
+  },
+  "custom": {
+    "qrAlt": "Zalo 登录二维码",
+    "scanTitle": "使用 Zalo 扫描",
+    "scanDescription": "用手机 Zalo 扫描此码。登录后 nanobot 会在本地保存会话。",
+    "waiting": "正在等待 Zalo 扫描...",
+    "connected": "Zalo 已连接。",
+    "stopped": "Zalo 登录已停止。",
+    "connecting": "正在连接...",
+    "expired": "Zalo 登录已过期。请重新扫描以连接。",
+    "failed": "无法连接 Zalo。请重试。"
+  }
+}

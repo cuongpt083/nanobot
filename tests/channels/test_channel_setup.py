@@ -31,6 +31,7 @@ EXPECTED_CHANNELS = {
     "wecom",
     "weixin",
     "whatsapp",
+    "zalo",
 }
 
 

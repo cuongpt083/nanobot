@@ -1,0 +1,42 @@
+{
+  "description": "Chat with nanobot from a Zalo personal account.",
+  "requirements": "Node.js 18+, Zalo mobile app, gateway",
+  "setup": {
+    "primaryAction": "Connect Zalo",
+    "docsLabel": "Open Zalo setup",
+    "officialLabel": "Open Zalo",
+    "tryIt": "After QR login finishes, send a Zalo DM to the connected account.",
+    "summary": "Zalo signs in with a QR code using the unofficial zca-js personal-account API. Using Zalo automation may result in account suspension.",
+    "steps": [
+      "Click Connect and scan the QR code with the Zalo app on your phone.",
+      "Keep the local gateway running while Zalo receives messages.",
+      "Send a direct test message to confirm the account is connected."
+    ],
+    "fields": {
+      "allowFrom": {
+        "label": "Allowed users",
+        "placeholder": "Zalo user IDs, comma separated",
+        "help": "Leave empty to use pairing codes."
+      },
+      "groupPolicy": {
+        "label": "Group behavior",
+        "choices": {
+          "mention": "Mention only",
+          "open": "All messages",
+          "allowlist": "Allowlist"
+        }
+      }
+    }
+  },
+  "custom": {
+    "qrAlt": "Zalo login QR code",
+    "scanTitle": "Scan with Zalo",
+    "scanDescription": "Use the Zalo app on your phone to scan this code. nanobot saves the account session locally after login.",
+    "waiting": "Waiting for Zalo scan...",
+    "connected": "Zalo is connected.",
+    "stopped": "Zalo login stopped.",
+    "connecting": "Connecting...",
+    "expired": "Zalo login expired. Scan again to reconnect.",
+    "failed": "Unable to connect Zalo. Try again."
+  }
+}

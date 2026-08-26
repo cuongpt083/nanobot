@@ -31,6 +31,7 @@ Send `Hello!` in the WebUI before adding a channel. Then choose one platform gui
 - [Slack AI agent](./slack-ai-agent.md)
 - [Feishu AI agent](./feishu-ai-agent.md)
 - [WhatsApp AI agent](./whatsapp-ai-agent.md)
+- [Zalo AI agent](./zalo-ai-agent.md)
 - [WeChat AI agent](./wechat-ai-agent.md)
 - [QQ AI agent](./qq-ai-agent.md)
 - [Email AI agent](./email-ai-agent.md)

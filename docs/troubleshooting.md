@@ -299,6 +299,7 @@ Then check:
 | Telegram receives no messages | Confirm the channel is enabled, the gateway is running, and the sender is paired or listed in `allowFrom`. |
 | Discord replies missing | Enable Message Content intent and invite the bot with the required permissions. |
 | WhatsApp or WeChat login expired | Re-run `nanobot channels login whatsapp` or `nanobot channels login weixin`. |
+| Zalo login expired or Node.js missing | Install Node.js 18+ and re-run `nanobot channels login zalo`. |
 | Chat app works but WebUI does not | The provider and gateway are likely fine; debug the WebSocket channel separately. |
 
 See [`chat-apps.md`](./chat-apps.md) for channel-specific setup.

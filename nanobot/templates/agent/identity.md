@@ -16,7 +16,7 @@ Nanobot's agent workspace is at: {{ agent_workspace_path }}
 {% endif %}
 
 {{ platform_policy }}
-{% if channel == 'telegram' or channel == 'qq' or channel == 'discord' %}
+{% if channel == 'telegram' or channel == 'qq' or channel == 'discord' or channel == 'zalo' %}
 ## Format Hint
 This conversation is on a messaging app. Use short paragraphs. Avoid large headings (#, ##). Use **bold** sparingly. No tables — use plain lists.
 {% elif channel == 'whatsapp' or channel == 'sms' %}
