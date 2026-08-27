@@ -19,7 +19,7 @@ import {
   FolderOpen
 } from 'lucide-react';
 import Markdown from 'react-markdown';
-import { Session, Message, ToolCall } from '../types';
+import { Session, Message, ToolCall, ModelPresetItemConfig, ProviderItemConfig } from '../types';
 
 interface ChatViewProps {
   sessions: Session[];
@@ -30,7 +30,9 @@ interface ChatViewProps {
   onSendMessage: (text: string) => Promise<void>;
   isLoading: boolean;
   activeModel: string;
-  onChangeModel: (model: string) => void;
+  onChangeModel: (model: string, presetId?: string) => void;
+  modelPresets?: Record<string, ModelPresetItemConfig>;
+  providers?: Record<string, ProviderItemConfig>;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -43,6 +45,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   isLoading,
   activeModel,
   onChangeModel,
+  modelPresets = {},
+  providers = {},
 }) => {
   const [inputText, setInputText] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -171,23 +175,42 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <h2 className="text-sm font-semibold text-zinc-100 truncate max-w-md">
               {currentSession?.title || 'Active Session'}
             </h2>
-            <span className="px-2 py-0.5 text-[10px] font-mono bg-zinc-800 text-zinc-300 rounded border border-zinc-700">
-              {currentSession?.model || activeModel}
+            <span className="px-2.5 py-1 text-[11px] font-mono font-medium bg-amber-500/15 text-amber-300 rounded-md border border-amber-500/30 flex items-center gap-1.5 shadow-xs">
+              <Bot className="w-3 h-3 text-amber-400" />
+              <span>{currentSession?.model || activeModel}</span>
             </span>
           </div>
 
           <div className="flex items-center gap-2">
             <select
               id="select-model-picker"
-              value={activeModel}
-              onChange={(e) => onChangeModel(e.target.value)}
-              className="bg-zinc-900 text-xs text-zinc-200 border border-zinc-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500 cursor-pointer"
+              value={currentSession?.model || activeModel}
+              onChange={(e) => {
+                const selectedVal = e.target.value;
+                const matchingPresetKey = Object.keys(modelPresets).find(
+                  (k) => modelPresets[k]?.model === selectedVal || k === selectedVal
+                );
+                onChangeModel(selectedVal, matchingPresetKey);
+              }}
+              className="bg-zinc-900 text-xs text-zinc-200 border border-zinc-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:border-amber-500 cursor-pointer font-mono"
             >
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fast / Multimodal)</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Reasoning)</option>
-              <option value="claude-3-7-sonnet">Claude 3.7 Sonnet</option>
-              <option value="gpt-4o">GPT-4o</option>
-              <option value="ollama-local">Local Ollama / OpenSource</option>
+              {Object.keys(modelPresets).length > 0 ? (
+                Object.entries(modelPresets).map(([key, preset]) => (
+                  <option key={key} value={preset.model}>
+                    {preset.name || key} ({preset.model})
+                  </option>
+                ))
+              ) : Object.keys(providers).length > 0 ? (
+                Object.values(providers).flatMap((p) =>
+                  (p.modelList || [p.defaultModel || 'default-model']).map((m) => (
+                    <option key={`${p.id}-${m}`} value={m}>
+                      {p.alias || p.name || p.id} ({m})
+                    </option>
+                  ))
+                )
+              ) : (
+                <option value={activeModel}>{activeModel}</option>
+              )}
             </select>
           </div>
         </div>

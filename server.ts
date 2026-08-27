@@ -1965,6 +1965,23 @@ app.post('/api/settings', (req: Request, res: Response) => {
   });
 });
 
+function getDefaultModelFromConfig(): string {
+  const master = (typeof nanobotMasterConfig !== 'undefined' && nanobotMasterConfig) || readNanobotConfig() || {};
+  const defaultPresetId = master.agents?.defaults?.modelPreset || 'primary';
+  if (master.modelPresets?.[defaultPresetId]?.model) {
+    return master.modelPresets[defaultPresetId].model;
+  }
+  const firstPreset = Object.values(master.modelPresets || {})[0] as any;
+  if (firstPreset?.model) {
+    return firstPreset.model;
+  }
+  const firstProv = Object.values(master.providers || {})[0] as any;
+  if (firstProv?.defaultModel) {
+    return firstProv.defaultModel;
+  }
+  return 'gemini-2.5-flash';
+}
+
 // Sessions API
 app.get('/api/sessions', (req: Request, res: Response) => {
   const sessions = Array.from(sessionsStore.values()).sort(
@@ -1980,7 +1997,7 @@ app.post('/api/sessions', (req: Request, res: Response) => {
     title: title || 'New Conversation',
     created_at: Date.now(),
     updated_at: Date.now(),
-    model: model || 'gemini-2.5-flash',
+    model: model || getDefaultModelFromConfig(),
     system_prompt:
       system_prompt ||
       'You are nanobot, a lightweight AI agent framework. Be concise, precise, and leverage tool calls whenever suitable.',
@@ -1993,6 +2010,18 @@ app.post('/api/sessions', (req: Request, res: Response) => {
   };
   sessionsStore.set(newSession.id, newSession);
   res.status(201).json(newSession);
+});
+
+app.patch('/api/sessions/:id', (req: Request, res: Response) => {
+  const session = sessionsStore.get(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+  if (req.body.model) session.model = req.body.model;
+  if (req.body.title) session.title = req.body.title;
+  session.updated_at = Date.now();
+  sessionsStore.set(req.params.id, session);
+  res.json(session);
 });
 
 app.get('/api/sessions/:id', (req: Request, res: Response) => {

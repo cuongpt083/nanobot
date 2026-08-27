@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Session,
   MemoryFact,
@@ -6,7 +6,8 @@ import {
   NanobotFullConfig,
   GatewayProcessState,
   GatewayLogEntry,
-  DesktopReleaseInfo
+  DesktopReleaseInfo,
+  ModelPresetItemConfig
 } from './types';
 import { ChatView } from './components/ChatView';
 import { DesktopHeader } from './components/DesktopHeader';
@@ -237,9 +238,11 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setFullConfig(data);
-        if (data.agents?.defaults?.modelPreset) {
-          setActiveModelPresetId(data.agents.defaults.modelPreset);
-        }
+        const preferredPresetId =
+          data.agents?.defaults?.modelPreset ||
+          Object.keys(data.modelPresets || {})[0] ||
+          'primary';
+        setActiveModelPresetId(preferredPresetId);
       }
     } catch (e) {
       console.warn('Failed to fetch full config:', e);
@@ -439,18 +442,53 @@ export const App: React.FC = () => {
     setMemoryFacts((prev) => [newFact, ...prev]);
   };
 
+  // Dynamically resolve active model preset from config / presets / providers
+  const currentModelPreset: ModelPresetItemConfig = useMemo(() => {
+    if (activeModelPresetId && fullConfig.modelPresets?.[activeModelPresetId]) {
+      return fullConfig.modelPresets[activeModelPresetId];
+    }
+    const defaultPresetKey = fullConfig.agents?.defaults?.modelPreset;
+    if (defaultPresetKey && fullConfig.modelPresets?.[defaultPresetKey]) {
+      return fullConfig.modelPresets[defaultPresetKey];
+    }
+    const isDefaultPreset = Object.values(fullConfig.modelPresets || {}).find((p) => p.isDefault);
+    if (isDefaultPreset) return isDefaultPreset;
+
+    const firstPreset = Object.values(fullConfig.modelPresets || {})[0];
+    if (firstPreset) return firstPreset;
+
+    const firstProvider = Object.values(fullConfig.providers || {}).find(
+      (p) => p.status === 'active' || p.apiKey || p.apiBase
+    ) || Object.values(fullConfig.providers || {})[0];
+
+    if (firstProvider) {
+      return {
+        id: 'primary',
+        name: firstProvider.alias || firstProvider.name || firstProvider.id || 'Primary Model',
+        model: firstProvider.defaultModel || firstProvider.modelList?.[0] || 'default-model',
+        provider: firstProvider.id || 'custom',
+        isDefault: true,
+      };
+    }
+
+    return {
+      id: 'primary',
+      name: 'Primary Model',
+      model: 'default-model',
+      provider: 'custom',
+    };
+  }, [fullConfig, activeModelPresetId]);
+
   // Chat Actions
   const handleCreateSession = async () => {
-    const currentPreset = fullConfig.modelPresets?.[activeModelPresetId] || {
-      model: 'gemini-2.5-flash',
-    };
+    const modelToUse = currentModelPreset.model;
     try {
       const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: 'New Workspace Thread',
-          model: currentPreset.model,
+          model: modelToUse,
           system_prompt: fullConfig.skills?.soulPrompt || 'You are Nanobot Desktop.',
         }),
       });
@@ -480,6 +518,33 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleChangeSessionModel = async (newModel: string, presetId?: string) => {
+    if (presetId) {
+      setActiveModelPresetId(presetId);
+      handleUpdateFullConfig({
+        agents: {
+          ...fullConfig.agents,
+          defaults: {
+            ...fullConfig.agents?.defaults,
+            modelPreset: presetId,
+          },
+        },
+      });
+    }
+    if (activeSessionId) {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === activeSessionId ? { ...s, model: newModel } : s))
+      );
+      try {
+        await fetch(`/api/sessions/${activeSessionId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: newModel }),
+        });
+      } catch (e) {}
+    }
+  };
+
   const handleSendMessage = async (text: string) => {
     if (!activeSessionId) {
       if (sessions.length === 0) {
@@ -490,9 +555,7 @@ export const App: React.FC = () => {
     if (!targetSessionId) return;
 
     setIsLoadingChat(true);
-    const currentPreset = fullConfig.modelPresets?.[activeModelPresetId] || {
-      model: 'gemini-2.5-flash',
-    };
+    const modelToUse = currentModelPreset.model;
 
     try {
       const res = await fetch('/api/chat', {
@@ -501,7 +564,7 @@ export const App: React.FC = () => {
         body: JSON.stringify({
           sessionId: targetSessionId,
           message: text,
-          model: currentPreset.model,
+          model: modelToUse,
           customPrompt: fullConfig.skills?.soulPrompt,
         }),
       });
@@ -517,13 +580,6 @@ export const App: React.FC = () => {
     } finally {
       setIsLoadingChat(false);
     }
-  };
-
-  const currentModelPreset = fullConfig.modelPresets?.[activeModelPresetId] || {
-    id: activeModelPresetId,
-    name: 'Gemini 2.5 Flash',
-    model: 'gemini-2.5-flash',
-    provider: 'gemini',
   };
 
   return (
@@ -573,9 +629,9 @@ export const App: React.FC = () => {
               onSendMessage={handleSendMessage}
               isLoading={isLoadingChat}
               activeModel={currentModelPreset.model}
-              onChangeModel={(model) => {
-                // Switch model
-              }}
+              onChangeModel={handleChangeSessionModel}
+              modelPresets={fullConfig.modelPresets}
+              providers={fullConfig.providers}
             />
           ) : (
             <WorkspaceExplorerView workspacePath={desktopSettings.workspacePath} />
@@ -620,9 +676,10 @@ export const App: React.FC = () => {
       <InitialSetupWizardModal
         isOpen={isSetupWizardOpen}
         onClose={() => setIsSetupWizardOpen(false)}
-        onSetupCompleted={() => {
-          fetchFullConfig();
-          fetchGatewayState();
+        onSetupCompleted={async () => {
+          await fetchFullConfig();
+          await fetchSessions();
+          await fetchGatewayState();
         }}
       />
     </div>

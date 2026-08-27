@@ -357,6 +357,18 @@ export const InitialSetupWizardModal: React.FC<InitialSetupWizardModalProps> = (
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           providers: { [providerKey]: providerPayload },
+          modelPresets: {
+            [presetId]: {
+              id: presetId,
+              name: `${aliasToUse} (${modelToUse})`,
+              provider: providerKey,
+              model: modelToUse,
+              isDefault: true,
+              maxTokens: 8192,
+              contextWindowTokens: 128000,
+              temperature: 0.7,
+            },
+          },
           agents: {
             defaults: {
               modelPreset: presetId,
