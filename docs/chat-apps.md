@@ -11,6 +11,7 @@ a focused setup path for one platform, start with a guide:
 | Slack | [Build a Slack AI Agent with nanobot](./guides/slack-ai-agent.md) |
 | Feishu | [Build a Feishu AI Agent with nanobot](./guides/feishu-ai-agent.md) |
 | WhatsApp | [Build a WhatsApp AI Agent with nanobot](./guides/whatsapp-ai-agent.md) |
+| Zalo | [Build a Zalo AI Agent with nanobot](./guides/zalo-ai-agent.md) |
 | WeChat | [Build a WeChat AI Agent with nanobot](./guides/wechat-ai-agent.md) |
 | QQ | [Build a QQ AI Agent with nanobot](./guides/qq-ai-agent.md) |
 | Email | [Build an Email AI Agent with nanobot](./guides/email-ai-agent.md) |
@@ -54,7 +55,7 @@ The sections below explain what each chat platform requires and provide manual c
 > ```
 >
 > Replace `<channel>` with names such as `telegram`, `slack`, `feishu`,
-> `dingtalk`, `matrix`, `qq`, `napcat`, `weixin`, `wecom`, or `msteams`.
+> `dingtalk`, `matrix`, `qq`, `napcat`, `weixin`, `wecom`, `msteams`, or `zalo`.
 > To turn a channel off later, run `nanobot plugins disable <channel>`.
 > nanobot keeps the saved settings, but stops loading that channel after the
 > next restart.
@@ -93,6 +94,7 @@ If `nanobot channels status` does not show the channel as enabled, the config sn
 | **Telegram** | Bot token from @BotFather |
 | **Discord** | Bot token + Message Content intent |
 | **WhatsApp** | QR code scan (`nanobot channels login whatsapp`) |
+| **Zalo** | QR code scan (`nanobot channels login zalo`); requires Node.js 18+ |
 | **WeChat (Weixin)** | QR code scan (`nanobot channels login weixin`) |
 | **Feishu** | QR code scan (`nanobot channels login feishu`) or App ID + App Secret |
 | **DingTalk** | App Key + App Secret |
@@ -471,6 +473,61 @@ very first message:
   }
 }
 ```
+
+</details>
+
+<details>
+<summary><b>Zalo</b></summary>
+
+Connects a **Zalo personal account** using `zca-js`, the same unofficial Web protocol
+OpenClaw's `zalouser` extension uses. There is no official Zalo bot API in this
+channel. Using Zalo automation may result in account suspension.
+
+Requires **Node.js 18+** (and npm) on the machine that runs the gateway.
+
+**Install the optional channel dependency**
+
+```bash
+nanobot plugins enable zalo
+```
+
+**1. Link the account with QR**
+
+```bash
+nanobot channels login zalo
+# Scan the QR code with the Zalo app on your phone
+```
+
+You can also scan from **Settings → Channels → Zalo** in the WebUI.
+
+**2. Configure**
+
+```json
+{
+  "channels": {
+    "zalo": {
+      "enabled": true,
+      "groupPolicy": "mention"
+    }
+  }
+}
+```
+
+Omit `allowFrom` to use pairing for DMs. Add numeric Zalo user IDs to
+`allowFrom` for a static allowlist. `groupPolicy` is `"mention"` by default
+(`"open"` replies to every group message).
+
+Session credentials are stored under `~/.nanobot/zalo-auth/credentials.json`.
+Optional `stateDir` overrides that directory.
+
+**3. Run**
+
+```bash
+nanobot gateway
+```
+
+> Zalo text messages are split at 2000 characters. Local image/file paths in
+> outbound `media` are uploaded; inbound media URLs are attached when present.
 
 </details>
 

@@ -1,0 +1,42 @@
+{
+  "description": "Ngobrol dengan nanobot dari akun pribadi Zalo.",
+  "requirements": "Node.js 18+, aplikasi Zalo, gateway",
+  "setup": {
+    "primaryAction": "Hubungkan Zalo",
+    "docsLabel": "Buka panduan Zalo",
+    "officialLabel": "Buka Zalo",
+    "tryIt": "Setelah login QR selesai, kirim DM Zalo ke akun yang terhubung.",
+    "summary": "Zalo masuk dengan kode QR melalui API akun pribadi zca-js yang tidak resmi. Otomasi Zalo dapat menyebabkan akun ditangguhkan.",
+    "steps": [
+      "Klik Hubungkan dan pindai QR dengan aplikasi Zalo di ponsel.",
+      "Biarkan gateway lokal tetap berjalan saat Zalo menerima pesan.",
+      "Kirim pesan langsung uji untuk memastikan akun terhubung."
+    ],
+    "fields": {
+      "allowFrom": {
+        "label": "Pengguna yang diizinkan",
+        "placeholder": "ID pengguna Zalo, dipisahkan koma",
+        "help": "Kosongkan untuk menggunakan kode pemasangan."
+      },
+      "groupPolicy": {
+        "label": "Perilaku grup",
+        "choices": {
+          "mention": "Hanya mention",
+          "open": "Semua pesan",
+          "allowlist": "Daftar izinkan"
+        }
+      }
+    }
+  },
+  "custom": {
+    "qrAlt": "Kode QR login Zalo",
+    "scanTitle": "Pindai dengan Zalo",
+    "scanDescription": "Gunakan aplikasi Zalo di ponsel untuk memindai kode ini. nanobot menyimpan sesi secara lokal setelah login.",
+    "waiting": "Menunggu pemindaian Zalo...",
+    "connected": "Zalo terhubung.",
+    "stopped": "Login Zalo dihentikan.",
+    "connecting": "Menghubungkan...",
+    "expired": "Login Zalo kedaluwarsa. Pindai lagi untuk menyambung ulang.",
+    "failed": "Tidak dapat menghubungkan Zalo. Coba lagi."
+  }
+}

@@ -119,6 +119,10 @@ File operations have path traversal protection, but:
 - Keep the neonize session database under `~/.nanobot/whatsapp-auth` secure (mode 0700).
 - Use `nanobot channels login whatsapp --force` to remove and recreate the local session database when rotating linked devices.
 
+**Zalo:**
+- Keep `~/.nanobot/zalo-auth/credentials.json` secure (directory mode 0700). It holds the personal-account session used by `zca-js`.
+- Use `nanobot channels login zalo --force` to replace a linked Zalo session.
+
 ### 6. Dependency Security
 
 **Critical**: Keep dependencies updated!

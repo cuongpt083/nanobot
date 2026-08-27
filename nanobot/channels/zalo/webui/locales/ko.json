@@ -1,0 +1,42 @@
+{
+  "description": "Zalo 개인 계정에서 nanobot과 대화합니다.",
+  "requirements": "Node.js 18+, Zalo 앱, 게이트웨이",
+  "setup": {
+    "primaryAction": "Zalo 연결",
+    "docsLabel": "Zalo 설정 가이드 열기",
+    "officialLabel": "Zalo 열기",
+    "tryIt": "QR 로그인 후 연결된 계정으로 Zalo DM을 보내세요.",
+    "summary": "Zalo는 비공식 zca-js 개인 계정 API로 QR 로그인합니다. 자동화는 계정 정지 위험이 있습니다.",
+    "steps": [
+      "연결을 누르고 휴대폰 Zalo 앱으로 QR을 스캔하세요.",
+      "Zalo가 메시지를 받는 동안 로컬 게이트웨이를 계속 실행하세요.",
+      "직접 메시지를 보내 연결을 확인하세요."
+    ],
+    "fields": {
+      "allowFrom": {
+        "label": "허용된 사용자",
+        "placeholder": "Zalo 사용자 ID, 쉼표로 구분",
+        "help": "비워 두면 페어링 코드를 사용합니다."
+      },
+      "groupPolicy": {
+        "label": "그룹 동작",
+        "choices": {
+          "mention": "멘션만",
+          "open": "모든 메시지",
+          "allowlist": "허용 목록"
+        }
+      }
+    }
+  },
+  "custom": {
+    "qrAlt": "Zalo 로그인 QR 코드",
+    "scanTitle": "Zalo로 스캔",
+    "scanDescription": "휴대폰 Zalo 앱으로 이 코드를 스캔하세요. 로그인 후 nanobot이 세션을 로컬에 저장합니다.",
+    "waiting": "Zalo 스캔을 기다리는 중...",
+    "connected": "Zalo가 연결되었습니다.",
+    "stopped": "Zalo 로그인이 중지되었습니다.",
+    "connecting": "연결 중...",
+    "expired": "Zalo 로그인이 만료되었습니다. 다시 스캔하여 재연결하세요.",
+    "failed": "Zalo에 연결할 수 없습니다. 다시 시도하세요."
+  }
+}
