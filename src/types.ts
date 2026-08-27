@@ -350,6 +350,7 @@ export interface SetupStepItem {
 export interface SetupStatusResponse {
   isInstalled: boolean;
   needsSetup: boolean;
+  hasActiveProvider?: boolean;
   homeDir: string;
   nanobotDir: string;
   workspaceDir: string;

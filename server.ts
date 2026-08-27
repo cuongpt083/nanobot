@@ -936,8 +936,19 @@ export function getSetupStatus() {
     }
   }
 
+  let hasActiveProvider = false;
+  try {
+    if (configExists) {
+      const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const providers = cfg.providers || {};
+      hasActiveProvider = Object.values(providers).some(
+        (p: any) => p && (p.status === 'active' || p.apiKey || p.apiBase) && p.defaultModel
+      );
+    }
+  } catch (e) {}
+
   const isInstalled = installedFileExists && configExists && workspaceExists && scriptsExists;
-  const needsSetup = !isInstalled || !workspaceExists || !scriptsExists;
+  const needsSetup = !isInstalled || !workspaceExists || !scriptsExists || !hasActiveProvider;
 
   const initialSteps = [
     {
@@ -989,6 +1000,7 @@ export function getSetupStatus() {
   return {
     isInstalled,
     needsSetup,
+    hasActiveProvider,
     homeDir,
     nanobotDir,
     workspaceDir,

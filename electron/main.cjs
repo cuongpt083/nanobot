@@ -1006,8 +1006,19 @@ ipcMain.handle('desktop:setup-get-status', async () => {
     }
   }
 
+  let hasActiveProvider = false;
+  try {
+    if (configExists) {
+      const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const providers = cfg.providers || {};
+      hasActiveProvider = Object.values(providers).some(
+        (p) => p && (p.status === 'active' || p.apiKey || p.apiBase) && p.defaultModel
+      );
+    }
+  } catch (e) {}
+
   const isInstalled = installedFileExists && configExists && workspaceExists && scriptsExists;
-  const needsSetup = !isInstalled || !workspaceExists || !scriptsExists;
+  const needsSetup = !isInstalled || !workspaceExists || !scriptsExists || !hasActiveProvider;
 
   const steps = [
     {
@@ -1059,6 +1070,7 @@ ipcMain.handle('desktop:setup-get-status', async () => {
   return {
     isInstalled,
     needsSetup,
+    hasActiveProvider,
     homeDir,
     nanobotDir,
     workspaceDir,
