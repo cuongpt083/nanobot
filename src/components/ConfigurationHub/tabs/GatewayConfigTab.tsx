@@ -66,7 +66,10 @@ export const GatewayConfigTab: React.FC<GatewayConfigTabProps> = ({
               </span>
             </div>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Status: <span className="font-semibold text-emerald-400 capitalize">{gatewayState.status}</span> • Uptime: {gatewayState.uptimeSeconds}s
+              Status: <span className={`font-semibold capitalize ${gatewayState.status === 'running' ? 'text-emerald-400' : gatewayState.status === 'starting' ? 'text-amber-400' : 'text-zinc-500'}`}>{gatewayState.status || 'stopped'}</span>
+              {gatewayState.pid && <span> • PID: <strong className="text-zinc-300 font-mono">{gatewayState.pid}</strong></span>}
+              <span> • Uptime: <strong className="text-zinc-300 font-mono">{gatewayState.uptimeSeconds || 0}s</strong></span>
+              {gatewayState.memoryUsageMb ? <span> • RAM: <strong className="text-zinc-300 font-mono">{gatewayState.memoryUsageMb} MB</strong></span> : null}
             </p>
           </div>
         </div>

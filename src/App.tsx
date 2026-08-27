@@ -157,8 +157,24 @@ export const App: React.FC = () => {
     checkSetupStatus();
   }, []);
 
-  // Listen for native desktop IPC menu triggers
+  // Listen for native desktop IPC menu triggers & gateway events
   useEffect(() => {
+    let unsubLog: (() => void) | undefined;
+    let unsubStatus: (() => void) | undefined;
+
+    if (window.nanobotDesktop?.gateway) {
+      if (typeof window.nanobotDesktop.gateway.onLog === 'function') {
+        unsubLog = window.nanobotDesktop.gateway.onLog((entry: GatewayLogEntry) => {
+          setGatewayLogs((prev) => [...prev, entry]);
+        });
+      }
+      if (typeof window.nanobotDesktop.gateway.onStatusChange === 'function') {
+        unsubStatus = window.nanobotDesktop.gateway.onStatusChange((newState: GatewayProcessState) => {
+          if (newState && newState.status) setGatewayState(newState);
+        });
+      }
+    }
+
     if (window.nanobotDesktop?.on) {
       const handleNewChat = () => {
         handleCreateSession();
@@ -197,6 +213,8 @@ export const App: React.FC = () => {
       window.nanobotDesktop.on('reload-mcp', handleReloadMcp);
 
       return () => {
+        unsubLog?.();
+        unsubStatus?.();
         window.nanobotDesktop?.off('new-chat', handleNewChat);
         window.nanobotDesktop?.off('open-settings', handleOpenSettings);
         window.nanobotDesktop?.off('workspace-selected', handleWorkspaceSelected);
@@ -205,6 +223,11 @@ export const App: React.FC = () => {
         window.nanobotDesktop?.off('reload-mcp', handleReloadMcp);
       };
     }
+
+    return () => {
+      unsubLog?.();
+      unsubStatus?.();
+    };
   }, []);
 
   // Global Alt+Space / Cmd+, / Cmd+N listener
@@ -316,13 +339,35 @@ export const App: React.FC = () => {
 
   const fetchGatewayState = async () => {
     try {
-      const res = await fetch('/api/desktop/gateway/status');
-      if (res.ok) {
-        const data = await res.json();
-        setGatewayState(data);
+      if (window.nanobotDesktop?.gateway?.getStatus) {
+        const data = await window.nanobotDesktop.gateway.getStatus();
+        if (data) setGatewayState(data);
+      } else {
+        const res = await fetch('/api/desktop/gateway/status');
+        if (res.ok) {
+          const data = await res.json();
+          setGatewayState(data);
+        }
       }
     } catch (e) {
       console.warn('Failed to fetch gateway process state:', e);
+    }
+  };
+
+  const fetchGatewayLogs = async () => {
+    try {
+      if (window.nanobotDesktop?.gateway?.getLogs) {
+        const logs = await window.nanobotDesktop.gateway.getLogs();
+        if (Array.isArray(logs)) setGatewayLogs(logs);
+      } else {
+        const res = await fetch('/api/desktop/gateway/logs');
+        if (res.ok) {
+          const logs = await res.json();
+          if (Array.isArray(logs)) setGatewayLogs(logs);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch gateway logs:', e);
     }
   };
 
@@ -343,20 +388,20 @@ export const App: React.FC = () => {
   // Gateway Supervisor Actions
   const handleStartGateway = async () => {
     try {
-      const res = await fetch('/api/desktop/gateway/start', { method: 'POST' });
-      if (res.ok) {
-        const updated = await res.json();
-        setGatewayState(updated);
-        setGatewayLogs((prev) => [
-          ...prev,
-          {
-            id: `log-${Date.now()}`,
-            timestamp: Date.now(),
-            type: 'system',
-            message: `[Supervisor] Gateway process started (PID ${updated.pid})`,
-          },
-        ]);
+      if (window.nanobotDesktop?.gateway?.start) {
+        const res = await window.nanobotDesktop.gateway.start();
+        if (res?.state) {
+          setGatewayState(res.state);
+        }
+      } else {
+        const res = await fetch('/api/desktop/gateway/start', { method: 'POST' });
+        if (res.ok) {
+          const updated = await res.json();
+          if (updated.status) setGatewayState(updated);
+        }
       }
+      await fetchGatewayState();
+      await fetchGatewayLogs();
     } catch (e) {
       console.error('Failed to start gateway:', e);
     }
@@ -364,20 +409,20 @@ export const App: React.FC = () => {
 
   const handleStopGateway = async () => {
     try {
-      const res = await fetch('/api/desktop/gateway/stop', { method: 'POST' });
-      if (res.ok) {
-        const updated = await res.json();
-        setGatewayState(updated);
-        setGatewayLogs((prev) => [
-          ...prev,
-          {
-            id: `log-${Date.now()}`,
-            timestamp: Date.now(),
-            type: 'stderr',
-            message: '[Supervisor] Gateway process stopped gracefully.',
-          },
-        ]);
+      if (window.nanobotDesktop?.gateway?.stop) {
+        const res = await window.nanobotDesktop.gateway.stop();
+        if (res?.state) {
+          setGatewayState(res.state);
+        }
+      } else {
+        const res = await fetch('/api/desktop/gateway/stop', { method: 'POST' });
+        if (res.ok) {
+          const updated = await res.json();
+          if (updated.status) setGatewayState(updated);
+        }
       }
+      await fetchGatewayState();
+      await fetchGatewayLogs();
     } catch (e) {
       console.error('Failed to stop gateway:', e);
     }
@@ -385,26 +430,31 @@ export const App: React.FC = () => {
 
   const handleRestartGateway = async () => {
     try {
-      const res = await fetch('/api/desktop/gateway/restart', { method: 'POST' });
-      if (res.ok) {
-        const updated = await res.json();
-        setGatewayState(updated);
-        setGatewayLogs((prev) => [
-          ...prev,
-          {
-            id: `log-${Date.now()}`,
-            timestamp: Date.now(),
-            type: 'system',
-            message: `[Supervisor] Gateway restarted successfully (PID ${updated.pid})`,
-          },
-        ]);
+      if (window.nanobotDesktop?.gateway?.restart) {
+        const res = await window.nanobotDesktop.gateway.restart();
+        if (res?.state) {
+          setGatewayState(res.state);
+        }
+      } else {
+        const res = await fetch('/api/desktop/gateway/restart', { method: 'POST' });
+        if (res.ok) {
+          const updated = await res.json();
+          if (updated.status) setGatewayState(updated);
+        }
       }
+      await fetchGatewayState();
+      await fetchGatewayLogs();
     } catch (e) {
       console.error('Failed to restart gateway:', e);
     }
   };
 
-  const handleClearGatewayLogs = () => {
+  const handleClearGatewayLogs = async () => {
+    if (window.nanobotDesktop?.gateway?.clearLogs) {
+      await window.nanobotDesktop.gateway.clearLogs();
+    } else {
+      await fetch('/api/desktop/gateway/logs', { method: 'DELETE' }).catch(() => {});
+    }
     setGatewayLogs([]);
   };
 

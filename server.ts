@@ -3091,11 +3091,11 @@ let gatewayServerLogs: Array<{
 let isGatewayRunning = true;
 let gatewayStartTime = Date.now() - 3600000 * 2;
 
-app.get('/api/desktop/gateway/status', (req: Request, res: Response) => {
+function getGatewayState() {
   const uptime = isGatewayRunning ? Math.floor((Date.now() - gatewayStartTime) / 1000) : 0;
   const memoryUsage = process.memoryUsage();
-  res.json({
-    status: isGatewayRunning ? 'running' : 'stopped',
+  return {
+    status: isGatewayRunning ? ('running' as const) : ('stopped' as const),
     pid: isGatewayRunning ? process.pid : undefined,
     host: gatewayServerConfig.host,
     port: gatewayServerConfig.port,
@@ -3105,9 +3105,13 @@ app.get('/api/desktop/gateway/status', (req: Request, res: Response) => {
     cpuPercent: isGatewayRunning ? 0.8 : 0,
     startedAt: gatewayStartTime,
     url: `http://${gatewayServerConfig.host}:${gatewayServerConfig.port}`,
-    healthStatus: isGatewayRunning ? 'healthy' : 'unhealthy',
+    healthStatus: isGatewayRunning ? ('healthy' as const) : ('unhealthy' as const),
     healthLatencyMs: 1.4,
-  });
+  };
+}
+
+app.get('/api/desktop/gateway/status', (req: Request, res: Response) => {
+  res.json(getGatewayState());
 });
 
 app.get('/api/desktop/gateway/config', (req: Request, res: Response) => {
@@ -3133,10 +3137,10 @@ app.post('/api/desktop/gateway/start', (req: Request, res: Response) => {
     id: `log-${Date.now()}`,
     timestamp: Date.now(),
     type: 'system',
-    message: `[Supervisor] Started Gateway process [${gatewayServerConfig.mode}] on port ${gatewayServerConfig.port}`,
+    message: `[Supervisor] Started Gateway process [${gatewayServerConfig.mode}] on port ${gatewayServerConfig.port} (PID: ${process.pid})`,
     level: 'info',
   });
-  res.json({ success: true, message: 'Gateway server process started' });
+  res.json(getGatewayState());
 });
 
 app.post('/api/desktop/gateway/stop', (req: Request, res: Response) => {
@@ -3148,7 +3152,7 @@ app.post('/api/desktop/gateway/stop', (req: Request, res: Response) => {
     message: `[Supervisor] Gateway process stopped by user command.`,
     level: 'warn',
   });
-  res.json({ success: true, message: 'Gateway server process stopped' });
+  res.json(getGatewayState());
 });
 
 app.post('/api/desktop/gateway/restart', (req: Request, res: Response) => {
@@ -3158,10 +3162,10 @@ app.post('/api/desktop/gateway/restart', (req: Request, res: Response) => {
     id: `log-${Date.now()}`,
     timestamp: Date.now(),
     type: 'system',
-    message: `[Supervisor] Restarting Gateway server process... Ready on port ${gatewayServerConfig.port}`,
+    message: `[Supervisor] Restarting Gateway server process... Ready on port ${gatewayServerConfig.port} (PID: ${process.pid})`,
     level: 'info',
   });
-  res.json({ success: true, message: 'Gateway server restarted successfully' });
+  res.json(getGatewayState());
 });
 
 app.get('/api/desktop/gateway/logs', (req: Request, res: Response) => {
