@@ -396,9 +396,63 @@ interface ResolvedProvider {
 
 function resolveProvider(modelName: string): ResolvedProvider {
   const config = readNanobotConfig();
+  const masterConfig = nanobotMasterConfig || {};
   const lower = (modelName || '').toLowerCase();
 
-  // 1. Gemini
+  // 1. Check if model matches an active preset or custom preset in masterConfig
+  const presets = Object.values(masterConfig.modelPresets || {});
+  const matchingPreset = presets.find((p) => p.model === modelName || p.id === modelName);
+  if (matchingPreset && masterConfig.providers?.[matchingPreset.provider]) {
+    const prov = masterConfig.providers[matchingPreset.provider];
+    let key = prov.apiKey || '';
+    if (key.startsWith('${') && key.endsWith('}')) {
+      key = process.env[key.slice(2, -1)] || '';
+    }
+    return {
+      name: prov.alias || prov.name || matchingPreset.provider,
+      apiKey: key,
+      apiBase: prov.apiBase || 'https://api.openai.com/v1',
+      wireModel: matchingPreset.model || modelName,
+      isDirect: false,
+    };
+  }
+
+  // 2. Check if any configured provider has this exact model in its modelList
+  const provEntries = Object.entries(masterConfig.providers || {});
+  for (const [pKey, pVal] of provEntries) {
+    if (pVal && Array.isArray(pVal.modelList) && pVal.modelList.includes(modelName)) {
+      let key = pVal.apiKey || '';
+      if (key.startsWith('${') && key.endsWith('}')) {
+        key = process.env[key.slice(2, -1)] || '';
+      }
+      return {
+        name: pVal.alias || pVal.name || pKey,
+        apiKey: key,
+        apiBase: pVal.apiBase || (pKey === 'gemini' ? 'https://generativelanguage.googleapis.com/v1beta/openai' : 'https://api.openai.com/v1'),
+        wireModel: modelName,
+        isDirect: false,
+      };
+    }
+  }
+
+  // 3. Check if any configured provider with custom apiBase exists
+  const customProv = provEntries.find(([_, v]) => v && v.apiBase && v.apiBase.trim().length > 0);
+  if (customProv) {
+    const [pKey, pVal] = customProv;
+    let key = pVal.apiKey || '';
+    if (key.startsWith('${') && key.endsWith('}')) {
+      key = process.env[key.slice(2, -1)] || '';
+    }
+    return {
+      name: pVal.alias || pVal.name || pKey,
+      apiKey: key,
+      apiBase: pVal.apiBase,
+      wireModel: modelName,
+      isDirect: false,
+    };
+  }
+
+  // 4. Standard Gemini
   if (lower.includes('gemini') || lower.includes('gemma')) {
     const key = config?.providers?.gemini?.apiKey || process.env.GEMINI_API_KEY || '';
     const base = config?.providers?.gemini?.apiBase || 'https://generativelanguage.googleapis.com/v1beta/openai';
@@ -411,7 +465,7 @@ function resolveProvider(modelName: string): ResolvedProvider {
     };
   }
 
-  // 2. OpenAI / GPT
+  // 5. OpenAI / GPT
   if (lower.includes('gpt') || lower.includes('o1') || lower.includes('o3') || lower.includes('openai')) {
     const key = config?.providers?.openai?.apiKey || process.env.OPENAI_API_KEY || '';
     const base = config?.providers?.openai?.apiBase || 'https://api.openai.com/v1';
@@ -424,7 +478,7 @@ function resolveProvider(modelName: string): ResolvedProvider {
     };
   }
 
-  // 3. DeepSeek
+  // 6. DeepSeek
   if (lower.includes('deepseek')) {
     const key =
       config?.providers?.deepseek?.apiKey ||
@@ -442,7 +496,7 @@ function resolveProvider(modelName: string): ResolvedProvider {
     };
   }
 
-  // 4. Anthropic / Claude
+  // 7. Anthropic / Claude
   if (lower.includes('claude') || lower.includes('anthropic')) {
     const key =
       config?.providers?.anthropic?.apiKey ||
@@ -466,7 +520,7 @@ function resolveProvider(modelName: string): ResolvedProvider {
     };
   }
 
-  // 5. OpenRouter
+  // 8. OpenRouter
   if (lower.includes('openrouter') || modelName.includes('/')) {
     const key = config?.providers?.openrouter?.apiKey || process.env.OPENROUTER_API_KEY || '';
     return {
@@ -478,7 +532,7 @@ function resolveProvider(modelName: string): ResolvedProvider {
     };
   }
 
-  // 6. Groq
+  // 9. Groq
   if (lower.includes('groq')) {
     const key = config?.providers?.groq?.apiKey || process.env.GROQ_API_KEY || '';
     return {
@@ -490,7 +544,7 @@ function resolveProvider(modelName: string): ResolvedProvider {
     };
   }
 
-  // 7. Ollama Local
+  // 10. Ollama Local
   if (lower.includes('ollama') || lower.includes('local')) {
     return {
       name: 'Ollama',
@@ -875,7 +929,7 @@ app.post('/api/config/providers/:providerKey/test', async (req: Request, res: Re
   const currentProvider = nanobotMasterConfig.providers[providerKey] || {};
   const providerType = body.providerType || currentProvider.providerType || providerKey;
   let rawApiKey = body.apiKey !== undefined ? body.apiKey : currentProvider.apiKey || '';
-  let apiBase = body.apiBase !== undefined ? body.apiBase : currentProvider.apiBase || '';
+  let apiBase = (body.apiBase !== undefined ? body.apiBase : currentProvider.apiBase || '').trim();
 
   // Resolve ${ENV_VAR} format
   let apiKey = rawApiKey;
@@ -886,224 +940,328 @@ app.post('/api/config/providers/:providerKey/test', async (req: Request, res: Re
 
   const startTime = Date.now();
   let discoveredModels: string[] = [];
-  let isSuccess = true;
+  let isSuccess = false;
   let responseMessage = '';
+  let lastError = '';
+
+  // Helper to extract models from arbitrary JSON response formats
+  const extractModels = (data: any): string[] => {
+    if (!data) return [];
+    let list: any[] = [];
+    if (Array.isArray(data)) {
+      list = data;
+    } else if (Array.isArray(data.data)) {
+      list = data.data;
+    } else if (Array.isArray(data.models)) {
+      list = data.models;
+    }
+    const extracted = list
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          const name = item.id || item.name || item.model;
+          if (typeof name === 'string') {
+            return name.replace(/^models\//, '');
+          }
+        }
+        return '';
+      })
+      .filter((name) => Boolean(name && typeof name === 'string' && name.trim().length > 0));
+    // Remove duplicates while preserving order
+    return Array.from(new Set(extracted));
+  };
 
   try {
-    if (providerType === 'gemini') {
-      const keyToUse = apiKey || process.env.GEMINI_API_KEY || '';
-      if (keyToUse) {
+    // Priority 1: User specified a custom or explicit apiBase (e.g. http://192.168.100.17:8787/v1)
+    if (apiBase) {
+      const cleanBase = apiBase.replace(/\/+$/, '');
+      const candidateUrls: string[] = [];
+
+      if (cleanBase.endsWith('/models') || cleanBase.endsWith('/tags')) {
+        candidateUrls.push(cleanBase);
+      } else {
+        // Try direct /models on apiBase
+        candidateUrls.push(`${cleanBase}/models`);
+        if (!cleanBase.endsWith('/v1')) {
+          candidateUrls.push(`${cleanBase}/v1/models`);
+        }
+        candidateUrls.push(`${cleanBase}/api/tags`);
+      }
+
+      const headers: Record<string, string> = {
+        'Accept': 'application/json',
+      };
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+        headers['x-api-key'] = apiKey;
+      }
+      if (providerType === 'openrouter') {
+        headers['HTTP-Referer'] = 'https://nanobot.ai';
+      }
+      if (providerType === 'anthropic') {
+        headers['anthropic-version'] = '2023-06-01';
+      }
+
+      for (const url of candidateUrls) {
         try {
-          const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${keyToUse}`);
+          const resp = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
           if (resp.ok) {
             const data: any = await resp.json();
-            if (Array.isArray(data.models)) {
-              discoveredModels = data.models
-                .map((m: any) => m.name?.replace(/^models\//, ''))
-                .filter((m: string) => m && m.includes('gemini'));
+            const models = extractModels(data);
+            if (models.length > 0) {
+              discoveredModels = models;
+              isSuccess = true;
+              responseMessage = `Đã kết nối thành công endpoint ${apiBase}! Tìm thấy ${discoveredModels.length} models chính xác từ server.`;
+              break;
             }
+          } else {
+            lastError = `HTTP ${resp.status} (${resp.statusText}) từ ${url}`;
           }
-        } catch (e) {
-          // ignore network error, fallback to curated list
+        } catch (e: any) {
+          lastError = e.message || 'Không thể kết nối';
         }
       }
-      if (discoveredModels.length === 0) {
-        discoveredModels = [
-          'gemini-2.5-flash',
-          'gemini-2.5-pro',
-          'gemini-2.0-flash',
-          'gemini-2.0-flash-lite',
-          'gemini-1.5-pro',
-          'gemini-1.5-flash',
-          'gemini-1.5-flash-8b',
-        ];
+
+      if (!isSuccess) {
+        responseMessage = `Không thể lấy danh sách models từ endpoint ${apiBase}: ${lastError}`;
       }
-      responseMessage = `Đã kết nối thành công Google Gemini! Tìm thấy ${discoveredModels.length} models.`;
-    } else if (providerType === 'anthropic') {
-      const keyToUse = apiKey || process.env.ANTHROPIC_API_KEY || '';
-      if (keyToUse) {
-        try {
-          const resp = await fetch('https://api.anthropic.com/v1/models', {
-            headers: {
-              'x-api-key': keyToUse,
-              'anthropic-version': '2023-06-01',
-            },
-          });
-          if (resp.ok) {
-            const data: any = await resp.json();
-            if (Array.isArray(data.data)) {
-              discoveredModels = data.data.map((m: any) => m.id);
-            }
-          }
-        } catch (e) {}
-      }
-      if (discoveredModels.length === 0) {
-        discoveredModels = [
-          'claude-3-7-sonnet-20250219',
-          'claude-3-5-sonnet-20241022',
-          'claude-3-5-haiku-20241022',
-          'claude-3-opus-20240229',
-        ];
-      }
-      responseMessage = `Đã kết nối thành công Anthropic! Tìm thấy ${discoveredModels.length} models.`;
-    } else if (providerType === 'ollama') {
-      const base = apiBase || 'http://localhost:11434';
-      try {
-        const resp = await fetch(`${base.replace(/\/$/, '')}/api/tags`);
-        if (resp.ok) {
-          const data: any = await resp.json();
-          if (Array.isArray(data.models)) {
-            discoveredModels = data.models.map((m: any) => m.name);
-          }
-        }
-      } catch (e) {}
-      if (discoveredModels.length === 0) {
-        discoveredModels = ['llama3.2:latest', 'deepseek-r1:8b', 'qwen2.5-coder:7b', 'mistral:latest', 'phi4:latest'];
-      }
-      responseMessage = `Đã kết nối Ollama Local Daemon! Tìm thấy ${discoveredModels.length} models cục bộ.`;
-    } else if (providerType === 'openrouter') {
-      const keyToUse = apiKey || process.env.OPENROUTER_API_KEY || '';
-      if (keyToUse) {
-        try {
-          const resp = await fetch('https://openrouter.ai/api/v1/models', {
-            headers: {
-              Authorization: `Bearer ${keyToUse}`,
-              'HTTP-Referer': 'https://nanobot.ai',
-            },
-          });
-          if (resp.ok) {
-            const data: any = await resp.json();
-            if (Array.isArray(data.data)) {
-              discoveredModels = data.data.slice(0, 60).map((m: any) => m.id);
-            }
-          }
-        } catch (e) {}
-      }
-      if (discoveredModels.length === 0) {
-        discoveredModels = [
-          'anthropic/claude-3.7-sonnet',
-          'anthropic/claude-3.5-sonnet',
-          'openai/gpt-4o',
-          'openai/gpt-4o-mini',
-          'deepseek/deepseek-r1',
-          'google/gemini-2.0-flash-001',
-          'meta-llama/llama-3.3-70b-instruct',
-        ];
-      }
-      responseMessage = `Đã kết nối OpenRouter Gateway! Tìm thấy ${discoveredModels.length} models.`;
-    } else if (providerType === 'deepseek') {
-      const base = apiBase || 'https://api.deepseek.com';
-      const keyToUse = apiKey || process.env.DEEPSEEK_API_KEY || '';
-      if (keyToUse) {
-        try {
-          const resp = await fetch(`${base.replace(/\/$/, '')}/models`, {
-            headers: { Authorization: `Bearer ${keyToUse}` },
-          });
-          if (resp.ok) {
-            const data: any = await resp.json();
-            if (Array.isArray(data.data)) {
-              discoveredModels = data.data.map((m: any) => m.id);
-            }
-          }
-        } catch (e) {}
-      }
-      if (discoveredModels.length === 0) {
-        discoveredModels = ['deepseek-chat', 'deepseek-reasoner'];
-      }
-      responseMessage = `Đã kết nối DeepSeek API! Tìm thấy ${discoveredModels.length} models.`;
-    } else if (providerType === 'groq') {
-      const base = apiBase || 'https://api.groq.com/openai/v1';
-      const keyToUse = apiKey || process.env.GROQ_API_KEY || '';
-      if (keyToUse) {
-        try {
-          const resp = await fetch(`${base.replace(/\/$/, '')}/models`, {
-            headers: { Authorization: `Bearer ${keyToUse}` },
-          });
-          if (resp.ok) {
-            const data: any = await resp.json();
-            if (Array.isArray(data.data)) {
-              discoveredModels = data.data.map((m: any) => m.id);
-            }
-          }
-        } catch (e) {}
-      }
-      if (discoveredModels.length === 0) {
-        discoveredModels = ['llama-3.3-70b-versatile', 'deepseek-r1-distill-llama-70b', 'mixtral-8x7b-32768', 'gemma2-9b-it'];
-      }
-      responseMessage = `Đã kết nối Groq Cloud LPU! Tìm thấy ${discoveredModels.length} models.`;
     } else {
-      // OpenAI / Mistral / Custom OpenAI-compatible
-      const defaultBase = providerType === 'mistral' ? 'https://api.mistral.ai/v1' : (providerType === 'openai' ? 'https://api.openai.com/v1' : 'http://127.0.0.1:8000/v1');
-      const base = apiBase || defaultBase;
-      const keyToUse = apiKey || (providerType === 'openai' ? process.env.OPENAI_API_KEY : '');
-      if (keyToUse || providerType === 'custom') {
+      // Priority 2: No custom apiBase, use official cloud endpoints
+      if (providerType === 'gemini') {
+        const keyToUse = apiKey || process.env.GEMINI_API_KEY || '';
+        if (!keyToUse) {
+          lastError = 'Chưa cung cấp API Key cho Google Gemini';
+        } else {
+          try {
+            const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${keyToUse}`, {
+              signal: AbortSignal.timeout(8000),
+            });
+            if (resp.ok) {
+              const data: any = await resp.json();
+              const models = extractModels(data);
+              discoveredModels = models.filter((m) => m.includes('gemini'));
+              if (discoveredModels.length > 0) {
+                isSuccess = true;
+                responseMessage = `Đã kết nối Google Gemini API thành công! Tìm thấy ${discoveredModels.length} models.`;
+              }
+            } else {
+              lastError = `Google API trả về lỗi HTTP ${resp.status}`;
+            }
+          } catch (e: any) {
+            lastError = e.message;
+          }
+        }
+      } else if (providerType === 'anthropic') {
+        const keyToUse = apiKey || process.env.ANTHROPIC_API_KEY || '';
+        if (!keyToUse) {
+          lastError = 'Chưa cung cấp API Key cho Anthropic';
+        } else {
+          try {
+            const resp = await fetch('https://api.anthropic.com/v1/models', {
+              headers: { 'x-api-key': keyToUse, 'anthropic-version': '2023-06-01' },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (resp.ok) {
+              const data: any = await resp.json();
+              const models = extractModels(data);
+              if (models.length > 0) {
+                discoveredModels = models;
+                isSuccess = true;
+                responseMessage = `Đã kết nối Anthropic API thành công! Tìm thấy ${discoveredModels.length} models.`;
+              }
+            } else {
+              lastError = `Anthropic API trả về lỗi HTTP ${resp.status}`;
+            }
+          } catch (e: any) {
+            lastError = e.message;
+          }
+        }
+      } else if (providerType === 'ollama') {
         try {
-          const resp = await fetch(`${base.replace(/\/$/, '')}/models`, {
-            headers: keyToUse ? { Authorization: `Bearer ${keyToUse}` } : {},
-          });
+          const resp = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(4000) });
           if (resp.ok) {
             const data: any = await resp.json();
-            if (Array.isArray(data.data)) {
-              discoveredModels = data.data.map((m: any) => m.id);
+            const models = extractModels(data);
+            if (models.length > 0) {
+              discoveredModels = models;
+              isSuccess = true;
+              responseMessage = `Đã kết nối Ollama Local Daemon! Tìm thấy ${discoveredModels.length} models.`;
             }
+          } else {
+            lastError = `Ollama Daemon HTTP ${resp.status}`;
           }
-        } catch (e) {}
-      }
-      if (discoveredModels.length === 0) {
-        if (providerType === 'openai') {
-          discoveredModels = ['gpt-4o', 'gpt-4o-mini', 'o1', 'o3-mini', 'gpt-4.5-preview', 'gpt-4-turbo'];
-        } else if (providerType === 'mistral') {
-          discoveredModels = ['mistral-large-latest', 'codestral-latest', 'pixtral-large-latest', 'mistral-small-latest'];
+        } catch (e: any) {
+          lastError = e.message;
+        }
+      } else if (providerType === 'openrouter') {
+        const keyToUse = apiKey || process.env.OPENROUTER_API_KEY || '';
+        if (!keyToUse) {
+          lastError = 'Chưa cung cấp API Key cho OpenRouter';
         } else {
-          discoveredModels = ['default-model', 'custom-llm-v1'];
+          try {
+            const resp = await fetch('https://openrouter.ai/api/v1/models', {
+              headers: { Authorization: `Bearer ${keyToUse}`, 'HTTP-Referer': 'https://nanobot.ai' },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (resp.ok) {
+              const data: any = await resp.json();
+              const models = extractModels(data);
+              if (models.length > 0) {
+                discoveredModels = models.slice(0, 100);
+                isSuccess = true;
+                responseMessage = `Đã kết nối OpenRouter API thành công! Tìm thấy ${discoveredModels.length} models.`;
+              }
+            } else {
+              lastError = `OpenRouter trả về lỗi HTTP ${resp.status}`;
+            }
+          } catch (e: any) {
+            lastError = e.message;
+          }
+        }
+      } else if (providerType === 'deepseek') {
+        const keyToUse = apiKey || process.env.DEEPSEEK_API_KEY || '';
+        if (!keyToUse) {
+          lastError = 'Chưa cung cấp API Key cho DeepSeek';
+        } else {
+          try {
+            const resp = await fetch('https://api.deepseek.com/models', {
+              headers: { Authorization: `Bearer ${keyToUse}` },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (resp.ok) {
+              const data: any = await resp.json();
+              const models = extractModels(data);
+              if (models.length > 0) {
+                discoveredModels = models;
+                isSuccess = true;
+                responseMessage = `Đã kết nối DeepSeek API thành công! Tìm thấy ${discoveredModels.length} models.`;
+              }
+            } else {
+              lastError = `DeepSeek trả về lỗi HTTP ${resp.status}`;
+            }
+          } catch (e: any) {
+            lastError = e.message;
+          }
+        }
+      } else if (providerType === 'groq') {
+        const keyToUse = apiKey || process.env.GROQ_API_KEY || '';
+        if (!keyToUse) {
+          lastError = 'Chưa cung cấp API Key cho Groq';
+        } else {
+          try {
+            const resp = await fetch('https://api.groq.com/openai/v1/models', {
+              headers: { Authorization: `Bearer ${keyToUse}` },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (resp.ok) {
+              const data: any = await resp.json();
+              const models = extractModels(data);
+              if (models.length > 0) {
+                discoveredModels = models;
+                isSuccess = true;
+                responseMessage = `Đã kết nối Groq API thành công! Tìm thấy ${discoveredModels.length} models.`;
+              }
+            } else {
+              lastError = `Groq trả về lỗi HTTP ${resp.status}`;
+            }
+          } catch (e: any) {
+            lastError = e.message;
+          }
+        }
+      } else if (providerType === 'openai') {
+        const keyToUse = apiKey || process.env.OPENAI_API_KEY || '';
+        if (!keyToUse) {
+          lastError = 'Chưa cung cấp API Key cho OpenAI';
+        } else {
+          try {
+            const resp = await fetch('https://api.openai.com/v1/models', {
+              headers: { Authorization: `Bearer ${keyToUse}` },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (resp.ok) {
+              const data: any = await resp.json();
+              const models = extractModels(data);
+              if (models.length > 0) {
+                discoveredModels = models;
+                isSuccess = true;
+                responseMessage = `Đã kết nối OpenAI API thành công! Tìm thấy ${discoveredModels.length} models.`;
+              }
+            } else {
+              lastError = `OpenAI trả về lỗi HTTP ${resp.status}`;
+            }
+          } catch (e: any) {
+            lastError = e.message;
+          }
         }
       }
-      responseMessage = `Đã kết nối ${providerType.toUpperCase()} endpoint thành công! Tìm thấy ${discoveredModels.length} models.`;
+
+      if (!isSuccess) {
+        responseMessage = `Kiểm tra kết nối thất bại: ${lastError || 'Không thể kết nối đến nhà cung cấp'}`;
+      }
     }
   } catch (err: any) {
     isSuccess = false;
     responseMessage = err.message || 'Lỗi kiểm tra kết nối';
   }
 
-  const latency = Math.max(15, Date.now() - startTime + Math.floor(Math.random() * 20));
+  const latency = Math.max(10, Date.now() - startTime);
 
-  if (!nanobotMasterConfig.providers[providerKey]) {
-    nanobotMasterConfig.providers[providerKey] = {
-      alias: body.alias || providerKey,
-      providerType: providerType,
-      apiKey: rawApiKey,
-      apiBase: apiBase,
-      status: isSuccess ? 'active' : 'error',
-      modelList: discoveredModels,
-      defaultModel: body.defaultModel || discoveredModels[0] || '',
-      lastTested: Date.now(),
-      testLatencyMs: latency,
-    };
+  if (isSuccess && discoveredModels.length > 0) {
+    const chosenDefault = (body.defaultModel && discoveredModels.includes(body.defaultModel))
+      ? body.defaultModel
+      : (discoveredModels[0] || '');
+
+    if (!nanobotMasterConfig.providers[providerKey]) {
+      nanobotMasterConfig.providers[providerKey] = {
+        alias: body.alias || providerKey,
+        providerType: providerType,
+        apiKey: rawApiKey,
+        apiBase: apiBase,
+        status: 'active',
+        modelList: discoveredModels,
+        defaultModel: chosenDefault,
+        lastTested: Date.now(),
+        testLatencyMs: latency,
+      };
+    } else {
+      nanobotMasterConfig.providers[providerKey] = {
+        ...nanobotMasterConfig.providers[providerKey],
+        apiKey: rawApiKey !== undefined ? rawApiKey : nanobotMasterConfig.providers[providerKey].apiKey,
+        apiBase: apiBase !== undefined ? apiBase : nanobotMasterConfig.providers[providerKey].apiBase,
+        alias: body.alias || nanobotMasterConfig.providers[providerKey].alias || providerKey,
+        providerType: providerType || nanobotMasterConfig.providers[providerKey].providerType || providerKey,
+        status: 'active',
+        modelList: discoveredModels,
+        defaultModel: chosenDefault || nanobotMasterConfig.providers[providerKey].defaultModel || discoveredModels[0] || '',
+        lastTested: Date.now(),
+        testLatencyMs: latency,
+      };
+    }
+
+    // Save to persistent file
+    saveNanobotConfig({ providers: nanobotMasterConfig.providers });
+
+    return res.json({
+      success: true,
+      provider: providerKey,
+      status: 'connected',
+      latencyMs: latency,
+      message: responseMessage,
+      models: discoveredModels,
+      modelsFound: discoveredModels.length,
+      defaultModel: nanobotMasterConfig.providers[providerKey].defaultModel || discoveredModels[0] || '',
+    });
   } else {
-    nanobotMasterConfig.providers[providerKey] = {
-      ...nanobotMasterConfig.providers[providerKey],
-      apiKey: rawApiKey !== undefined ? rawApiKey : nanobotMasterConfig.providers[providerKey].apiKey,
-      apiBase: apiBase !== undefined ? apiBase : nanobotMasterConfig.providers[providerKey].apiBase,
-      alias: body.alias || nanobotMasterConfig.providers[providerKey].alias || providerKey,
-      providerType: providerType || nanobotMasterConfig.providers[providerKey].providerType || providerKey,
-      status: isSuccess ? 'active' : 'error',
-      modelList: discoveredModels.length > 0 ? discoveredModels : nanobotMasterConfig.providers[providerKey].modelList,
-      defaultModel: body.defaultModel || nanobotMasterConfig.providers[providerKey].defaultModel || discoveredModels[0] || '',
-      lastTested: Date.now(),
-      testLatencyMs: latency,
-    };
+    return res.status(400).json({
+      success: false,
+      provider: providerKey,
+      status: 'error',
+      latencyMs: latency,
+      error: responseMessage || lastError || 'Không thể lấy danh sách models từ endpoint',
+      models: [],
+      modelsFound: 0,
+    });
   }
-
-  res.json({
-    success: isSuccess,
-    provider: providerKey,
-    status: isSuccess ? 'connected' : 'error',
-    latencyMs: latency,
-    message: responseMessage,
-    models: discoveredModels,
-    modelsFound: discoveredModels.length,
-    defaultModel: nanobotMasterConfig.providers[providerKey].defaultModel || discoveredModels[0] || '',
-  });
 });
 
 // Get Model Presets

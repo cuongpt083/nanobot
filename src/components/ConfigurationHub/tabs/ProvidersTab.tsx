@@ -247,14 +247,17 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ config, onUpdateConf
       if (res.ok && data.success) {
         setTestStatus({ loading: false, providerKey, result: data });
 
-        const discoveredModels = Array.isArray(data.models) && data.models.length > 0
+        const discoveredModels: string[] = Array.isArray(data.models) && data.models.length > 0
           ? data.models
-          : (currentProviderConfig.modelList || meta.recommendedModels);
+          : (currentProviderConfig.modelList || []);
 
-        const chosenDefaultModel = currentProviderConfig.defaultModel || data.defaultModel || discoveredModels[0] || '';
+        const chosenDefaultModel = (currentProviderConfig.defaultModel && discoveredModels.includes(currentProviderConfig.defaultModel))
+          ? currentProviderConfig.defaultModel
+          : (data.defaultModel || discoveredModels[0] || '');
+
         const resolvedAlias = currentProviderConfig.alias?.trim() || `${meta.name} (${chosenDefaultModel})`;
 
-        // Update provider with active status, alias, discovered models, and default model
+        // Update provider with active status, alias, exact discovered models, and default model
         const updatedProviders = {
           ...providers,
           [providerKey]: {
@@ -290,9 +293,16 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ config, onUpdateConf
     setShowKeyMap((prev) => ({ ...prev, [provKey]: !prev[provKey] }));
   };
 
-  const discoveredModelList = currentProviderConfig.modelList && currentProviderConfig.modelList.length > 0
-    ? currentProviderConfig.modelList
-    : meta.recommendedModels;
+  const discoveredModelList = (testStatus.result && testStatus.providerKey === selectedProviderKey && Array.isArray(testStatus.result.models) && testStatus.result.models.length > 0)
+    ? testStatus.result.models
+    : (Array.isArray(currentProviderConfig.modelList) && currentProviderConfig.modelList.length > 0
+        ? currentProviderConfig.modelList
+        : meta.recommendedModels);
+
+  const isLiveScanned = Boolean(
+    (testStatus.result && testStatus.providerKey === selectedProviderKey && testStatus.result.models && testStatus.result.models.length > 0) ||
+    (currentProviderConfig.status === 'active' && currentProviderConfig.lastTested && currentProviderConfig.modelList && currentProviderConfig.modelList.length > 0)
+  );
 
   return (
     <div className="flex h-full gap-6 text-zinc-300">
@@ -634,7 +644,16 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ config, onUpdateConf
             <div className="flex items-center justify-between">
               <div className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Danh sách Models đã quét ({discoveredModelList.length} models)</span>
+                <span>
+                  {isLiveScanned
+                    ? `Danh sách Models từ Server (${discoveredModelList.length} models)`
+                    : `Gợi ý Models (${discoveredModelList.length} models - Bấm 'Test Connection' để quét từ Endpoint)`}
+                </span>
+                {isLiveScanned && (
+                  <span className="px-1.5 py-0.2 rounded bg-emerald-950/80 border border-emerald-800 text-emerald-300 font-mono text-[9px]">
+                    LIVE SYNCED
+                  </span>
+                )}
               </div>
               <span className="text-[10px] text-zinc-500">Bấm vào model để đặt làm mặc định</span>
             </div>
