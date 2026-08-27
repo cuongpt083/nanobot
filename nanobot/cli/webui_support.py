@@ -1,8 +1,10 @@
 """Shared WebUI setup, URL, health, and browser helpers."""
 
 import os
+import subprocess
 import sys
 import time
+import webbrowser
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -42,6 +44,7 @@ __all__ = [
     "_host_for_local_browser",
     "_load_webui_setup_config",
     "_has_graphical_session",
+    "_launch_browser",
     "_open_webui_browser",
     "_resolve_webui_browser",
     "_prepare_webui_bundle_for_gateway",
@@ -61,6 +64,20 @@ __all__ = [
 ]
 
 console = Console()
+
+
+def _launch_browser(url: str) -> bool:
+    """Open *url* and request a foreground browser window."""
+    if sys.platform == "darwin":
+        result = subprocess.run(
+            ["open", url],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.returncode == 0
+    return bool(webbrowser.open(url, new=2, autoraise=True))
 
 
 def _confirm_webui_action(message: str, *, yes: bool) -> None:
@@ -488,14 +505,12 @@ def _open_webui_browser(url: str, *, wait: bool = True) -> None:
             )
         return
     try:
-        opened = bool(browser.open(url))
+        if _launch_browser(url):
+            console.print(f"[green]✓[/green] Opened WebUI: [cyan]{display_url}[/cyan]")
+        else:
+            console.print(f"[yellow]Could not open browser; visit {display_url}[/yellow]")
     except Exception as exc:
         console.print(f"[yellow]Could not open browser ({exc}); visit {display_url}[/yellow]")
-        return
-    if opened:
-        console.print(f"[green]✓[/green] Opened WebUI: [cyan]{display_url}[/cyan]")
-    else:
-        console.print(f"[yellow]Could not open a desktop browser; visit {display_url}[/yellow]")
 
 
 def _print_webui_foreground_lifecycle(*, attached: bool) -> None:

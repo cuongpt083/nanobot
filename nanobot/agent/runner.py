@@ -46,13 +46,11 @@ from nanobot.runtime_context import (
 from nanobot.session.history_visibility import is_hidden_history_message
 from nanobot.session.recovery import PENDING_FOLLOWUP_ID_KEY
 from nanobot.utils.helpers import (
-    IncrementalThinkExtractor,
     build_assistant_message,
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
     extract_reasoning,
     strip_reasoning_tags,
-    strip_think,
 )
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.prompt_templates import render_template
@@ -60,15 +58,13 @@ from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
     build_budget_exhausted_finalization_message,
     build_finalization_retry_message,
-    build_goal_continue_message,
     build_length_recovery_message,
     is_blank_text,
     repeated_external_lookup_error,
     repeated_workspace_violation_error,
 )
 
-GoalContinueMessage = str | Callable[[], str | None]
-ProgressCallback = Callable[[str], Awaitable[None]]
+ContinuationCallback = Callable[[], str | None]
 RetryWaitCallback = Callable[[str], Awaitable[None]]
 CheckpointCallback = Callable[[dict[str, Any]], Awaitable[None]]
 InjectionCallback = Callable[..., Awaitable[Iterable[Any] | None]]
@@ -113,15 +109,12 @@ class AgentRunSpec:
     session_key: str | None = None
     context_block_limit: int | None = None
     provider_retry_mode: str = "standard"
-    progress_callback: ProgressCallback | None = None
-    stream_progress_deltas: bool = True
     retry_wait_callback: RetryWaitCallback | None = None
     checkpoint_callback: CheckpointCallback | None = None
     injection_callback: InjectionCallback | None = None
     terminal_injection_callback: InjectionCallback | None = None
     llm_timeout_s: float | None = None
-    goal_active_predicate: Callable[[], bool] | None = None
-    goal_continue_message: GoalContinueMessage | None = None
+    continuation_callback: ContinuationCallback | None = None
     finalize_on_max_iterations: bool = True
     provider_state: ProviderConversationState | None = None
     llm_usage_source: LLMUsageSource | None = None
@@ -274,7 +267,7 @@ class AgentRunner:
         conversation_state: ProviderConversationStateController | None = None,
         phase: str = "after error",
         iteration: int | None = None,
-        allow_goal_continue: bool = False,
+        allow_continuation: bool = False,
         wait_at_terminal: bool = False,
     ) -> tuple[bool, int]:
         """Drain pending injections. Returns (should_continue, updated_cycles).
@@ -289,10 +282,10 @@ class AgentRunner:
         if injection_cycles < _MAX_INJECTION_CYCLES:
             injections = await self._drain_injections(spec)
             real_injection = bool(injections)
-        if not injections and allow_goal_continue and assistant_message is not None:
-            predicate = spec.goal_active_predicate
-            if predicate is not None and predicate():
-                injections = [self._build_goal_continue_message(spec)]
+        if not injections and allow_continuation and assistant_message is not None:
+            continuation = self._build_continuation_message(spec)
+            if continuation is not None:
+                injections = [continuation]
         if (
             not injections
             and wait_at_terminal
@@ -330,18 +323,22 @@ class AgentRunner:
                 len(injections), phase, injection_cycles, _MAX_INJECTION_CYCLES,
             )
         else:
-            logger.info("Injected sustained-goal continuation {}", phase)
+            logger.info("Injected caller-requested continuation {}", phase)
         return True, injection_cycles
 
-    def _build_goal_continue_message(self, spec: AgentRunSpec) -> dict[str, str]:
-        custom = spec.goal_continue_message
-        if callable(custom):
-            try:
-                custom = custom()
-            except Exception:
-                logger.exception("goal_continue_message callback failed")
-                custom = None
-        return build_goal_continue_message(custom)
+    @staticmethod
+    def _build_continuation_message(spec: AgentRunSpec) -> dict[str, str] | None:
+        callback = spec.continuation_callback
+        if callback is None:
+            return None
+        try:
+            content = callback()
+        except Exception:
+            logger.exception("continuation_callback failed")
+            return None
+        if content is None or not content.strip():
+            return None
+        return {"role": "user", "content": content}
 
     async def _drain_injections(
         self,
@@ -770,7 +767,7 @@ class AgentRunner:
                 conversation_state=conversation_state,
                 phase="after final response",
                 iteration=iteration,
-                allow_goal_continue=(
+                allow_continuation=(
                     response.finish_reason not in {"refusal", "content_filter"}
                 ),
                 wait_at_terminal=(
@@ -950,16 +947,9 @@ class AgentRunner:
             tools=spec.tools.get_definitions(),
         )
         wants_streaming = hook.wants_streaming()
-        progress_callback = spec.progress_callback
-        wants_progress_streaming = (
-            not wants_streaming
-            and spec.stream_progress_deltas
-            and progress_callback is not None
-            and getattr(spec.runtime.provider, "supports_progress_deltas", False) is True
-        )
 
-        progress_state: dict[str, bool] | None = None
         active_hosted_tools: dict[str, dict[str, Any]] = {}
+        native_reasoning_open = False
         request_started_at = 0.0
         first_output_at: float | None = None
         generation_started_at: float | None = None
@@ -982,9 +972,17 @@ class AgentRunner:
             generation_elapsed_s += max(0.0, time.perf_counter() - generation_started_at)
             generation_started_at = None
 
+        async def _close_native_reasoning() -> None:
+            nonlocal native_reasoning_open
+            if not native_reasoning_open:
+                return
+            native_reasoning_open = False
+            await hook.emit_reasoning_end()
+
         async def _provider_tool_event(event: dict[str, Any]) -> None:
             if event.get("kind") != "hosted_tool":
                 return
+            await _close_native_reasoning()
             await hook.on_provider_tool_event(context, event)
             call_id = event.get("call_id")
             if not call_id:
@@ -1002,10 +1000,11 @@ class AgentRunner:
                 _generation_delta(delta)
                 if delta:
                     context.streamed_content = True
+                    await _close_native_reasoning()
                 await hook.on_stream(context, delta)
 
             async def _thinking(delta: str) -> None:
-                nonlocal thinking_buf
+                nonlocal native_reasoning_open, thinking_buf
                 if not delta:
                     return
                 _generation_delta(delta)
@@ -1015,10 +1014,12 @@ class AgentRunner:
                 incremental = new_clean[len(prev_clean):]
                 if incremental:
                     context.streamed_reasoning = True
+                    native_reasoning_open = True
                     await hook.emit_reasoning(incremental)
 
             async def _stream_recover() -> None:
                 _pause_generation()
+                await _close_native_reasoning()
                 await hook.on_stream_end(context, resuming=True)
 
             coro = spec.runtime.provider.chat_stream_with_retry(
@@ -1028,40 +1029,6 @@ class AgentRunner:
                 on_thinking_delta=_thinking,
                 on_tool_call_delta=_provider_tool_event,
                 on_stream_recover=_stream_recover,
-            )
-        elif wants_progress_streaming:
-            stream_buf = ""
-            think_extractor = IncrementalThinkExtractor()
-            progress_state = {"reasoning_open": False}
-
-            async def _stream_progress(delta: str) -> None:
-                nonlocal stream_buf
-                if not delta:
-                    return
-                _generation_delta(delta)
-                prev_clean = strip_think(stream_buf)
-                stream_buf += delta
-                new_clean = strip_think(stream_buf)
-                incremental = new_clean[len(prev_clean):]
-
-                if await think_extractor.feed(stream_buf, hook.emit_reasoning):
-                    context.streamed_reasoning = True
-                    progress_state["reasoning_open"] = True
-
-                if incremental:
-                    if progress_state["reasoning_open"]:
-                        await hook.emit_reasoning_end()
-                        progress_state["reasoning_open"] = False
-                    context.streamed_content = True
-                    callback = progress_callback
-                    if callback is not None:
-                        await callback(incremental)
-
-            coro = spec.runtime.provider.chat_stream_with_retry(
-                **kwargs,
-                provider_context=provider_context,
-                on_content_delta=_stream_progress,
-                on_tool_call_delta=_provider_tool_event,
             )
         else:
             coro = spec.runtime.provider.chat_with_retry(
@@ -1074,10 +1041,9 @@ class AgentRunner:
         # very slow deltas can still run forever. Use a more generous wall-clock
         # timeout for streaming while preserving NANOBOT_LLM_TIMEOUT_S=0 as an
         # opt-out for all LLM wall-clock timeouts.
-        is_streaming_request = wants_streaming or wants_progress_streaming
         outer_timeout_s = (
             max(300.0, timeout_s * 2)
-            if is_streaming_request and timeout_s is not None
+            if wants_streaming and timeout_s is not None
             else timeout_s
         )
         request_started_at = time.perf_counter()
@@ -1100,6 +1066,7 @@ class AgentRunner:
                     error_kind="timeout",
                 )
         _pause_generation()
+        await _close_native_reasoning()
         if first_output_at is not None:
             response.ttft_ms = max(0, round((first_output_at - request_started_at) * 1000))
         if generation_elapsed_s > 0:
@@ -1115,8 +1082,6 @@ class AgentRunner:
                     "error": response.content
                     or "Model request failed before the provider-hosted tool completed.",
                 })
-        if progress_state and progress_state.get("reasoning_open"):
-            await hook.emit_reasoning_end()
         dropped, all_dropped, original_finish_reason = (
             self._drop_malformed_tool_calls(response)
         )

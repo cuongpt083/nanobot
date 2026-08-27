@@ -2534,16 +2534,11 @@ def test_webui_yes_still_refuses_invalid_custom_model_setup(
 def test_open_webui_browser_redacts_bootstrap_secret(monkeypatch, capsys) -> None:
     opened: list[str] = []
     url = "http://127.0.0.1:8765/#/?bootstrapSecret=super-secret"
-
-    class _Browser:
-        name = "firefox"
-
-        def open(self, value: str) -> bool:
-            opened.append(value)
-            return True
-
-    monkeypatch.setattr(cli_webui_support, "_has_graphical_session", lambda: True)
-    monkeypatch.setattr("webbrowser.get", lambda *_args, **_kwargs: _Browser())
+    monkeypatch.setattr(
+        cli_webui_support,
+        "_launch_browser",
+        lambda value: opened.append(value) or True,
+    )
 
     cli_webui_support._open_webui_browser(url, wait=False)
 
@@ -2595,6 +2590,42 @@ def test_open_webui_browser_skips_headless_linux(monkeypatch, capsys) -> None:
     output = _strip_ansi(capsys.readouterr().out)
     assert "Open this URL in a desktop browser:" in output
     assert "No graphical session detected" in output
+
+
+def test_open_webui_browser_reports_launch_failure(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_webui_support, "_launch_browser", lambda _value: False)
+
+    cli_webui_support._open_webui_browser("http://127.0.0.1:8765/", wait=False)
+
+    assert "Could not open browser; visit http://127.0.0.1:8765/" in _strip_ansi(
+        capsys.readouterr().out
+    )
+
+
+def test_launch_browser_uses_macos_foreground_opener(monkeypatch) -> None:
+    seen: list[list[str]] = []
+    monkeypatch.setattr(cli_webui_support.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        cli_webui_support.subprocess,
+        "run",
+        lambda command, **_kwargs: seen.append(command) or SimpleNamespace(returncode=0),
+    )
+
+    assert cli_webui_support._launch_browser("http://127.0.0.1:8765/") is True
+    assert seen == [["open", "http://127.0.0.1:8765/"]]
+
+
+def test_launch_browser_uses_default_browser_off_macos(monkeypatch) -> None:
+    opened: list[tuple[str, int, bool]] = []
+    monkeypatch.setattr(cli_webui_support.sys, "platform", "linux")
+    monkeypatch.setattr(
+        cli_webui_support.webbrowser,
+        "open",
+        lambda url, *, new, autoraise: opened.append((url, new, autoraise)) or True,
+    )
+
+    assert cli_webui_support._launch_browser("http://127.0.0.1:8765/") is True
+    assert opened == [("http://127.0.0.1:8765/", 2, True)]
 
 
 def test_webui_foreground_attaches_to_existing_managed_gateway(monkeypatch, tmp_path: Path) -> None:
@@ -3671,7 +3702,12 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
     assert health_writer.closed is True
     assert "HTTP/1.0 200 OK" in health_response
     health_body = json.loads(health_response.split("\r\n\r\n", 1)[1])
-    assert health_body == {"status": "ok"}
+    assert health_body == {
+        "status": "ok",
+        "process": "alive",
+        "ready": True,
+        "websocket": "disabled",
+    }
 
     missing_response, missing_writer = _call_handler("/missing")
     assert missing_writer.closed is True
@@ -3750,6 +3786,7 @@ def test_gateway_agent_task_owns_initial_mcp_provider_close(
             return cls(**extra)
 
         def __init__(self, **_kwargs) -> None:
+            seen["hooks"] = _kwargs.get("hooks")
             self.model = "test-model"
             self.provider = object()
             self.sessions = _FakeSessionManager()
@@ -3862,6 +3899,11 @@ def test_gateway_agent_task_owns_initial_mcp_provider_close(
     assert mcp_provider.connect_task is seen["agent_task"]
     assert mcp_provider.close_tasks[0] is mcp_provider.connect_task
     assert len(mcp_provider.close_tasks) == 2
+    hooks = seen["hooks"]
+    assert isinstance(hooks, list)
+    assert len(hooks) == 1
+    hook = hooks[0]
+    assert isinstance(hook, cli_gateway_runtime._MCPReadinessHook)
 
 
 def test_gateway_shutdown_event_exits_forever_runtime_tasks(

@@ -12,6 +12,7 @@ from loguru import logger
 from rich.console import Console
 
 from nanobot import __logo__, __version__
+from nanobot.agent.hook import AgentHook, AgentRunHookContext
 from nanobot.agent.hooks import create_file_edit_activity_hook
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools.mcp import MCPProvider
@@ -44,6 +45,17 @@ from nanobot.webui.sidebar_state import read_webui_sidebar_state
 __all__ = ["_run_gateway"]
 
 console = Console()
+
+
+class _MCPReadinessHook(AgentHook):
+    """Retry application-owned MCP connections before the runner reads tools."""
+
+    def __init__(self, provider: MCPProvider) -> None:
+        super().__init__()
+        self._provider = provider
+
+    async def before_run(self, context: AgentRunHookContext) -> None:
+        await self._provider.connect()
 
 
 def _http_endpoint_responding(url: str, *, timeout_s: float = 0.25) -> bool:
@@ -232,6 +244,44 @@ def _print_gateway_health_endpoint(host: str, port: int) -> None:
         "and may be reachable from other devices. "
         f"Keep port {port} private or protect it with a firewall or reverse proxy.[/yellow]"
     )
+
+
+def _gateway_readiness_payload(channels: Any) -> tuple[bool, dict[str, object]]:
+    """Describe process liveness separately from required WebSocket readiness."""
+    channel_status: dict[str, Any] = {}
+    get_status = getattr(channels, "get_status", None)
+    if callable(get_status):
+        try:
+            raw_status = get_status()
+            if isinstance(raw_status, dict):
+                channel_status = cast(dict[str, Any], raw_status)
+        except Exception:
+            logger.exception("Gateway readiness could not read channel status")
+
+    websocket = channel_status.get("websocket")
+    websocket_required = websocket is not None or "websocket" in getattr(
+        channels,
+        "enabled_channels",
+        (),
+    )
+    if not websocket_required:
+        websocket_state = "disabled"
+        ready = True
+    elif isinstance(websocket, dict):
+        websocket_status = cast(dict[str, Any], websocket)
+        ready = websocket_status.get("running") is True
+        state = websocket_status.get("state")
+        websocket_state = str(state) if isinstance(state, str) else "unavailable"
+    else:
+        ready = False
+        websocket_state = "unavailable"
+
+    return ready, {
+        "status": "ok" if ready else "degraded",
+        "process": "alive",
+        "ready": ready,
+        "websocket": websocket_state,
+    }
 
 
 async def _close_gateway_runtime(
@@ -445,6 +495,7 @@ def _run_gateway(
         turn_delivery_factory=turn_delivery_factory,
         provider_signature=provider_snapshot.signature,
         local_trigger_store=trigger_store,
+        hooks=[_MCPReadinessHook(mcp_provider)],
         hook_factories=[create_file_edit_activity_hook],
         tool_registry=tools,
         recovery_admission=recovery,
@@ -745,8 +796,9 @@ def _run_gateway(
                         method, path = parts[0], parts[1]
 
                     if method == "GET" and path == "/health":
-                        body = _json.dumps({"status": "ok"})
-                        status = "200 OK"
+                        ready, payload = _gateway_readiness_payload(channels)
+                        body = _json.dumps(payload)
+                        status = "200 OK" if ready else "503 Service Unavailable"
                         content_type = "application/json"
                     else:
                         body = "Not Found"
@@ -975,4 +1027,6 @@ def _run_gateway(
                 restore_shutdown_handlers()
 
     with gateway_runtime.foreground_instance(gateway_start_options):
+        if health_server_enabled:
+            gateway_runtime.publish_health_host(config.gateway.host)
         asyncio.run(run())
