@@ -154,6 +154,133 @@ export interface DesktopReleaseInfo {
   instructions: string[];
 }
 
+// -------------------------------------------------------------
+// Nanobot Master Config Schema Types (matching ~/.nanobot/config.json)
+// -------------------------------------------------------------
+
+export interface ProviderItemConfig {
+  apiKey?: string;
+  apiBase?: string;
+  proxy?: string;
+  extraBody?: Record<string, any>;
+  headers?: Record<string, string>;
+  modelList?: string[];
+  status?: 'active' | 'configured' | 'unconfigured' | 'error';
+  lastTested?: number;
+  testLatencyMs?: number;
+}
+
+export interface ModelPresetItemConfig {
+  id?: string;
+  name?: string;
+  provider: string; // 'openrouter' | 'anthropic' | 'openai' | 'gemini' | 'deepseek' | 'groq' | 'mistral' | 'ollama' | 'custom' | etc.
+  model: string;
+  maxTokens?: number;
+  contextWindowTokens?: number;
+  temperature?: number;
+  reasoningEffort?: 'low' | 'medium' | 'high';
+  systemPrompt?: string;
+  isDefault?: boolean;
+}
+
+export interface CustomSkillItem {
+  id: string;
+  name: string;
+  category: 'core' | 'automation' | 'filesystem' | 'integration' | 'custom';
+  description: string;
+  instructions: string;
+  enabled: boolean;
+  triggerKeywords?: string[];
+  allowedTools?: string[];
+  icon?: string;
+}
+
+export interface NanobotFullConfig {
+  version?: string;
+  providers: Record<string, ProviderItemConfig>;
+  modelPresets: Record<string, ModelPresetItemConfig>;
+  agents: {
+    defaults: {
+      modelPreset: string;
+      fallbackModels?: string[];
+      systemPrompt?: string;
+      temperature?: number;
+      maxTokens?: number;
+    };
+  };
+  tools: {
+    restrictToWorkspace: boolean;
+    toolHintMaxLength?: number;
+    ssrfWhitelist?: string[];
+    exec: {
+      sandbox: 'strict' | 'permissive' | 'container' | 'tempdir';
+      timeoutS: number;
+      allowedCommands?: string[];
+      blockedCommands?: string[];
+    };
+    web: {
+      search: {
+        provider: 'brave' | 'duckduckgo' | 'tavily' | 'perplexity' | 'jina';
+        apiKey?: string;
+        maxResults?: number;
+      };
+      fetch: {
+        userAgent?: string;
+        timeoutS?: number;
+      };
+    };
+    imageGeneration?: {
+      enabled: boolean;
+      provider: string;
+      model?: string;
+      apiKey?: string;
+    };
+    mcpServers: Record<string, {
+      command: string;
+      args: string[];
+      env?: Record<string, string>;
+      url?: string;
+      headers?: Record<string, string>;
+    }>;
+  };
+  skills: {
+    enabled: Record<string, boolean>;
+    customSkills: CustomSkillItem[];
+    soulPrompt?: string;
+  };
+  transcription?: {
+    enabled: boolean;
+    provider: 'whisper' | 'groq' | 'gemini' | 'openai';
+    model?: string;
+    language?: string;
+  };
+  channels: Record<string, {
+    enabled: boolean;
+    token?: string;
+    botToken?: string;
+    appToken?: string;
+    appId?: string;
+    appSecret?: string;
+    corpId?: string;
+    secret?: string;
+    imapHost?: string;
+    smtpHost?: string;
+    email?: string;
+    password?: string;
+    allowFrom?: string[];
+    pairingCode?: string;
+    [key: string]: any;
+  }>;
+  gateway: {
+    port: number;
+    host: string;
+    authSecret?: string;
+    heartbeatIntervalS?: number;
+    autoCompactTtlHours?: number;
+    unifiedSession?: boolean;
+  };
+}
+
 export type GatewayMode = 'node_embedded' | 'python_cli' | 'custom';
 
 export interface GatewayProcessConfig {

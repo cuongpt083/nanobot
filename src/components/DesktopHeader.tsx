@@ -13,9 +13,18 @@ import {
   ChevronDown,
   Monitor,
   ExternalLink,
-  Laptop
+  Laptop,
+  Bot,
+  Wrench,
+  Radio,
+  Server,
+  Settings,
+  HelpCircle,
+  FolderTree,
+  Activity
 } from 'lucide-react';
-import { DesktopSettings } from '../types';
+import { DesktopSettings, ModelPresetItemConfig } from '../types';
+import { ConfigTabKey } from './ConfigurationHub/ConfigurationHubModal';
 
 interface DesktopHeaderProps {
   settings: DesktopSettings;
@@ -23,8 +32,11 @@ interface DesktopHeaderProps {
   onOpenQuickSummon: () => void;
   onNewChat: () => void;
   onTriggerDream: () => void;
-  onSelectTab: (tab: any) => void;
-  activeTab: string;
+  onOpenConfig: (tab?: ConfigTabKey) => void;
+  activeModelPresetId?: string;
+  modelPresets?: Record<string, ModelPresetItemConfig>;
+  onSelectModelPreset?: (presetId: string) => void;
+  gatewayRunning?: boolean;
 }
 
 export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
@@ -33,31 +45,42 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   onOpenQuickSummon,
   onNewChat,
   onTriggerDream,
-  onSelectTab,
-  activeTab,
+  onOpenConfig,
+  activeModelPresetId = 'primary',
+  modelPresets = {},
+  onSelectModelPreset,
+  gatewayRunning = true,
 }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState<boolean>(false);
   const isMac = settings.windowFrame === 'macos';
 
   const handleMenuClick = (menu: string) => {
     setActiveMenu(activeMenu === menu ? null : menu);
   };
 
+  const currentPreset = modelPresets[activeModelPresetId] || {
+    id: activeModelPresetId,
+    name: 'Gemini 2.5 Flash',
+    provider: 'gemini',
+    model: 'gemini-2.5-flash',
+  };
+
   return (
     <div className="bg-zinc-950 border-b border-zinc-800/90 select-none text-zinc-300 text-xs flex items-center justify-between px-3 py-1.5 z-30 relative">
-      {/* Left: Window Controls & App Menus */}
+      {/* Left: Window Controls & Native Menus */}
       <div className="flex items-center gap-3">
         {/* macOS Traffic Lights */}
         {isMac ? (
           <div className="flex items-center gap-2 pr-2">
             <button
-              title="Close Window (Cmd+W)"
+              title="Close Window"
               className="w-3 h-3 rounded-full bg-rose-500 hover:bg-rose-600 transition-colors cursor-pointer flex items-center justify-center group"
             >
               <X className="w-2 h-2 text-rose-950 opacity-0 group-hover:opacity-100 transition-opacity" />
             </button>
             <button
-              title="Minimize Window (Cmd+M)"
+              title="Minimize Window"
               className="w-3 h-3 rounded-full bg-amber-500 hover:bg-amber-600 transition-colors cursor-pointer flex items-center justify-center group"
             >
               <Minus className="w-2 h-2 text-amber-950 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -76,14 +99,13 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           </div>
         )}
 
-        {/* Native App Menus */}
+        {/* Native Desktop Menus */}
         <div className="flex items-center text-[11px]">
           {/* Nanobot Menu */}
           <div className="relative">
             <button
-              id="menu-nanobot"
               onClick={() => handleMenuClick('nanobot')}
-              className={`px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors font-semibold text-zinc-100 ${
+              className={`px-2 py-0.5 rounded hover:bg-zinc-800 transition-colors font-semibold text-zinc-100 ${
                 activeMenu === 'nanobot' ? 'bg-zinc-800' : ''
               }`}
             >
@@ -91,7 +113,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             </button>
             {activeMenu === 'nanobot' && (
               <div
-                className="absolute top-full left-0 mt-1 w-56 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
+                className="absolute top-full left-0 mt-1 w-60 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
                 onMouseLeave={() => setActiveMenu(null)}
               >
                 <div className="px-3 py-1.5 font-semibold text-zinc-100 border-b border-zinc-800/80">
@@ -99,38 +121,34 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
                 </div>
                 <button
                   onClick={() => {
-                    onSelectTab('desktop-installer');
+                    onOpenConfig('providers');
                     setActiveMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between cursor-pointer"
                 >
-                  <span>Check for Updates...</span>
-                  <span className="text-[10px] opacity-70">Up to date</span>
+                  <span>Preferences & Settings...</span>
+                  <span className="text-[10px] font-mono opacity-70">⌘,</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onOpenQuickSummon();
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Quick Summon Bar</span>
+                  <span className="text-[10px] font-mono opacity-70">Alt+Space</span>
                 </button>
                 <div className="my-1 border-t border-zinc-800/80" />
                 <button
                   onClick={() => {
-                    onUpdateSettings({
-                      windowFrame: settings.windowFrame === 'macos' ? 'windows' : 'macos',
-                    });
+                    onOpenConfig('desktop');
                     setActiveMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
                 >
-                  <span>Window Theme</span>
-                  <span className="text-[10px] font-mono uppercase text-amber-400">
-                    {settings.windowFrame}
-                  </span>
-                </button>
-                <button
-                  onClick={() => {
-                    onUpdateSettings({ alwaysOnTop: !settings.alwaysOnTop });
-                    setActiveMenu(null);
-                  }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
-                >
-                  <span>Always on Top</span>
-                  <span className="text-[10px]">{settings.alwaysOnTop ? '✓' : ''}</span>
+                  <span>Desktop App Settings</span>
+                  <span className="text-[10px] font-mono text-amber-400">{settings.windowFrame}</span>
                 </button>
               </div>
             )}
@@ -139,9 +157,8 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           {/* File Menu */}
           <div className="relative">
             <button
-              id="menu-file"
               onClick={() => handleMenuClick('file')}
-              className={`px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
+              className={`px-2 py-0.5 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
                 activeMenu === 'file' ? 'bg-zinc-800' : ''
               }`}
             >
@@ -155,23 +172,126 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
                 <button
                   onClick={() => {
                     onNewChat();
-                    onSelectTab('chat');
                     setActiveMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between cursor-pointer"
                 >
-                  <span>New Conversation</span>
+                  <span>New Chat Thread</span>
                   <span className="text-[10px] font-mono opacity-70">⌘N</span>
                 </button>
                 <button
                   onClick={() => {
-                    onSelectTab('workspace');
+                    onTriggerDream();
                     setActiveMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
                 >
-                  <span>Open Local Workspace</span>
-                  <span className="text-[10px] font-mono opacity-70">⌘O</span>
+                  <span>Consolidate Memory (Dream)</span>
+                  <span className="text-[10px] font-mono opacity-70">⌘D</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* AI Providers & Models Menu */}
+          <div className="relative">
+            <button
+              onClick={() => handleMenuClick('models')}
+              className={`px-2 py-0.5 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
+                activeMenu === 'models' ? 'bg-zinc-800' : ''
+              }`}
+            >
+              Model & Providers
+            </button>
+            {activeMenu === 'models' && (
+              <div
+                className="absolute top-full left-0 mt-1 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
+                onMouseLeave={() => setActiveMenu(null)}
+              >
+                <div className="px-3 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                  Active Model Presets
+                </div>
+                {Object.entries(modelPresets).map(([key, preset]) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      onSelectModelPreset?.(key);
+                      setActiveMenu(null);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 transition-colors flex items-center justify-between cursor-pointer ${
+                      activeModelPresetId === key
+                        ? 'bg-amber-500/20 text-amber-300 font-semibold'
+                        : 'hover:bg-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <span className="truncate">{preset.name || key}</span>
+                    {activeModelPresetId === key && <span>✓</span>}
+                  </button>
+                ))}
+                <div className="my-1 border-t border-zinc-800/80" />
+                <button
+                  onClick={() => {
+                    onOpenConfig('providers');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer text-amber-400 font-medium"
+                >
+                  <span>Configure API Keys & Providers...</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onOpenConfig('models');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Manage Model Presets & Fallbacks...</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Skills & Tools Menu */}
+          <div className="relative">
+            <button
+              onClick={() => handleMenuClick('skills')}
+              className={`px-2 py-0.5 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
+                activeMenu === 'skills' ? 'bg-zinc-800' : ''
+              }`}
+            >
+              Skills & Tools
+            </button>
+            {activeMenu === 'skills' && (
+              <div
+                className="absolute top-full left-0 mt-1 w-60 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
+                onMouseLeave={() => setActiveMenu(null)}
+              >
+                <button
+                  onClick={() => {
+                    onOpenConfig('skills');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Skills & Capabilities...</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onOpenConfig('tools');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Execution Sandbox & Web Search...</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onOpenConfig('tools');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Model Context Protocol (MCP)...</span>
                 </button>
               </div>
             )}
@@ -180,13 +300,12 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           {/* Gateway & Server Menu */}
           <div className="relative">
             <button
-              id="menu-gateway"
               onClick={() => handleMenuClick('gateway')}
-              className={`px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
+              className={`px-2 py-0.5 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
                 activeMenu === 'gateway' ? 'bg-zinc-800' : ''
               }`}
             >
-              Gateway & Server
+              Gateway
             </button>
             {activeMenu === 'gateway' && (
               <div
@@ -195,152 +314,154 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
               >
                 <button
                   onClick={() => {
-                    onSelectTab('gateway-manager');
+                    onOpenConfig('gateway');
                     setActiveMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between cursor-pointer"
                 >
                   <span>Gateway Process Supervisor</span>
-                  <span className="text-[10px] font-mono opacity-70">⇧⌘G</span>
-                </button>
-                <button
-                  onClick={() => {
-                    onSelectTab('gateway-manager');
-                    setActiveMenu(null);
-                  }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
-                >
-                  <span>Live Terminal Logs</span>
                   <span className="text-[10px] font-mono opacity-70">:3000</span>
                 </button>
-              </div>
-            )}
-          </div>
-
-          {/* MCP & Tools Menu */}
-          <div className="relative">
-            <button
-              id="menu-mcp"
-              onClick={() => handleMenuClick('mcp')}
-              className={`px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
-                activeMenu === 'mcp' ? 'bg-zinc-800' : ''
-              }`}
-            >
-              MCP & Tools
-            </button>
-            {activeMenu === 'mcp' && (
-              <div
-                className="absolute top-full left-0 mt-1 w-60 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
-                onMouseLeave={() => setActiveMenu(null)}
-              >
                 <button
                   onClick={() => {
-                    onSelectTab('mcp');
+                    onOpenConfig('channels');
                     setActiveMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
                 >
-                  <span>Model Context Protocol (MCP)</span>
-                  <span className="text-[10px] font-mono opacity-70">⇧⌘M</span>
+                  <span>Channels & Integrations...</span>
                 </button>
                 <button
                   onClick={() => {
-                    onTriggerDream();
+                    onOpenConfig('raw-config');
                     setActiveMenu(null);
                   }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between cursor-pointer"
                 >
-                  <span>Consolidate Dream Memory</span>
-                  <span className="text-[10px] font-mono opacity-70">⇧⌘D</span>
-                </button>
-                <button
-                  onClick={() => {
-                    onSelectTab('skills');
-                    setActiveMenu(null);
-                  }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
-                >
-                  <span>Agent Skills Registry</span>
-                  <span className="text-[10px] font-mono opacity-70">⌘K</span>
+                  <span>Direct config.json Editor...</span>
                 </button>
               </div>
             )}
           </div>
 
-          {/* Installers Menu */}
+          {/* Help Menu */}
           <div className="relative">
             <button
-              id="menu-installers"
-              onClick={() => handleMenuClick('installers')}
-              className={`px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
-                activeMenu === 'installers' ? 'bg-zinc-800' : ''
+              onClick={() => handleMenuClick('help')}
+              className={`px-2 py-0.5 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
+                activeMenu === 'help' ? 'bg-zinc-800' : ''
               }`}
             >
-              Desktop Package
+              Help
             </button>
-            {activeMenu === 'installers' && (
+            {activeMenu === 'help' && (
               <div
-                className="absolute top-full left-0 mt-1 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
+                className="absolute top-full left-0 mt-1 w-56 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
                 onMouseLeave={() => setActiveMenu(null)}
               >
-                <button
-                  onClick={() => {
-                    onSelectTab('desktop-installer');
-                    setActiveMenu(null);
-                  }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between"
+                <a
+                  href="https://github.com/cuongpt083/nanobot/blob/main/docs/providers.md"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
                 >
-                  <span>Download .DMG / .EXE / .AppImage</span>
-                  <span className="text-[10px] font-mono opacity-70">v0.3.0</span>
-                </button>
-                <div className="my-1 border-t border-zinc-800/80" />
-                <div className="px-3 py-1 text-[10px] text-zinc-500">
-                  Electron Native Sandbox Architecture
-                </div>
+                  <span>Providers Reference</span>
+                  <ExternalLink className="w-3 h-3 text-zinc-500" />
+                </a>
+                <a
+                  href="https://github.com/cuongpt083/nanobot/blob/main/docs/configuration.md"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
+                >
+                  <span>Configuration Guide</span>
+                  <ExternalLink className="w-3 h-3 text-zinc-500" />
+                </a>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Center Title Indicator */}
-      <div className="hidden md:flex items-center gap-2 text-zinc-400 text-[11px] font-mono">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        <span className="text-zinc-300 font-semibold">Nanobot Desktop Engine</span>
-        <span className="text-zinc-600">|</span>
-        <span className="text-zinc-500">Localhost:3000 • 5 MCP Active</span>
-      </div>
+      {/* Right Controls: Quick Model Selector & Master Settings Button */}
+      <div className="flex items-center gap-2.5">
+        {/* Model Selector Dropdown Pill */}
+        <div className="relative">
+          <button
+            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 text-xs font-medium cursor-pointer transition-colors"
+          >
+            <Bot className="w-3.5 h-3.5 text-amber-400" />
+            <span className="truncate max-w-[140px]">{currentPreset.name || currentPreset.model}</span>
+            <ChevronDown className="w-3 h-3 text-zinc-500" />
+          </button>
 
-      {/* Right Controls: Quick Summon & Windows Controls */}
-      <div className="flex items-center gap-2">
-        {/* Quick Summon Spotlight Button */}
+          {isModelDropdownOpen && (
+            <div
+              className="absolute top-full right-0 mt-1 w-64 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl py-1 z-50 text-xs text-zinc-300"
+              onMouseLeave={() => setIsModelDropdownOpen(false)}
+            >
+              <div className="px-3 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                Select Active Model Preset
+              </div>
+              {Object.entries(modelPresets).map(([key, preset]) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    onSelectModelPreset?.(key);
+                    setIsModelDropdownOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 transition-colors flex items-center justify-between cursor-pointer ${
+                    activeModelPresetId === key
+                      ? 'bg-amber-500/15 text-amber-300 font-semibold border-l-2 border-amber-500'
+                      : 'hover:bg-zinc-800 text-zinc-300'
+                  }`}
+                >
+                  <div>
+                    <div className="text-xs font-bold text-zinc-200">{preset.name || key}</div>
+                    <div className="text-[10px] text-zinc-400 font-mono">{preset.provider} • {preset.model}</div>
+                  </div>
+                  {activeModelPresetId === key && <span className="text-amber-400">✓</span>}
+                </button>
+              ))}
+
+              <div className="my-1 border-t border-zinc-800/80" />
+              <button
+                onClick={() => {
+                  onOpenConfig('models');
+                  setIsModelDropdownOpen(false);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors text-amber-400 text-xs font-medium cursor-pointer"
+              >
+                + Add / Manage Model Presets...
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Gateway Health Indicator */}
         <button
-          id="btn-quick-summon"
-          onClick={onOpenQuickSummon}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-800 hover:bg-amber-500 hover:text-zinc-950 text-zinc-300 text-[11px] font-medium transition-colors border border-zinc-700 cursor-pointer shadow-xs"
-          title="Summon Quick Assistant Overlay (Alt+Space)"
+          onClick={() => onOpenConfig('gateway')}
+          className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800/80 text-[11px] font-mono text-zinc-400 cursor-pointer transition-colors"
+          title="Click to inspect Gateway Server Supervisor"
         >
-          <Command className="w-3 h-3" />
-          <span>Quick Summon</span>
-          <kbd className="text-[9px] font-mono px-1 py-0.2 bg-zinc-950/60 rounded text-amber-300 border border-zinc-700/80">
-            Alt + Space
-          </kbd>
+          <Activity
+            className={`w-3 h-3 ${
+              gatewayRunning ? 'text-emerald-400 animate-pulse' : 'text-zinc-600'
+            }`}
+          />
+          <span>:3000</span>
         </button>
 
-        {/* Windows Style Chrome Controls if on Windows frame */}
-        {!isMac && (
-          <div className="flex items-center gap-1 text-zinc-400 pl-2">
-            <button className="p-1 hover:bg-zinc-800 hover:text-zinc-200 rounded">
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <button className="p-1 hover:bg-zinc-800 hover:text-zinc-200 rounded">
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
-            <button className="p-1 hover:bg-rose-600 hover:text-white rounded">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+        {/* Master Configuration Button */}
+        <button
+          onClick={() => onOpenConfig('providers')}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold cursor-pointer transition-all shadow-xs"
+          title="Open Master Configuration Suite (⌘,)"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          <span>Config</span>
+        </button>
       </div>
     </div>
   );

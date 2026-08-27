@@ -1,59 +1,113 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Bot,
-  MessageSquare,
-  Radio,
-  Wrench,
-  Sparkles,
-  Server,
-  Settings2,
-  Terminal,
-  Cpu,
-  Zap,
-  Activity,
-  Layers,
-  HelpCircle,
-  ExternalLink,
-  Laptop,
-  FolderTree,
-  Download,
-  Command
-} from 'lucide-react';
-import {
   Session,
-  ChannelInfo,
-  SkillInfo,
   MemoryFact,
-  GatewayStatus,
-  McpServerConfig,
-  DesktopSettings
+  DesktopSettings,
+  NanobotFullConfig,
+  GatewayProcessState,
+  GatewayLogEntry,
+  DesktopReleaseInfo
 } from './types';
 import { ChatView } from './components/ChatView';
-import { ChannelsView } from './components/ChannelsView';
-import { SkillsView } from './components/SkillsView';
-import { DreamMemoryView } from './components/DreamMemoryView';
-import { ApiPlayground } from './components/ApiPlayground';
-import { SettingsModal } from './components/SettingsModal';
 import { DesktopHeader } from './components/DesktopHeader';
-import { McpServersView } from './components/McpServersView';
 import { WorkspaceExplorerView } from './components/WorkspaceExplorerView';
-import { DesktopInstallerView } from './components/DesktopInstallerView';
 import { QuickSummonModal } from './components/QuickSummonModal';
-import { GatewayManagerView } from './components/GatewayManagerView';
+import { ConfigurationHubModal, ConfigTabKey } from './components/ConfigurationHub/ConfigurationHubModal';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<
-    'chat' | 'channels' | 'skills' | 'memory' | 'api' | 'mcp' | 'workspace' | 'desktop-installer' | 'gateway-manager'
-  >('chat');
+  // Navigation & Modal State
+  const [activeMainView, setActiveMainView] = useState<'chat' | 'workspace'>('chat');
+  const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
+  const [configInitialTab, setConfigInitialTab] = useState<ConfigTabKey>('providers');
+  const [isQuickSummonOpen, setIsQuickSummonOpen] = useState<boolean>(false);
+
+  // Master Configuration State
+  const [fullConfig, setFullConfig] = useState<NanobotFullConfig>({
+    providers: {},
+    modelPresets: {},
+    agents: {
+      defaults: {
+        modelPreset: 'primary',
+        temperature: 0.7,
+        maxTokens: 8192,
+      },
+    },
+    skills: {
+      enabled: {},
+      customSkills: [],
+      soulPrompt: 'You are Nanobot Desktop, a hyper-efficient native AI copilot.',
+    },
+    tools: {
+      restrictToWorkspace: false,
+      exec: {
+        sandbox: 'permissive',
+        timeoutS: 30,
+      },
+      web: {
+        search: {
+          provider: 'duckduckgo',
+        },
+        fetch: {},
+      },
+      mcpServers: {},
+    },
+    channels: {},
+    gateway: {
+      port: 3000,
+      host: '0.0.0.0',
+      autoCompactTtlHours: 2,
+      heartbeatIntervalS: 60,
+    },
+  });
+
+  const [activeModelPresetId, setActiveModelPresetId] = useState<string>('primary');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>('');
-  const [channels, setChannels] = useState<ChannelInfo[]>([]);
-  const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const [facts, setFacts] = useState<MemoryFact[]>([]);
-  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus | null>(null);
+  const [memoryFacts, setMemoryFacts] = useState<MemoryFact[]>([]);
+  const [isLoadingChat, setIsLoadingChat] = useState<boolean>(false);
+  const [desktopReleases, setDesktopReleases] = useState<DesktopReleaseInfo[]>([]);
 
-  // Desktop Subsystem State
-  const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
+  // Gateway Process Supervisor State
+  const [gatewayState, setGatewayState] = useState<GatewayProcessState>({
+    status: 'running',
+    port: 3000,
+    host: '0.0.0.0',
+    mode: 'node_embedded',
+    uptimeSeconds: 340,
+    memoryUsageMb: 85,
+    cpuPercent: 1.2,
+    url: 'http://localhost:3000',
+    healthStatus: 'healthy',
+  });
+
+  const [gatewayLogs, setGatewayLogs] = useState<GatewayLogEntry[]>([
+    {
+      id: 'log-1',
+      timestamp: Date.now() - 300000,
+      type: 'system',
+      message: '[Supervisor] Nanobot Gateway v0.3.0 initialized on 0.0.0.0:3000',
+    },
+    {
+      id: 'log-2',
+      timestamp: Date.now() - 240000,
+      type: 'stdout',
+      message: '[Providers] Registered providers: gemini, anthropic, openai, groq, deepseek, ollama',
+    },
+    {
+      id: 'log-3',
+      timestamp: Date.now() - 180000,
+      type: 'stdout',
+      message: '[Tools] Discovered built-in tools: filesystem, shell_sandbox, web_search, cron, memory_dream',
+    },
+    {
+      id: 'log-4',
+      timestamp: Date.now() - 60000,
+      type: 'stdout',
+      message: '[Gateway] Ready to accept inbound connections and agent loop events.',
+    },
+  ]);
+
+  // Desktop Subsystem Settings
   const [desktopSettings, setDesktopSettings] = useState<DesktopSettings>({
     theme: 'dark',
     windowFrame: 'macos',
@@ -66,48 +120,68 @@ export const App: React.FC = () => {
     systemTrayEnabled: true,
     compactMode: false,
   });
-  const [isQuickSummonOpen, setIsQuickSummonOpen] = useState(false);
-
-  const [activeModel, setActiveModel] = useState<string>('gemini-2.5-flash');
-  const [systemPrompt, setSystemPrompt] = useState<string>(
-    'You are Nanobot Desktop, a hyper-efficient native AI copilot designed for local workflow execution, Model Context Protocol (MCP) tool invocation, and developer productivity. Provide clear, direct, and well-formatted answers.',
-  );
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isLoadingChat, setIsLoadingChat] = useState(false);
-  const [isConsolidatingMemory, setIsConsolidatingMemory] = useState(false);
 
   // Initial Data Fetching
   useEffect(() => {
-    fetchStatus();
+    fetchFullConfig();
     fetchSessions();
-    fetchChannels();
-    fetchSkills();
     fetchMemory();
-    fetchMcpServers();
     fetchDesktopSettings();
+    fetchDesktopReleases();
+    fetchGatewayState();
   }, []);
 
-  // Global Alt+Space / Cmd+K Hotkey Listener for Quick Summon
+  // Hotkeys: Cmd+, (Settings), Alt+Space (Quick Summon), Cmd+N (New Chat)
   useEffect(() => {
-    const handleGlobalKeys = (e: KeyboardEvent) => {
-      if ((e.altKey && e.code === 'Space') || (e.metaKey && e.shiftKey && e.code === 'KeyK')) {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        openConfigHub('providers');
+      }
+      if (e.altKey && e.code === 'Space') {
         e.preventDefault();
         setIsQuickSummonOpen((prev) => !prev);
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        handleCreateSession();
+      }
     };
-    window.addEventListener('keydown', handleGlobalKeys);
-    return () => window.removeEventListener('keydown', handleGlobalKeys);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const fetchStatus = async () => {
+  const openConfigHub = (tab: ConfigTabKey = 'providers') => {
+    setConfigInitialTab(tab);
+    setIsConfigOpen(true);
+  };
+
+  const fetchFullConfig = async () => {
     try {
-      const res = await fetch('/api/status');
+      const res = await fetch('/api/config');
       if (res.ok) {
         const data = await res.json();
-        setGatewayStatus(data);
+        setFullConfig(data);
+        if (data.agents?.defaults?.modelPreset) {
+          setActiveModelPresetId(data.agents.defaults.modelPreset);
+        }
       }
     } catch (e) {
-      console.warn('Failed to fetch gateway status:', e);
+      console.warn('Failed to fetch full config:', e);
+    }
+  };
+
+  const handleUpdateFullConfig = async (newPartialConfig: Partial<NanobotFullConfig>) => {
+    const merged = { ...fullConfig, ...newPartialConfig };
+    setFullConfig(merged);
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(merged),
+      });
+    } catch (e) {
+      console.error('Failed to update config:', e);
     }
   };
 
@@ -126,51 +200,15 @@ export const App: React.FC = () => {
     }
   };
 
-  const fetchChannels = async () => {
-    try {
-      const res = await fetch('/api/channels');
-      if (res.ok) {
-        const data = await res.json();
-        setChannels(data);
-      }
-    } catch (e) {
-      console.warn('Failed to fetch channels:', e);
-    }
-  };
-
-  const fetchSkills = async () => {
-    try {
-      const res = await fetch('/api/skills');
-      if (res.ok) {
-        const data = await res.json();
-        setSkills(data);
-      }
-    } catch (e) {
-      console.warn('Failed to fetch skills:', e);
-    }
-  };
-
   const fetchMemory = async () => {
     try {
       const res = await fetch('/api/memory');
       if (res.ok) {
         const data = await res.json();
-        setFacts(data.facts || []);
+        setMemoryFacts(data.facts || []);
       }
     } catch (e) {
       console.warn('Failed to fetch memory:', e);
-    }
-  };
-
-  const fetchMcpServers = async () => {
-    try {
-      const res = await fetch('/api/desktop/mcp');
-      if (res.ok) {
-        const data = await res.json();
-        setMcpServers(data.servers || []);
-      }
-    } catch (e) {
-      console.warn('Failed to fetch MCP servers:', e);
     }
   };
 
@@ -183,6 +221,30 @@ export const App: React.FC = () => {
       }
     } catch (e) {
       console.warn('Failed to fetch desktop settings:', e);
+    }
+  };
+
+  const fetchDesktopReleases = async () => {
+    try {
+      const res = await fetch('/api/desktop/releases');
+      if (res.ok) {
+        const data = await res.json();
+        setDesktopReleases(data.releases || []);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch desktop releases:', e);
+    }
+  };
+
+  const fetchGatewayState = async () => {
+    try {
+      const res = await fetch('/api/desktop/gateway/status');
+      if (res.ok) {
+        const data = await res.json();
+        setGatewayState(data);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch gateway process state:', e);
     }
   };
 
@@ -200,65 +262,128 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleToggleMcpServer = async (serverId: string) => {
+  // Gateway Supervisor Actions
+  const handleStartGateway = async () => {
     try {
-      const res = await fetch(`/api/desktop/mcp/${serverId}/toggle`, { method: 'POST' });
+      const res = await fetch('/api/desktop/gateway/start', { method: 'POST' });
       if (res.ok) {
         const updated = await res.json();
-        setMcpServers((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+        setGatewayState(updated);
+        setGatewayLogs((prev) => [
+          ...prev,
+          {
+            id: `log-${Date.now()}`,
+            timestamp: Date.now(),
+            type: 'system',
+            message: `[Supervisor] Gateway process started (PID ${updated.pid})`,
+          },
+        ]);
       }
     } catch (e) {
-      console.error('Failed to toggle MCP server:', e);
+      console.error('Failed to start gateway:', e);
     }
   };
 
-  const handleAddMcpServer = async (serverData: Partial<McpServerConfig>) => {
+  const handleStopGateway = async () => {
     try {
-      const res = await fetch('/api/desktop/mcp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(serverData),
-      });
+      const res = await fetch('/api/desktop/gateway/stop', { method: 'POST' });
       if (res.ok) {
-        const created = await res.json();
-        setMcpServers((prev) => [...prev, created]);
+        const updated = await res.json();
+        setGatewayState(updated);
+        setGatewayLogs((prev) => [
+          ...prev,
+          {
+            id: `log-${Date.now()}`,
+            timestamp: Date.now(),
+            type: 'stderr',
+            message: '[Supervisor] Gateway process stopped gracefully.',
+          },
+        ]);
       }
     } catch (e) {
-      console.error('Failed to add MCP server:', e);
+      console.error('Failed to stop gateway:', e);
     }
   };
 
-  const handleDeleteMcpServer = async (serverId: string) => {
+  const handleRestartGateway = async () => {
     try {
-      const res = await fetch(`/api/desktop/mcp/${serverId}`, { method: 'DELETE' });
+      const res = await fetch('/api/desktop/gateway/restart', { method: 'POST' });
       if (res.ok) {
-        setMcpServers((prev) => prev.filter((s) => s.id !== serverId));
+        const updated = await res.json();
+        setGatewayState(updated);
+        setGatewayLogs((prev) => [
+          ...prev,
+          {
+            id: `log-${Date.now()}`,
+            timestamp: Date.now(),
+            type: 'system',
+            message: `[Supervisor] Gateway restarted successfully (PID ${updated.pid})`,
+          },
+        ]);
       }
     } catch (e) {
-      console.error('Failed to delete MCP server:', e);
+      console.error('Failed to restart gateway:', e);
     }
   };
 
-  const handleTestMcpServer = async (serverId: string) => {
-    const res = await fetch(`/api/desktop/mcp/${serverId}/test`, { method: 'POST' });
-    return await res.json();
+  const handleClearGatewayLogs = () => {
+    setGatewayLogs([]);
   };
 
+  // Memory Actions
+  const handleTriggerDream = async () => {
+    try {
+      const res = await fetch('/api/memory/consolidate', { method: 'POST' });
+      if (res.ok) {
+        await fetchMemory();
+      }
+    } catch (e) {
+      console.error('Failed dream consolidation:', e);
+    }
+  };
+
+  const handleDeleteFact = async (factId: string) => {
+    try {
+      const res = await fetch(`/api/memory/${factId}`, { method: 'DELETE' });
+      if (res.ok) {
+        setMemoryFacts((prev) => prev.filter((f) => f.id !== factId));
+      }
+    } catch (e) {
+      console.error('Failed to delete fact:', e);
+    }
+  };
+
+  const handleAddFact = async (factData: Partial<MemoryFact>) => {
+    const newFact: MemoryFact = {
+      id: `fact-${Date.now()}`,
+      category: factData.category || 'user_profile',
+      content: factData.content || '',
+      confidence: factData.confidence || 0.9,
+      lastUpdated: Date.now(),
+    };
+    setMemoryFacts((prev) => [newFact, ...prev]);
+  };
+
+  // Chat Actions
   const handleCreateSession = async () => {
+    const currentPreset = fullConfig.modelPresets?.[activeModelPresetId] || {
+      model: 'gemini-2.5-flash',
+    };
     try {
       const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: 'New Desktop Session',
-          model: activeModel,
-          system_prompt: systemPrompt,
+          title: 'New Workspace Thread',
+          model: currentPreset.model,
+          system_prompt: fullConfig.skills?.soulPrompt || 'You are Nanobot Desktop.',
         }),
       });
       if (res.ok) {
         const newSession: Session = await res.json();
         setSessions((prev) => [newSession, ...prev]);
         setActiveSessionId(newSession.id);
+        setActiveMainView('chat');
       }
     } catch (e) {
       console.error('Failed to create session:', e);
@@ -281,18 +406,28 @@ export const App: React.FC = () => {
   };
 
   const handleSendMessage = async (text: string) => {
-    if (!activeSessionId) return;
+    if (!activeSessionId) {
+      if (sessions.length === 0) {
+        await handleCreateSession();
+      }
+    }
+    const targetSessionId = activeSessionId || sessions[0]?.id;
+    if (!targetSessionId) return;
+
     setIsLoadingChat(true);
+    const currentPreset = fullConfig.modelPresets?.[activeModelPresetId] || {
+      model: 'gemini-2.5-flash',
+    };
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId: activeSessionId,
+          sessionId: targetSessionId,
           message: text,
-          model: activeModel,
-          customPrompt: systemPrompt,
+          model: currentPreset.model,
+          customPrompt: fullConfig.skills?.soulPrompt,
         }),
       });
 
@@ -301,7 +436,6 @@ export const App: React.FC = () => {
         setSessions((prev) =>
           prev.map((s) => (s.id === updatedSession.id ? updatedSession : s)),
         );
-        fetchStatus();
       }
     } catch (e) {
       console.error('Chat error:', e);
@@ -310,230 +444,43 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleToggleSkill = async (skillId: string) => {
-    try {
-      const res = await fetch(`/api/skills/${skillId}/toggle`, { method: 'POST' });
-      if (res.ok) {
-        const updated = await res.json();
-        setSkills((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-      }
-    } catch (e) {
-      console.error('Failed to toggle skill:', e);
-    }
-  };
-
-  const handleSaveChannelConfig = async (channelId: string, values: Record<string, string>) => {
-    try {
-      const res = await fetch(`/api/channels/${channelId}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setChannels((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-      }
-    } catch (e) {
-      console.error('Failed to save channel config:', e);
-    }
-  };
-
-  const handleConsolidateDream = async () => {
-    setIsConsolidatingMemory(true);
-    try {
-      const res = await fetch('/api/memory/consolidate', { method: 'POST' });
-      if (res.ok) {
-        await fetchMemory();
-      }
-    } catch (e) {
-      console.error('Failed dream consolidation:', e);
-    } finally {
-      setIsConsolidatingMemory(false);
-    }
-  };
-
-  const handleDeleteFact = async (factId: string) => {
-    try {
-      const res = await fetch(`/api/memory/${factId}`, { method: 'DELETE' });
-      if (res.ok) {
-        setFacts((prev) => prev.filter((f) => f.id !== factId));
-      }
-    } catch (e) {
-      console.error('Failed to delete fact:', e);
-    }
+  const currentModelPreset = fullConfig.modelPresets?.[activeModelPresetId] || {
+    id: activeModelPresetId,
+    name: 'Gemini 2.5 Flash',
+    model: 'gemini-2.5-flash',
+    provider: 'gemini',
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
-      {/* Desktop Native Window Header & App Menu Bar */}
+    <div className="h-screen w-screen flex flex-col overflow-hidden bg-zinc-950 text-zinc-100 font-sans select-none">
+      {/* Desktop Native Window Header & Integrated Menu Bar */}
       <DesktopHeader
         settings={desktopSettings}
         onUpdateSettings={handleUpdateDesktopSettings}
         onOpenQuickSummon={() => setIsQuickSummonOpen(true)}
         onNewChat={handleCreateSession}
-        onTriggerDream={handleConsolidateDream}
-        onSelectTab={setActiveTab}
-        activeTab={activeTab}
+        onTriggerDream={handleTriggerDream}
+        onOpenConfig={openConfigHub}
+        activeModelPresetId={activeModelPresetId}
+        modelPresets={fullConfig.modelPresets}
+        onSelectModelPreset={(presetId) => {
+          setActiveModelPresetId(presetId);
+          handleUpdateFullConfig({
+            agents: {
+              ...fullConfig.agents,
+              defaults: {
+                ...fullConfig.agents.defaults,
+                modelPreset: presetId,
+              },
+            },
+          });
+        }}
+        gatewayRunning={gatewayState.status === 'running'}
       />
 
-      {/* Main App Navigation Bar */}
-      <header className="h-13 border-b border-zinc-800 bg-zinc-900/90 backdrop-blur-md flex items-center justify-between px-4 flex-shrink-0 z-20">
-        {/* Brand & System Pulse */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-bold shadow-inner">
-              <Bot className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5 leading-none">
-                <span className="font-bold text-xs text-zinc-100 tracking-tight">nanobot</span>
-                <span className="px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[9px] font-mono font-medium">
-                  desktop
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Navigation Tabs */}
-          <nav className="flex items-center gap-1 bg-zinc-950/60 p-1 rounded-lg border border-zinc-800/80">
-            <button
-              id="tab-chat"
-              onClick={() => setActiveTab('chat')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                activeTab === 'chat'
-                  ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Agent Chat</span>
-            </button>
-
-            <button
-              id="tab-gateway"
-              onClick={() => setActiveTab('gateway-manager')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                activeTab === 'gateway-manager'
-                  ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-              }`}
-            >
-              <Server className="w-3.5 h-3.5" />
-              <span>Gateway Server</span>
-            </button>
-
-            <button
-              id="tab-mcp"
-              onClick={() => setActiveTab('mcp')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                activeTab === 'mcp'
-                  ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-              }`}
-            >
-              <Cpu className="w-3.5 h-3.5" />
-              <span>MCP Servers</span>
-            </button>
-
-            <button
-              id="tab-workspace"
-              onClick={() => setActiveTab('workspace')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                activeTab === 'workspace'
-                  ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-              }`}
-            >
-              <FolderTree className="w-3.5 h-3.5" />
-              <span>Workspace</span>
-            </button>
-
-            <button
-              id="tab-channels"
-              onClick={() => setActiveTab('channels')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                activeTab === 'channels'
-                  ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-              }`}
-            >
-              <Radio className="w-3.5 h-3.5" />
-              <span>Channels</span>
-            </button>
-
-            <button
-              id="tab-skills"
-              onClick={() => setActiveTab('skills')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                activeTab === 'skills'
-                  ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-              }`}
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              <span>Skills</span>
-            </button>
-
-            <button
-              id="tab-memory"
-              onClick={() => setActiveTab('memory')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                activeTab === 'memory'
-                  ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Dream Memory</span>
-            </button>
-
-            <button
-              id="tab-installer"
-              onClick={() => setActiveTab('desktop-installer')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                activeTab === 'desktop-installer'
-                  ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-              }`}
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Installers</span>
-            </button>
-          </nav>
-        </div>
-
-        {/* Right Status & Global Settings */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setActiveTab('gateway-manager')}
-            className="hidden lg:flex items-center gap-3 text-xs font-mono px-3 py-1.5 rounded-lg bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 text-zinc-400 cursor-pointer transition-colors"
-            title="Open Gateway Server Manager"
-          >
-            <span className="flex items-center gap-1.5 text-emerald-400">
-              <Activity className="w-3.5 h-3.5 animate-pulse" />
-              <span>Gateway :3000</span>
-            </span>
-            <span>•</span>
-            <span>{mcpServers.filter((s) => s.status === 'connected').length} MCP</span>
-          </button>
-
-          <button
-            id="btn-open-settings"
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 transition-colors cursor-pointer border border-zinc-700"
-            title="Gateway Settings"
-          >
-            <Settings2 className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-hidden relative">
-        {activeTab === 'gateway-manager' && (
-          <GatewayManagerView onRefreshGlobalStatus={fetchStatus} />
-        )}
-        {activeTab === 'chat' && (
+      {/* Main Content Stage */}
+      <main className="flex-1 flex min-h-0 overflow-hidden relative">
+        {activeMainView === 'chat' ? (
           <ChatView
             sessions={sessions}
             activeSessionId={activeSessionId}
@@ -542,66 +489,46 @@ export const App: React.FC = () => {
             onDeleteSession={handleDeleteSession}
             onSendMessage={handleSendMessage}
             isLoading={isLoadingChat}
-            activeModel={activeModel}
-            onChangeModel={setActiveModel}
+            activeModel={currentModelPreset.model}
+            onChangeModel={(model) => {
+              // Switch model
+            }}
           />
-        )}
-
-        {activeTab === 'mcp' && (
-          <McpServersView
-            servers={mcpServers}
-            onToggleServer={handleToggleMcpServer}
-            onAddServer={handleAddMcpServer}
-            onDeleteServer={handleDeleteMcpServer}
-            onTestServer={handleTestMcpServer}
-          />
-        )}
-
-        {activeTab === 'workspace' && (
+        ) : (
           <WorkspaceExplorerView workspacePath={desktopSettings.workspacePath} />
         )}
-
-        {activeTab === 'channels' && (
-          <ChannelsView
-            channels={channels}
-            onSaveChannelConfig={handleSaveChannelConfig}
-          />
-        )}
-
-        {activeTab === 'skills' && (
-          <SkillsView skills={skills} onToggleSkill={handleToggleSkill} />
-        )}
-
-        {activeTab === 'memory' && (
-          <DreamMemoryView
-            facts={facts}
-            onConsolidate={handleConsolidateDream}
-            onDeleteFact={handleDeleteFact}
-            isConsolidating={isConsolidatingMemory}
-          />
-        )}
-
-        {activeTab === 'api' && <ApiPlayground />}
-
-        {activeTab === 'desktop-installer' && <DesktopInstallerView />}
       </main>
 
-      {/* Quick Summon Spotlight Floating Overlay */}
+      {/* Floating Quick Summon Spotlight */}
       <QuickSummonModal
         isOpen={isQuickSummonOpen}
         onClose={() => setIsQuickSummonOpen(false)}
         onSendToChat={(msg) => {
-          setActiveTab('chat');
+          setActiveMainView('chat');
           handleSendMessage(msg);
         }}
       />
 
-      {/* Global Settings Modal */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        systemPrompt={systemPrompt}
-        onSaveSystemPrompt={setSystemPrompt}
+      {/* Master Configuration Hub Modal (All 9 Suites) */}
+      <ConfigurationHubModal
+        isOpen={isConfigOpen}
+        onClose={() => setIsConfigOpen(false)}
+        initialTab={configInitialTab}
+        config={fullConfig}
+        onUpdateConfig={handleUpdateFullConfig}
+        desktopSettings={desktopSettings}
+        onUpdateDesktopSettings={handleUpdateDesktopSettings}
+        gatewayState={gatewayState}
+        gatewayLogs={gatewayLogs}
+        onStartGateway={handleStartGateway}
+        onStopGateway={handleStopGateway}
+        onRestartGateway={handleRestartGateway}
+        onClearGatewayLogs={handleClearGatewayLogs}
+        memoryFacts={memoryFacts}
+        onTriggerDream={handleTriggerDream}
+        onDeleteFact={handleDeleteFact}
+        onAddFact={handleAddFact}
+        desktopReleases={desktopReleases}
       />
     </div>
   );
