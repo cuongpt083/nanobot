@@ -159,9 +159,14 @@ export interface DesktopReleaseInfo {
 // -------------------------------------------------------------
 
 export interface ProviderItemConfig {
+  id?: string;
+  name?: string;
+  alias?: string;
+  providerType?: string;
   apiKey?: string;
   apiBase?: string;
   proxy?: string;
+  defaultModel?: string;
   extraBody?: Record<string, any>;
   headers?: Record<string, string>;
   modelList?: string[];
