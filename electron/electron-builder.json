@@ -8,6 +8,7 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
+    "public/**/*",
     "node_modules/**/*",
     "package.json"
   ],
@@ -40,7 +41,7 @@
   },
   "win": {
     "target": ["nsis", "portable"],
-    "icon": "images/nanobot_logo.png"
+    "icon": "images/nanobot_icon.png"
   },
   "nsis": {
     "oneClick": false,
