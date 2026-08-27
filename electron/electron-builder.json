@@ -40,7 +40,7 @@
   },
   "win": {
     "target": ["nsis", "portable"],
-    "icon": "public/icon.ico"
+    "icon": "images/nanobot_logo.png"
   },
   "nsis": {
     "oneClick": false,
