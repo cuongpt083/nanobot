@@ -546,13 +546,49 @@ export const App: React.FC = () => {
   };
 
   const handleSendMessage = async (text: string) => {
-    if (!activeSessionId) {
+    let targetSessionId = activeSessionId;
+    if (!targetSessionId) {
       if (sessions.length === 0) {
-        await handleCreateSession();
+        const modelToUse = currentModelPreset.model;
+        try {
+          const res = await fetch('/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: text.slice(0, 30),
+              model: modelToUse,
+              system_prompt: fullConfig.skills?.soulPrompt || 'You are Nanobot Desktop.',
+            }),
+          });
+          if (res.ok) {
+            const newSession: Session = await res.json();
+            targetSessionId = newSession.id;
+            setSessions([newSession]);
+            setActiveSessionId(newSession.id);
+          }
+        } catch (e) {}
+      } else {
+        targetSessionId = sessions[0].id;
+        setActiveSessionId(targetSessionId);
       }
     }
-    const targetSessionId = activeSessionId || sessions[0]?.id;
     if (!targetSessionId) return;
+
+    // Optimistically add user message immediately to the session
+    const userMsg: any = {
+      id: `msg-u-${Date.now()}`,
+      role: 'user',
+      content: text,
+      timestamp: Date.now(),
+    };
+
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === targetSessionId
+          ? { ...s, messages: [...s.messages, userMsg], updated_at: Date.now() }
+          : s
+      )
+    );
 
     setIsLoadingChat(true);
     const modelToUse = currentModelPreset.model;
@@ -574,9 +610,39 @@ export const App: React.FC = () => {
         setSessions((prev) =>
           prev.map((s) => (s.id === updatedSession.id ? updatedSession : s)),
         );
+      } else {
+        const errData = await res.json().catch(() => ({ error: 'Lỗi máy chủ' }));
+        const errorMsg: any = {
+          id: `msg-err-${Date.now()}`,
+          role: 'assistant',
+          content: `⚠️ **Không thể hoàn tất phản hồi (${modelToUse})**: ${errData.error || res.statusText}\n\nVui lòng kiểm tra lại cấu hình endpoint và API key trong Configuration Hub.`,
+          reasoning: `Server trả về mã lỗi HTTP ${res.status}`,
+          timestamp: Date.now(),
+        };
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === targetSessionId
+              ? { ...s, messages: [...s.messages, errorMsg] }
+              : s
+          )
+        );
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Chat error:', e);
+      const errorMsg: any = {
+        id: `msg-err-${Date.now()}`,
+        role: 'assistant',
+        content: `⚠️ **Lỗi kết nối khi gửi tin nhắn**: ${e.message || 'Không thể kết nối đến máy chủ gateway'}.\n\nVui lòng kiểm tra lại kết nối mạng hoặc thử khởi động lại Gateway trong Configuration Hub.`,
+        reasoning: `Lỗi ngoại lệ mạng phía client: ${e.message}`,
+        timestamp: Date.now(),
+      };
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === targetSessionId
+            ? { ...s, messages: [...s.messages, errorMsg] }
+            : s
+        )
+      );
     } finally {
       setIsLoadingChat(false);
     }

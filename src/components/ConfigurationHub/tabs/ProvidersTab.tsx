@@ -465,12 +465,40 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ config, onUpdateConf
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={async () => {
+                onUpdateConfig({ providers });
+                try {
+                  await fetch(`/api/config/providers/${selectedProviderKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentProviderConfig),
+                  });
+                  setTestStatus((prev) => ({
+                    ...prev,
+                    error: undefined,
+                    result: {
+                      status: 'success',
+                      latencyMs: prev.result?.latencyMs || 0,
+                      message: `Đã lưu cấu hình provider ${currentProviderConfig.alias || selectedProviderKey} xuống ~/.nanobot/config.json thành công!`,
+                      modelsFound: discoveredModelList.length,
+                    },
+                  }));
+                } catch (e) {}
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white transition-colors shadow-xs cursor-pointer"
+            >
+              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Lưu Provider này</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => handleTestConnection(selectedProviderKey)}
               disabled={testStatus.loading}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-xs font-bold text-zinc-950 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${testStatus.loading ? 'animate-spin' : ''}`} />
-              <span>{testStatus.loading ? 'Đang kiểm tra & quét models...' : 'Test Connection & Fetch Models'}</span>
+              <span>{testStatus.loading ? 'Đang quét...' : 'Test Connection'}</span>
             </button>
             <a
               href={meta.docsUrl}
@@ -479,7 +507,7 @@ export const ProvidersTab: React.FC<ProvidersTabProps> = ({ config, onUpdateConf
               className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors border border-zinc-700"
               title="Mở tài liệu hướng dẫn cấu hình"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <ExternalLink className="w-4 h-4" />
             </a>
           </div>
         </div>

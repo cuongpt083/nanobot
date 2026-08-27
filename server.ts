@@ -397,47 +397,50 @@ interface ResolvedProvider {
 
 function resolveProvider(modelName: string): ResolvedProvider {
   const config = readNanobotConfig();
-  const masterConfig = nanobotMasterConfig || {};
+  const masterConfig = (typeof nanobotMasterConfig !== 'undefined' && nanobotMasterConfig) || config || {};
   const lower = (modelName || '').toLowerCase();
 
   // 1. Check if model matches an active preset or custom preset in masterConfig
   const presets = Object.values(masterConfig.modelPresets || {});
-  const matchingPreset = presets.find((p) => p.model === modelName || p.id === modelName);
+  const matchingPreset = presets.find((p: any) => p.model === modelName || p.id === modelName);
   if (matchingPreset && masterConfig.providers?.[matchingPreset.provider]) {
     const prov = masterConfig.providers[matchingPreset.provider];
     let key = prov.apiKey || '';
     if (key.startsWith('${') && key.endsWith('}')) {
       key = process.env[key.slice(2, -1)] || '';
     }
+    const isCustomEndpoint = Boolean(prov.apiBase && !prov.apiBase.includes('openai.com') && !prov.apiBase.includes('anthropic.com'));
     return {
       name: prov.alias || prov.name || matchingPreset.provider,
       apiKey: key,
       apiBase: prov.apiBase || 'https://api.openai.com/v1',
       wireModel: matchingPreset.model || modelName,
-      isDirect: false,
+      isDirect: isCustomEndpoint,
     };
   }
 
   // 2. Check if any configured provider has this exact model in its modelList
-  const provEntries = Object.entries(masterConfig.providers || {});
+  const provEntries = Object.entries(masterConfig.providers || {}) as [string, any][];
   for (const [pKey, pVal] of provEntries) {
     if (pVal && Array.isArray(pVal.modelList) && pVal.modelList.includes(modelName)) {
       let key = pVal.apiKey || '';
       if (key.startsWith('${') && key.endsWith('}')) {
         key = process.env[key.slice(2, -1)] || '';
       }
+      const isCustomEndpoint = Boolean(pVal.apiBase && !pVal.apiBase.includes('openai.com') && !pVal.apiBase.includes('anthropic.com'));
       return {
         name: pVal.alias || pVal.name || pKey,
         apiKey: key,
         apiBase: pVal.apiBase || (pKey === 'gemini' ? 'https://generativelanguage.googleapis.com/v1beta/openai' : 'https://api.openai.com/v1'),
         wireModel: modelName,
-        isDirect: false,
+        isDirect: isCustomEndpoint,
       };
     }
   }
 
   // 3. Check if any configured provider with custom apiBase exists
-  const customProv = provEntries.find(([_, v]) => v && v.apiBase && v.apiBase.trim().length > 0);
+  const customProv = provEntries.find(([_, v]) => v && v.status === 'active' && v.apiBase && v.apiBase.trim().length > 0) ||
+                     provEntries.find(([_, v]) => v && v.apiBase && v.apiBase.trim().length > 0);
   if (customProv) {
     const [pKey, pVal] = customProv;
     let key = pVal.apiKey || '';
@@ -449,7 +452,7 @@ function resolveProvider(modelName: string): ResolvedProvider {
       apiKey: key,
       apiBase: pVal.apiBase,
       wireModel: modelName,
-      isDirect: false,
+      isDirect: true,
     };
   }
 
@@ -577,20 +580,45 @@ async function callLlmChat(
   messages: Array<{ role: string; content: string }>,
   systemPrompt: string,
 ): Promise<{ text: string; reasoning?: string } | null> {
-  if (!provider.apiKey && !provider.isDirect) {
+  const isCustomOrLocal =
+    provider.isDirect ||
+    Boolean(
+      provider.apiBase &&
+        (provider.apiBase.includes('192.168.') ||
+          provider.apiBase.includes('10.') ||
+          provider.apiBase.includes('172.') ||
+          provider.apiBase.includes('localhost') ||
+          provider.apiBase.includes('127.0.0.1') ||
+          !provider.apiBase.includes('api.openai.com'))
+    );
+
+  if (!provider.apiKey && !isCustomOrLocal) {
     return null;
   }
 
   try {
-    const url = `${provider.apiBase.replace(/\/$/, '')}/chat/completions`;
+    const cleanBase = (provider.apiBase || 'https://api.openai.com/v1').replace(/\/+$/, '');
+    const url = cleanBase.endsWith('/chat/completions')
+      ? cleanBase
+      : `${cleanBase}/chat/completions`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://nanobot.ai',
+      'X-Title': 'Nanobot Desktop',
+    };
+
+    if (provider.apiKey) {
+      headers['Authorization'] = `Bearer ${provider.apiKey}`;
+      headers['x-api-key'] = provider.apiKey;
+    } else {
+      headers['Authorization'] = `Bearer nanobot-key`;
+    }
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${provider.apiKey}`,
-        'HTTP-Referer': 'https://nanobot.ai',
-        'X-Title': 'Nanobot Desktop',
-      },
+      headers,
+      signal: AbortSignal.timeout(60000),
       body: JSON.stringify({
         model: provider.wireModel,
         messages: [
@@ -600,22 +628,32 @@ async function callLlmChat(
             content: m.content,
           })),
         ],
-        temperature: 0.2,
+        temperature: 0.7,
       }),
     });
 
     if (response.ok) {
       const data: any = await response.json();
       const choice = data.choices?.[0];
-      const text = choice?.message?.content || '';
+      const text = choice?.message?.content || choice?.text || '';
       const reasoning = choice?.message?.reasoning_content || undefined;
-      return { text, reasoning };
+      if (text) {
+        return { text, reasoning };
+      }
     } else {
       const errText = await response.text();
       console.warn(`[LLM] Provider ${provider.name} returned HTTP ${response.status}: ${errText}`);
+      return {
+        text: `⚠️ **Lỗi từ LLM Server (${provider.name})**: HTTP ${response.status} (${response.statusText})\n\`\`\`\n${errText.slice(0, 500)}\n\`\`\``,
+        reasoning: `Server trả về mã lỗi HTTP ${response.status}`,
+      };
     }
   } catch (err: any) {
     console.warn(`[LLM] Error calling ${provider.name}:`, err.message);
+    return {
+      text: `⚠️ **Không thể kết nối đến LLM Endpoint (${provider.name} - ${provider.apiBase})**: ${err.message}\n\nVui lòng kiểm tra lại endpoint máy chủ LLM nội bộ hoặc đường truyền mạng.`,
+      reasoning: `Lỗi ngoại lệ mạng khi gọi API: ${err.message}`,
+    };
   }
   return null;
 }

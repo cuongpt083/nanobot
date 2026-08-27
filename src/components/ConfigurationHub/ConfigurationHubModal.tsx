@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Bot,
@@ -11,7 +11,11 @@ import {
   Code,
   Laptop,
   Check,
-  Search
+  Search,
+  Save,
+  RotateCcw,
+  RefreshCw,
+  CheckCircle2
 } from 'lucide-react';
 import {
   NanobotFullConfig,
@@ -47,7 +51,7 @@ interface ConfigurationHubModalProps {
   onClose: () => void;
   initialTab?: ConfigTabKey;
   config: NanobotFullConfig;
-  onUpdateConfig: (newConfig: Partial<NanobotFullConfig>) => void;
+  onUpdateConfig: (newConfig: Partial<NanobotFullConfig>) => Promise<void> | void;
   desktopSettings: DesktopSettings;
   onUpdateDesktopSettings: (newSettings: Partial<DesktopSettings>) => void;
   gatewayState: GatewayProcessState;
@@ -103,16 +107,71 @@ export const ConfigurationHubModal: React.FC<ConfigurationHubModalProps> = ({
   onOpenSetupWizard,
 }) => {
   const [activeTab, setActiveTab] = useState<ConfigTabKey>(initialTab);
+  const [workingConfig, setWorkingConfig] = useState<NanobotFullConfig>(config);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setWorkingConfig(config);
+  }, [config]);
 
   if (!isOpen) return null;
 
   const currentTabObj = TABS.find((t) => t.id === activeTab) || TABS[0];
   const Icon = currentTabObj.icon;
 
+  const handleTabUpdateConfig = (partial: Partial<NanobotFullConfig>) => {
+    const updated = {
+      ...workingConfig,
+      ...partial,
+      providers: { ...workingConfig.providers, ...(partial.providers || {}) },
+      modelPresets: { ...workingConfig.modelPresets, ...(partial.modelPresets || {}) },
+      agents: {
+        ...workingConfig.agents,
+        ...(partial.agents || {}),
+        defaults: {
+          ...workingConfig.agents?.defaults,
+          ...(partial.agents?.defaults || {}),
+        },
+      },
+      tools: { ...workingConfig.tools, ...(partial.tools || {}) },
+      skills: { ...workingConfig.skills, ...(partial.skills || {}) },
+    };
+    setWorkingConfig(updated);
+    onUpdateConfig(updated);
+  };
+
+  const handleSaveAllConfig = async () => {
+    setIsSaving(true);
+    setSaveSuccessMsg(null);
+    try {
+      await onUpdateConfig(workingConfig);
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(workingConfig),
+      });
+      if (res.ok) {
+        setSaveSuccessMsg('Đã lưu thành công xuống ~/.nanobot/config.json!');
+        setTimeout(() => setSaveSuccessMsg(null), 4000);
+      }
+    } catch (err) {
+      console.error('Failed to save config:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleResetConfig = () => {
+    setWorkingConfig(config);
+    setSaveSuccessMsg('Đã khôi phục lại cấu hình ban đầu');
+    setTimeout(() => setSaveSuccessMsg(null), 3000);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
       <div
-        className="w-full max-w-5xl h-[85vh] bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100"
+        className="w-full max-w-5xl h-[88vh] bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Top Header */}
@@ -187,24 +246,24 @@ export const ConfigurationHubModal: React.FC<ConfigurationHubModalProps> = ({
           {/* Right Main Content Area */}
           <div className="flex-1 bg-zinc-900/40 p-6 overflow-hidden flex flex-col">
             {activeTab === 'providers' && (
-              <ProvidersTab config={config} onUpdateConfig={onUpdateConfig} />
+              <ProvidersTab config={workingConfig} onUpdateConfig={handleTabUpdateConfig} />
             )}
             {activeTab === 'models' && (
-              <ModelPresetsTab config={config} onUpdateConfig={onUpdateConfig} />
+              <ModelPresetsTab config={workingConfig} onUpdateConfig={handleTabUpdateConfig} />
             )}
             {activeTab === 'skills' && (
-              <SkillsConfigTab config={config} onUpdateConfig={onUpdateConfig} />
+              <SkillsConfigTab config={workingConfig} onUpdateConfig={handleTabUpdateConfig} />
             )}
             {activeTab === 'tools' && (
-              <ToolsConfigTab config={config} onUpdateConfig={onUpdateConfig} />
+              <ToolsConfigTab config={workingConfig} onUpdateConfig={handleTabUpdateConfig} />
             )}
             {activeTab === 'channels' && (
-              <ChannelsConfigTab config={config} onUpdateConfig={onUpdateConfig} />
+              <ChannelsConfigTab config={workingConfig} onUpdateConfig={handleTabUpdateConfig} />
             )}
             {activeTab === 'memory' && (
               <MemoryConfigTab
-                config={config}
-                onUpdateConfig={onUpdateConfig}
+                config={workingConfig}
+                onUpdateConfig={handleTabUpdateConfig}
                 memoryFacts={memoryFacts}
                 onTriggerDream={onTriggerDream}
                 onDeleteFact={onDeleteFact}
@@ -213,8 +272,8 @@ export const ConfigurationHubModal: React.FC<ConfigurationHubModalProps> = ({
             )}
             {activeTab === 'gateway' && (
               <GatewayConfigTab
-                config={config}
-                onUpdateConfig={onUpdateConfig}
+                config={workingConfig}
+                onUpdateConfig={handleTabUpdateConfig}
                 gatewayState={gatewayState}
                 logs={gatewayLogs}
                 onStartGateway={onStartGateway}
@@ -225,7 +284,7 @@ export const ConfigurationHubModal: React.FC<ConfigurationHubModalProps> = ({
               />
             )}
             {activeTab === 'raw-config' && (
-              <RawConfigTab config={config} onUpdateConfig={(cfg) => onUpdateConfig(cfg)} />
+              <RawConfigTab config={workingConfig} onUpdateConfig={(cfg) => handleTabUpdateConfig(cfg)} />
             )}
             {activeTab === 'desktop' && (
               <DesktopConfigTab
@@ -234,6 +293,46 @@ export const ConfigurationHubModal: React.FC<ConfigurationHubModalProps> = ({
                 releases={desktopReleases}
               />
             )}
+          </div>
+        </div>
+
+        {/* Modal Bottom Sticky Action Bar with Save & Cancel */}
+        <div className="h-16 border-t border-zinc-800/90 px-6 flex items-center justify-between flex-shrink-0 bg-zinc-950/90 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-800">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Đích lưu: <strong className="text-zinc-200">~/.nanobot/config.json</strong></span>
+            </div>
+
+            {saveSuccessMsg && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/80 border border-emerald-700/80 text-emerald-300 text-xs font-medium animate-fade-in shadow-xs">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                <span>{saveSuccessMsg}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleResetConfig}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 border border-zinc-800 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Khôi phục ban đầu</span>
+            </button>
+
+            <button
+              onClick={handleSaveAllConfig}
+              disabled={isSaving}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {isSaving ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5 stroke-[2.5]" />
+              )}
+              <span>{isSaving ? 'Đang lưu xuống đĩa...' : 'Lưu cấu hình xuống config.json'}</span>
+            </button>
           </div>
         </div>
       </div>
