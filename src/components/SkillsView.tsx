@@ -22,10 +22,20 @@ interface SkillsViewProps {
 }
 
 export const SkillsView: React.FC<SkillsViewProps> = ({ skills, onToggleSkill }) => {
-  const [selectedSkill, setSelectedSkill] = useState<SkillInfo | null>(skills[0] || null);
+  const [selectedSkill, setSelectedSkill] = useState<SkillInfo | null>(
+    skills && skills.length > 0 ? skills[0] : null,
+  );
   const [testToolInput, setTestToolInput] = useState('{"path": "./workspace"}');
   const [testResult, setTestResult] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+
+  React.useEffect(() => {
+    if (!selectedSkill && skills && skills.length > 0) {
+      setSelectedSkill(skills[0]);
+    } else if (selectedSkill && skills && !skills.some((s) => s.id === selectedSkill.id)) {
+      setSelectedSkill(skills[0] || null);
+    }
+  }, [skills, selectedSkill]);
 
   const getIcon = (iconName: string) => {
     switch (iconName) {

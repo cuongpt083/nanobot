@@ -1,5 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const listenerMap = new Map();
+
 contextBridge.exposeInMainWorld('nanobotDesktop', {
   isElectron: true,
   getInfo: () => ipcRenderer.invoke('desktop:get-info'),
@@ -7,6 +9,13 @@ contextBridge.exposeInMainWorld('nanobotDesktop', {
   openExternal: (url) => ipcRenderer.invoke('desktop:open-external', url),
   toggleSpotlight: () => ipcRenderer.invoke('desktop:toggle-spotlight'),
   sendNotification: (payload) => ipcRenderer.invoke('desktop:notify', payload),
+
+  // Window Controls Bridge
+  minimizeWindow: () => ipcRenderer.invoke('desktop:window-minimize'),
+  maximizeWindow: () => ipcRenderer.invoke('desktop:window-maximize'),
+  closeWindow: () => ipcRenderer.invoke('desktop:window-close'),
+  isMaximized: () => ipcRenderer.invoke('desktop:window-is-maximized'),
+  setAlwaysOnTop: (flag) => ipcRenderer.invoke('desktop:set-always-on-top', flag),
 
   // Gateway Process Management Bridge
   gateway: {
@@ -43,10 +52,23 @@ contextBridge.exposeInMainWorld('nanobotDesktop', {
       'desktop:gateway-status-changed',
     ];
     if (validChannels.includes(channel)) {
-      ipcRenderer.on(channel, (event, ...args) => callback(...args));
+      const handler = (event, ...args) => callback(...args);
+      if (!listenerMap.has(channel)) {
+        listenerMap.set(channel, new Map());
+      }
+      listenerMap.get(channel).set(callback, handler);
+      ipcRenderer.on(channel, handler);
     }
   },
   off: (channel, callback) => {
-    ipcRenderer.removeListener(channel, callback);
+    if (listenerMap.has(channel)) {
+      const channelListeners = listenerMap.get(channel);
+      if (channelListeners.has(callback)) {
+        const handler = channelListeners.get(callback);
+        ipcRenderer.removeListener(channel, handler);
+        channelListeners.delete(callback);
+      }
+    }
   },
 });
+

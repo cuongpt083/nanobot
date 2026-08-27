@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, nativeImage, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, Tray, Menu, nativeImage, dialog, shell, utilityProcess } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -27,6 +27,10 @@ class GatewaySupervisor {
     this.config = this.loadConfig();
   }
 
+  getAppRoot() {
+    return app.isPackaged ? app.getAppPath() : path.join(__dirname, '..');
+  }
+
   getDefaultConfig() {
     return {
       mode: 'node_embedded', // 'node_embedded' | 'python_cli' | 'custom'
@@ -34,7 +38,7 @@ class GatewaySupervisor {
       port: 3000,
       autoStartOnLaunch: true,
       autoRestartOnCrash: true,
-      workingDirectory: path.join(__dirname, '..'),
+      workingDirectory: this.getAppRoot(),
       pythonPath: 'python3',
       customCommand: '',
       customArgs: [],
@@ -48,7 +52,11 @@ class GatewaySupervisor {
     try {
       if (fs.existsSync(this.configPath)) {
         const raw = fs.readFileSync(this.configPath, 'utf8');
-        return { ...this.getDefaultConfig(), ...JSON.parse(raw) };
+        const loaded = JSON.parse(raw);
+        if (app.isPackaged && (!loaded.workingDirectory || !fs.existsSync(loaded.workingDirectory))) {
+          loaded.workingDirectory = this.getAppRoot();
+        }
+        return { ...this.getDefaultConfig(), ...loaded };
       }
     } catch (e) {
       console.warn('[Supervisor] Failed to read stored gateway config:', e.message);
@@ -120,6 +128,10 @@ class GatewaySupervisor {
   notifyStateChange() {
     const state = this.getState();
     if (mainWindow && !mainWindow.isDestroyed()) {
+      const curUrl = mainWindow.webContents.getURL();
+      if (state.status === 'running' && (!curUrl || curUrl.includes('about:blank'))) {
+        loadWindowUrl(mainWindow, getAppServerUrl());
+      }
       mainWindow.webContents.send('desktop:gateway-status-changed', state);
     }
     updateTrayMenu();
@@ -158,9 +170,27 @@ class GatewaySupervisor {
     });
   }
 
+  async waitForReady(timeoutMs = 15000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (this.status === 'error' || (!this.child && this.status === 'stopped')) {
+        return false;
+      }
+      const check = await this.checkHealth(600);
+      if (check.ok) {
+        this.status = 'running';
+        this.notifyStateChange();
+        this.startHealthPolling();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return false;
+  }
+
   async start() {
-    if (this.status === 'running' || this.status === 'starting') {
-      return { success: true, message: 'Gateway is already running or starting', state: this.getState() };
+    if (this.status === 'running') {
+      return { success: true, message: 'Gateway is already running', state: this.getState() };
     }
 
     this.status = 'starting';
@@ -180,7 +210,8 @@ class GatewaySupervisor {
     }
 
     try {
-      const workingDir = this.config.workingDirectory || path.join(__dirname, '..');
+      const appRoot = this.getAppRoot();
+      const workingDir = this.config.workingDirectory || appRoot;
       const env = {
         ...process.env,
         PORT: String(this.config.port),
@@ -191,58 +222,80 @@ class GatewaySupervisor {
 
       let cmd = '';
       let args = [];
+      let useShell = false;
 
       if (this.config.mode === 'node_embedded') {
-        const serverBundle = path.join(workingDir, 'dist', 'server.cjs');
+        const candidateBundles = [
+          path.join(appRoot, 'dist', 'server.cjs'),
+          path.join(workingDir, 'dist', 'server.cjs'),
+          path.join(__dirname, '..', 'dist', 'server.cjs'),
+        ];
+        const serverBundle = candidateBundles.find((p) => fs.existsSync(p));
         const serverTs = path.join(workingDir, 'server.ts');
 
-        if (fs.existsSync(serverBundle)) {
-          cmd = 'node';
-          args = [serverBundle];
+        if (serverBundle) {
+          this.addLog('system', `Spawning embedded gateway via Electron utilityProcess: ${serverBundle}`);
+          this.child = utilityProcess.fork(serverBundle, {
+            serviceName: 'NanobotGateway',
+            stdio: 'pipe',
+            env,
+          });
         } else if (fs.existsSync(serverTs)) {
-          cmd = 'npx';
-          args = ['tsx', serverTs];
+          this.addLog('system', `Spawning dev gateway via npx tsx: ${serverTs}`);
+          this.child = spawn('npx', ['tsx', serverTs], {
+            cwd: workingDir,
+            env,
+            shell: process.platform === 'win32',
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
         } else {
-          cmd = 'npm';
-          args = ['run', 'dev'];
+          this.addLog('system', `Spawning fallback gateway via npm run dev`);
+          this.child = spawn('npm', ['run', 'dev'], {
+            cwd: workingDir,
+            env,
+            shell: process.platform === 'win32',
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
         }
       } else if (this.config.mode === 'python_cli') {
-        cmd = this.config.pythonPath || 'python3';
-        args = ['-m', 'nanobot', 'gateway', '--port', String(this.config.port), '--host', this.config.host];
+        const cmd = this.config.pythonPath || 'python3';
+        const args = ['-m', 'nanobot', 'gateway', '--port', String(this.config.port), '--host', this.config.host];
+        this.addLog('system', `Spawning python gateway: ${cmd} ${args.join(' ')}`);
+        this.child = spawn(cmd, args, {
+          cwd: workingDir,
+          env,
+          shell: process.platform === 'win32',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
       } else if (this.config.mode === 'custom') {
-        cmd = this.config.customCommand || 'npm';
-        args = this.config.customArgs || ['run', 'dev'];
+        const cmd = this.config.customCommand || 'npm';
+        const args = this.config.customArgs || ['run', 'dev'];
+        this.addLog('system', `Spawning custom gateway: ${cmd} ${args.join(' ')}`);
+        this.child = spawn(cmd, args, {
+          cwd: workingDir,
+          env,
+          shell: process.platform === 'win32',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
       }
-
-      this.addLog('system', `Spawning process: ${cmd} ${args.join(' ')} (CWD: ${workingDir})`);
-
-      this.child = spawn(cmd, args, {
-        cwd: workingDir,
-        env,
-        shell: process.platform === 'win32',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
 
       this.startTime = Date.now();
 
-      this.child.stdout.on('data', (data) => {
-        const text = data.toString();
-        this.addLog('stdout', text);
-      });
+      if (this.child.stdout) {
+        this.child.stdout.on('data', (data) => {
+          const text = data.toString();
+          this.addLog('stdout', text);
+        });
+      }
 
-      this.child.stderr.on('data', (data) => {
-        const text = data.toString();
-        this.addLog('stderr', text, 'warn');
-      });
+      if (this.child.stderr) {
+        this.child.stderr.on('data', (data) => {
+          const text = data.toString();
+          this.addLog('stderr', text, 'warn');
+        });
+      }
 
-      this.child.on('error', (err) => {
-        this.status = 'error';
-        this.lastError = err.message;
-        this.addLog('stderr', `Process execution error: ${err.message}`, 'error');
-        this.notifyStateChange();
-      });
-
-      this.child.on('close', (code, signal) => {
+      const handleExit = (code, signal) => {
         this.addLog('system', `Gateway process exited with code ${code}, signal ${signal}`, code === 0 ? 'info' : 'warn');
         const wasRunning = this.status === 'running';
         this.child = null;
@@ -256,30 +309,26 @@ class GatewaySupervisor {
             if (!isQuitting) this.start();
           }, 2000);
         }
-      });
+      };
 
-      // Poll until server becomes healthy (up to 15 seconds)
-      let attempts = 0;
-      const maxAttempts = 30;
-      const pollInterval = setInterval(async () => {
-        attempts++;
-        const check = await this.checkHealth(800);
-        if (check.ok) {
-          clearInterval(pollInterval);
-          this.status = 'running';
-          this.addLog('system', `Gateway ready and responding at http://${this.config.host}:${this.config.port} (${check.latencyMs}ms)!`);
+      if (typeof this.child.on === 'function') {
+        this.child.on('exit', handleExit);
+        this.child.on('close', handleExit);
+        this.child.on('error', (err) => {
+          this.status = 'error';
+          this.lastError = err.message;
+          this.addLog('stderr', `Process execution error: ${err.message}`, 'error');
           this.notifyStateChange();
-          this.startHealthPolling();
-        } else if (attempts >= maxAttempts) {
-          clearInterval(pollInterval);
-          if (this.status === 'starting') {
-            this.status = 'running'; // Keep running as fallback since child is alive
-            this.addLog('system', `Gateway started (PID: ${this.child?.pid}). Health check taking longer than expected.`, 'warn');
-            this.notifyStateChange();
-            this.startHealthPolling();
-          }
-        }
-      }, 500);
+        });
+      }
+
+      // Await server endpoint health check
+      const ready = await this.waitForReady(15000);
+      if (ready) {
+        this.addLog('system', `Gateway ready and responding at http://${this.config.host}:${this.config.port}!`);
+      } else {
+        this.addLog('system', `Gateway process started (PID: ${this.child?.pid}), awaiting endpoint responsiveness.`, 'warn');
+      }
 
       return { success: true, message: 'Gateway process started successfully', state: this.getState() };
     } catch (err) {
@@ -303,10 +352,13 @@ class GatewaySupervisor {
 
     if (this.child) {
       try {
-        if (process.platform === 'win32') {
-          spawn('taskkill', ['/pid', String(this.child.pid), '/f', '/t']);
-        } else {
-          this.child.kill('SIGTERM');
+        if (typeof this.child.kill === 'function') {
+          this.child.kill();
+        }
+        if (this.child.pid && process.platform === 'win32') {
+          try {
+            spawn('taskkill', ['/pid', String(this.child.pid), '/f', '/t']);
+          } catch (e) {}
         }
       } catch (e) {
         console.warn('Error killing child process:', e);
@@ -359,6 +411,22 @@ function getAppServerUrl() {
   return `http://${cfg.host}:${cfg.port}`;
 }
 
+async function loadWindowUrl(win, url, maxRetries = 20, retryDelayMs = 500) {
+  if (!win || win.isDestroyed()) return;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await win.loadURL(url);
+      console.log(`[Electron] Successfully loaded ${url}`);
+      return;
+    } catch (err) {
+      console.warn(`[Electron] loadURL attempt ${i + 1}/${maxRetries} failed (${err.message}). Retrying in ${retryDelayMs}ms...`);
+      if (win.isDestroyed()) return;
+      await new Promise((r) => setTimeout(r, retryDelayMs));
+    }
+  }
+  console.error(`[Electron] Could not load ${url} after ${maxRetries} attempts.`);
+}
+
 async function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -378,14 +446,19 @@ async function createMainWindow() {
     },
   });
 
-  const targetUrl = getAppServerUrl();
-  mainWindow.loadURL(targetUrl).catch((err) => {
-    console.warn('[Electron] Initial loadURL caught error (waiting for server):', err.message);
-  });
-
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
+
+  // Fallback to ensure window shows even if ready-to-show is delayed
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 3500);
+
+  const targetUrl = getAppServerUrl();
+  loadWindowUrl(mainWindow, targetUrl);
 
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
@@ -416,7 +489,7 @@ function createQuickSummonWindow() {
     },
   });
 
-  quickSummonWindow.loadURL(`${getAppServerUrl()}?mode=spotlight`).catch(() => {});
+  loadWindowUrl(quickSummonWindow, `${getAppServerUrl()}?mode=spotlight`);
 
   quickSummonWindow.on('blur', () => {
     if (quickSummonWindow && !quickSummonWindow.webContents.isDevToolsOpened()) {
@@ -439,9 +512,15 @@ function toggleQuickSummon() {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, '../public/icon.png');
+  const iconCandidates = [
+    path.join(__dirname, '../public/icon.png'),
+    path.join(__dirname, '../images/nanobot_icon.png'),
+    path.join(app.getAppPath(), 'public/icon.png'),
+    path.join(app.getAppPath(), 'images/nanobot_icon.png'),
+  ];
+  const iconPath = iconCandidates.find((p) => fs.existsSync(p));
   let icon = null;
-  if (fs.existsSync(iconPath)) {
+  if (iconPath) {
     icon = nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 });
   } else {
     icon = nativeImage.createEmpty();
@@ -766,6 +845,52 @@ ipcMain.handle('desktop:open-external', async (event, url) => {
 ipcMain.handle('desktop:toggle-spotlight', () => {
   toggleQuickSummon();
   return true;
+});
+
+ipcMain.handle('desktop:window-minimize', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (win && !win.isDestroyed()) {
+    win.minimize();
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('desktop:window-maximize', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (win && !win.isDestroyed()) {
+    if (win.isMaximized()) {
+      win.unmaximize();
+      return false;
+    } else {
+      win.maximize();
+      return true;
+    }
+  }
+  return false;
+});
+
+ipcMain.handle('desktop:window-close', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (win && !win.isDestroyed()) {
+    win.close();
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('desktop:window-is-maximized', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  return win && !win.isDestroyed() ? win.isMaximized() : false;
+});
+
+ipcMain.handle('desktop:set-always-on-top', (event, flag) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (win && !win.isDestroyed()) {
+    win.setAlwaysOnTop(Boolean(flag));
+    return true;
+  }
+  return false;
 });
 
 ipcMain.handle('desktop:notify', (event, { title, body }) => {

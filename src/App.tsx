@@ -13,6 +13,7 @@ import { DesktopHeader } from './components/DesktopHeader';
 import { WorkspaceExplorerView } from './components/WorkspaceExplorerView';
 import { QuickSummonModal } from './components/QuickSummonModal';
 import { ConfigurationHubModal, ConfigTabKey } from './components/ConfigurationHub/ConfigurationHubModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export const App: React.FC = () => {
   // Navigation & Modal State
@@ -131,7 +132,55 @@ export const App: React.FC = () => {
     fetchGatewayState();
   }, []);
 
-  // Hotkeys: Cmd+, (Settings), Alt+Space (Quick Summon), Cmd+N (New Chat)
+  // Listen for native desktop IPC menu triggers
+  useEffect(() => {
+    if (window.nanobotDesktop?.on) {
+      const handleNewChat = () => {
+        handleCreateSession();
+        setActiveMainView('chat');
+      };
+      const handleOpenSettings = () => {
+        openConfigHub('providers');
+      };
+      const handleWorkspaceSelected = (path: string) => {
+        if (path) {
+          handleUpdateDesktopSettings({ workspacePath: path });
+          setActiveMainView('workspace');
+        }
+      };
+      const handleNavigateTab = (tab: any) => {
+        if (tab === 'chat' || tab === 'workspace') {
+          setActiveMainView(tab);
+        } else if (tab) {
+          openConfigHub(tab as ConfigTabKey);
+        }
+      };
+      const handleTriggerDreamSync = () => {
+        handleTriggerDream();
+      };
+      const handleReloadMcp = () => {
+        fetchFullConfig();
+      };
+
+      window.nanobotDesktop.on('new-chat', handleNewChat);
+      window.nanobotDesktop.on('open-settings', handleOpenSettings);
+      window.nanobotDesktop.on('workspace-selected', handleWorkspaceSelected);
+      window.nanobotDesktop.on('navigate-tab', handleNavigateTab);
+      window.nanobotDesktop.on('trigger-dream-sync', handleTriggerDreamSync);
+      window.nanobotDesktop.on('reload-mcp', handleReloadMcp);
+
+      return () => {
+        window.nanobotDesktop?.off('new-chat', handleNewChat);
+        window.nanobotDesktop?.off('open-settings', handleOpenSettings);
+        window.nanobotDesktop?.off('workspace-selected', handleWorkspaceSelected);
+        window.nanobotDesktop?.off('navigate-tab', handleNavigateTab);
+        window.nanobotDesktop?.off('trigger-dream-sync', handleTriggerDreamSync);
+        window.nanobotDesktop?.off('reload-mcp', handleReloadMcp);
+      };
+    }
+  }, []);
+
+  // Global Alt+Space / Cmd+, / Cmd+N listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
@@ -480,23 +529,31 @@ export const App: React.FC = () => {
 
       {/* Main Content Stage */}
       <main className="flex-1 flex min-h-0 overflow-hidden relative">
-        {activeMainView === 'chat' ? (
-          <ChatView
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelectSession={setActiveSessionId}
-            onCreateSession={handleCreateSession}
-            onDeleteSession={handleDeleteSession}
-            onSendMessage={handleSendMessage}
-            isLoading={isLoadingChat}
-            activeModel={currentModelPreset.model}
-            onChangeModel={(model) => {
-              // Switch model
-            }}
-          />
-        ) : (
-          <WorkspaceExplorerView workspacePath={desktopSettings.workspacePath} />
-        )}
+        <ErrorBoundary
+          fallbackTitle="Đã xảy ra lỗi khi tải giao diện chức năng"
+          onReset={() => {
+            setActiveMainView('chat');
+            fetchFullConfig();
+          }}
+        >
+          {activeMainView === 'chat' ? (
+            <ChatView
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelectSession={setActiveSessionId}
+              onCreateSession={handleCreateSession}
+              onDeleteSession={handleDeleteSession}
+              onSendMessage={handleSendMessage}
+              isLoading={isLoadingChat}
+              activeModel={currentModelPreset.model}
+              onChangeModel={(model) => {
+                // Switch model
+              }}
+            />
+          ) : (
+            <WorkspaceExplorerView workspacePath={desktopSettings.workspacePath} />
+          )}
+        </ErrorBoundary>
       </main>
 
       {/* Floating Quick Summon Spotlight */}

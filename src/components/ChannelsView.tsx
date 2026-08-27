@@ -54,7 +54,7 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ channels, onSaveChan
   const handleOpenConfig = (channel: ChannelInfo) => {
     setSelectedChannel(channel);
     const initial: Record<string, string> = {};
-    channel.configFields.forEach((f) => {
+    (channel.configFields || []).forEach((f) => {
       initial[f.key] = f.value || '';
     });
     setFormValues(initial);

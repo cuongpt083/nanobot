@@ -1,14 +1,57 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
-import { createServer as createViteServer } from 'vite';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Safely determine directory path across ESM and CJS bundle
+const getDirname = () => {
+  if (typeof __dirname !== 'undefined') return __dirname;
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return process.cwd();
+  }
+};
+const __serverDir = getDirname();
+
+// Path to official Nanobot config.json (~/.nanobot/config.json)
+export const getNanobotConfigPath = (): string => {
+  return path.join(os.homedir(), '.nanobot', 'config.json');
+};
+
+export const readNanobotConfig = (): Record<string, any> => {
+  try {
+    const configPath = getNanobotConfigPath();
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      return JSON.parse(raw);
+    }
+  } catch (err: any) {
+    console.warn('[Config] Could not read ~/.nanobot/config.json:', err.message);
+  }
+  return {};
+};
+
+export const saveNanobotConfig = (updates: Record<string, any>): boolean => {
+  try {
+    const configPath = getNanobotConfigPath();
+    const dir = path.dirname(configPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const current = readNanobotConfig();
+    const merged = { ...current, ...updates };
+    fs.writeFileSync(configPath, JSON.stringify(merged, null, 2), 'utf8');
+    return true;
+  } catch (err: any) {
+    console.warn('[Config] Could not save ~/.nanobot/config.json:', err.message);
+    return false;
+  }
+};
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
+const HOST = process.env.HOST || '0.0.0.0';
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -342,16 +385,184 @@ const skillsStore = [
   },
 ];
 
-// Lazy Gemini SDK client helper
-let geminiClient: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI | null {
-  if (!geminiClient) {
-    const key = process.env.GEMINI_API_KEY;
-    if (key) {
-      geminiClient = new GoogleGenAI({ apiKey: key });
-    }
+// Multi-Provider LLM Resolver & Caller
+interface ResolvedProvider {
+  name: string;
+  apiKey: string;
+  apiBase: string;
+  wireModel: string;
+  isDirect: boolean;
+}
+
+function resolveProvider(modelName: string): ResolvedProvider {
+  const config = readNanobotConfig();
+  const lower = (modelName || '').toLowerCase();
+
+  // 1. Gemini
+  if (lower.includes('gemini') || lower.includes('gemma')) {
+    const key = config?.providers?.gemini?.apiKey || process.env.GEMINI_API_KEY || '';
+    const base = config?.providers?.gemini?.apiBase || 'https://generativelanguage.googleapis.com/v1beta/openai';
+    return {
+      name: 'Google Gemini',
+      apiKey: key,
+      apiBase: base,
+      wireModel: modelName || 'gemini-2.5-flash',
+      isDirect: false,
+    };
   }
-  return geminiClient;
+
+  // 2. OpenAI / GPT
+  if (lower.includes('gpt') || lower.includes('o1') || lower.includes('o3') || lower.includes('openai')) {
+    const key = config?.providers?.openai?.apiKey || process.env.OPENAI_API_KEY || '';
+    const base = config?.providers?.openai?.apiBase || 'https://api.openai.com/v1';
+    return {
+      name: 'OpenAI',
+      apiKey: key,
+      apiBase: base,
+      wireModel: modelName || 'gpt-4o-mini',
+      isDirect: false,
+    };
+  }
+
+  // 3. DeepSeek
+  if (lower.includes('deepseek')) {
+    const key =
+      config?.providers?.deepseek?.apiKey ||
+      config?.providers?.openrouter?.apiKey ||
+      process.env.DEEPSEEK_API_KEY ||
+      process.env.OPENROUTER_API_KEY ||
+      '';
+    const base = config?.providers?.deepseek?.apiBase || 'https://api.deepseek.com';
+    return {
+      name: 'DeepSeek',
+      apiKey: key,
+      apiBase: base,
+      wireModel: modelName.includes('/') ? modelName : 'deepseek-chat',
+      isDirect: false,
+    };
+  }
+
+  // 4. Anthropic / Claude
+  if (lower.includes('claude') || lower.includes('anthropic')) {
+    const key =
+      config?.providers?.anthropic?.apiKey ||
+      config?.providers?.openrouter?.apiKey ||
+      process.env.ANTHROPIC_API_KEY ||
+      process.env.OPENROUTER_API_KEY ||
+      '';
+    const isOpenRouter =
+      Boolean(config?.providers?.openrouter?.apiKey || process.env.OPENROUTER_API_KEY) &&
+      !config?.providers?.anthropic?.apiKey &&
+      !process.env.ANTHROPIC_API_KEY;
+    const base = isOpenRouter
+      ? 'https://openrouter.ai/api/v1'
+      : config?.providers?.anthropic?.apiBase || 'https://api.anthropic.com/v1';
+    return {
+      name: 'Anthropic Claude',
+      apiKey: key,
+      apiBase: base,
+      wireModel: modelName || 'claude-3-7-sonnet-20250219',
+      isDirect: false,
+    };
+  }
+
+  // 5. OpenRouter
+  if (lower.includes('openrouter') || modelName.includes('/')) {
+    const key = config?.providers?.openrouter?.apiKey || process.env.OPENROUTER_API_KEY || '';
+    return {
+      name: 'OpenRouter',
+      apiKey: key,
+      apiBase: 'https://openrouter.ai/api/v1',
+      wireModel: modelName,
+      isDirect: false,
+    };
+  }
+
+  // 6. Groq
+  if (lower.includes('groq')) {
+    const key = config?.providers?.groq?.apiKey || process.env.GROQ_API_KEY || '';
+    return {
+      name: 'Groq',
+      apiKey: key,
+      apiBase: 'https://api.groq.com/openai/v1',
+      wireModel: modelName || 'llama-3.3-70b-versatile',
+      isDirect: false,
+    };
+  }
+
+  // 7. Ollama Local
+  if (lower.includes('ollama') || lower.includes('local')) {
+    return {
+      name: 'Ollama',
+      apiKey: 'ollama',
+      apiBase: config?.providers?.ollama?.apiBase || 'http://localhost:11434/v1',
+      wireModel: modelName.replace('ollama/', '') || 'llama3.2',
+      isDirect: true,
+    };
+  }
+
+  // Fallback to OpenAI default or first configured provider
+  const anyKey =
+    config?.providers?.openai?.apiKey ||
+    process.env.OPENAI_API_KEY ||
+    config?.providers?.gemini?.apiKey ||
+    process.env.GEMINI_API_KEY ||
+    '';
+  return {
+    name: 'OpenAI-Compatible',
+    apiKey: anyKey,
+    apiBase: config?.providers?.openai?.apiBase || 'https://api.openai.com/v1',
+    wireModel: modelName || 'gpt-4o-mini',
+    isDirect: false,
+  };
+}
+
+async function callLlmChat(
+  provider: ResolvedProvider,
+  messages: Array<{ role: string; content: string }>,
+  systemPrompt: string,
+): Promise<{ text: string; reasoning?: string } | null> {
+  if (!provider.apiKey && !provider.isDirect) {
+    return null;
+  }
+
+  try {
+    const url = `${provider.apiBase.replace(/\/$/, '')}/chat/completions`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${provider.apiKey}`,
+        'HTTP-Referer': 'https://nanobot.ai',
+        'X-Title': 'Nanobot Desktop',
+      },
+      body: JSON.stringify({
+        model: provider.wireModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages.map((m) => ({
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            content: m.content,
+          })),
+        ],
+        temperature: 0.2,
+      }),
+    });
+
+    if (response.ok) {
+      const data: any = await response.json();
+      const choice = data.choices?.[0];
+      const text = choice?.message?.content || '';
+      const reasoning = choice?.message?.reasoning_content || undefined;
+      return { text, reasoning };
+    } else {
+      const errText = await response.text();
+      console.warn(`[LLM] Provider ${provider.name} returned HTTP ${response.status}: ${errText}`);
+    }
+  } catch (err: any) {
+    console.warn(`[LLM] Error calling ${provider.name}:`, err.message);
+  }
+  return null;
 }
 
 // -------------------------------------------------------------
@@ -795,16 +1006,37 @@ app.post('/api/config/raw-json', (req: Request, res: Response) => {
 
 // Health check
 app.get('/api/health', (req: Request, res: Response) => {
+  const config = readNanobotConfig();
+  const hasKey = Boolean(
+    config?.providers?.gemini?.apiKey ||
+      process.env.GEMINI_API_KEY ||
+      config?.providers?.openai?.apiKey ||
+      process.env.OPENAI_API_KEY ||
+      config?.providers?.deepseek?.apiKey ||
+      process.env.DEEPSEEK_API_KEY ||
+      config?.providers?.anthropic?.apiKey ||
+      process.env.ANTHROPIC_API_KEY,
+  );
   res.json({
     status: 'ok',
     version: '0.3.0',
     uptime: Math.floor((Date.now() - startTime) / 1000),
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    llmConfigured: hasKey,
+    configPath: getNanobotConfigPath(),
   });
 });
 
 // Gateway status & live telemetry
 app.get('/api/status', (req: Request, res: Response) => {
+  const config = readNanobotConfig();
+  const configuredProviders: string[] = [];
+  if (config?.providers?.gemini?.apiKey || process.env.GEMINI_API_KEY) configuredProviders.push('Google Gemini');
+  if (config?.providers?.openai?.apiKey || process.env.OPENAI_API_KEY) configuredProviders.push('OpenAI');
+  if (config?.providers?.deepseek?.apiKey || process.env.DEEPSEEK_API_KEY) configuredProviders.push('DeepSeek');
+  if (config?.providers?.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY) configuredProviders.push('Anthropic Claude');
+  if (config?.providers?.openrouter?.apiKey || process.env.OPENROUTER_API_KEY) configuredProviders.push('OpenRouter');
+  if (config?.providers?.groq?.apiKey || process.env.GROQ_API_KEY) configuredProviders.push('Groq');
+
   res.json({
     status: 'online',
     version: '0.3.0',
@@ -813,13 +1045,51 @@ app.get('/api/status', (req: Request, res: Response) => {
     totalMessagesProcessed,
     totalTokensUsed,
     busThroughputPerMin: Math.floor(Math.random() * 15) + 35,
-    llmProvider: process.env.GEMINI_API_KEY ? 'Google Gemini API' : 'Nanobot Local Engine',
-    activeModel: 'gemini-2.5-flash',
+    llmProvider:
+      configuredProviders.length > 0
+        ? configuredProviders.join(', ')
+        : 'Nanobot Local Engine (Chưa cấu hình API Key)',
+    configuredProviders,
+    configPath: getNanobotConfigPath(),
+    activeModel: config?.agents?.defaults?.model || 'gemini-2.5-flash',
     dreamConsolidation: {
       lastRun: Date.now() - 3600000 * 2,
       totalFacts: memoryFactsStore.length,
       status: 'idle',
     },
+  });
+});
+
+// Global Settings API (~/.nanobot/config.json)
+app.get('/api/settings', (req: Request, res: Response) => {
+  const config = readNanobotConfig();
+  res.json({
+    configPath: getNanobotConfigPath(),
+    config,
+    providersStatus: {
+      gemini: Boolean(config?.providers?.gemini?.apiKey || process.env.GEMINI_API_KEY),
+      openai: Boolean(config?.providers?.openai?.apiKey || process.env.OPENAI_API_KEY),
+      anthropic: Boolean(config?.providers?.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY),
+      deepseek: Boolean(config?.providers?.deepseek?.apiKey || process.env.DEEPSEEK_API_KEY),
+      openrouter: Boolean(config?.providers?.openrouter?.apiKey || process.env.OPENROUTER_API_KEY),
+      groq: Boolean(config?.providers?.groq?.apiKey || process.env.GROQ_API_KEY),
+    },
+  });
+});
+
+app.post('/api/settings', (req: Request, res: Response) => {
+  const { providers, agents, tools, dream } = req.body;
+  const updates: Record<string, any> = {};
+  if (providers) updates.providers = providers;
+  if (agents) updates.agents = agents;
+  if (tools) updates.tools = tools;
+  if (dream) updates.dream = dream;
+
+  const success = saveNanobotConfig(updates);
+  res.json({
+    success,
+    configPath: getNanobotConfigPath(),
+    config: readNanobotConfig(),
   });
 });
 
@@ -1027,42 +1297,33 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     });
   }
 
-  if (ai) {
-    try {
-      // Build conversation context for Gemini
-      const contents = session.messages.slice(-8).map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
+  // Resolve model provider from config / env
+  const provider = resolveProvider(model);
+  const systemInstruction =
+    customPrompt ||
+    session.system_prompt ||
+    'You are Nanobot, a lightweight AI agent framework. Provide clear, direct, and well-formatted answers with markdown and code snippets when helpful.';
 
-      // Add system prompt context
-      const systemInstruction =
-        customPrompt ||
-        session.system_prompt ||
-        'You are nanobot, an ultra-lightweight, open-source AI agent framework with built-in tools (filesystem, shell, web search, cron, subagents, and memory consolidation). Provide clear, direct, and well-formatted answers.';
+  const recentHistory = session.messages.slice(-8).map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: contents,
-        config: {
-          systemInstruction,
-        },
-      });
+  const llmResult = await callLlmChat(provider, recentHistory, systemInstruction);
 
-      assistantContent =
-        response.text || 'I have processed your request through the Nanobot Agent runtime.';
-      assistantReasoning =
-        'Executed through Gemini 2.5 Flash with live multi-turn context and tool orchestration.';
-    } catch (err: any) {
-      console.warn('Gemini API call failed, falling back to local agent logic:', err.message);
-      assistantContent = generateFallbackResponse(message, toolCalls);
-      assistantReasoning = 'Agent processed request using Nanobot internal tool loop and memory context.';
-    }
-  } else {
-    // Local intelligent agent engine
-    assistantContent = generateFallbackResponse(message, toolCalls);
+  if (llmResult && llmResult.text) {
+    assistantContent = llmResult.text;
     assistantReasoning =
-      'Processed via Nanobot core agent loop. (Add GEMINI_API_KEY in settings or environment for live server-side LLM inference).';
+      llmResult.reasoning ||
+      `Phản hồi trực tiếp từ mô hình ${provider.name} (${provider.wireModel}).`;
+  } else {
+    // Local fallback when no API key is configured or API call failed
+    assistantContent = generateFallbackResponse(message, toolCalls);
+    if (!provider.apiKey && !provider.isDirect) {
+      assistantReasoning = `Chưa cấu hình API Key cho ${provider.name}. Bạn có thể vào Cài đặt (Settings) hoặc ~/.nanobot/config.json để thêm API Key.`;
+    } else {
+      assistantReasoning = `Đang sử dụng Nanobot Agent Loop nội bộ (gọi tới ${provider.name} không khả dụng).`;
+    }
   }
 
   const estimatedTokens = Math.ceil((message.length + assistantContent.length) / 3.8);
@@ -1912,21 +2173,38 @@ app.post('/api/desktop/gateway/ping', (req: Request, res: Response) => {
 // -------------------------------------------------------------
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (e: any) {
+      console.warn('[nanobot] Could not initialize Vite middleware, falling back to static files:', e.message);
+      const distPath = fs.existsSync(path.join(__serverDir, 'index.html'))
+        ? __serverDir
+        : path.join(__serverDir, 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    // In production, server.cjs is in dist/ and index.html is also in dist/
+    const distPath = fs.existsSync(path.join(__serverDir, 'index.html'))
+      ? __serverDir
+      : (fs.existsSync(path.join(__serverDir, 'dist', 'index.html'))
+        ? path.join(__serverDir, 'dist')
+        : path.join(process.cwd(), 'dist'));
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[nanobot] Server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`[nanobot] Server running on http://${HOST}:${PORT}`);
   });
 }
 

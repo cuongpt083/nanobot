@@ -38,7 +38,7 @@ export const GatewayManagerView: React.FC<GatewayManagerViewProps> = ({ onRefres
     port: 3000,
     autoStartOnLaunch: true,
     autoRestartOnCrash: true,
-    workingDirectory: process.cwd ? process.cwd() : '~/nanobot',
+    workingDirectory: typeof process !== 'undefined' && process?.cwd ? process.cwd() : '~/nanobot',
     pythonPath: 'python3',
     customCommand: 'nanobot gateway --port 8765',
     customArgs: [],
@@ -294,7 +294,10 @@ export const GatewayManagerView: React.FC<GatewayManagerViewProps> = ({ onRefres
   };
 
   const handleCopyLogs = () => {
-    const text = logs.map((l) => `[${new Date(l.timestamp).toLocaleTimeString()}] [${l.type.toUpperCase()}] ${l.message}`).join('\n');
+    if (!logs || logs.length === 0) return;
+    const text = logs
+      .map((l) => `[${new Date(l.timestamp).toLocaleTimeString()}] [${(l.type || 'stdout').toUpperCase()}] ${l.message}`)
+      .join('\n');
     navigator.clipboard.writeText(text);
     setCopiedNotification(true);
     setTimeout(() => setCopiedNotification(false), 2500);
@@ -305,7 +308,7 @@ export const GatewayManagerView: React.FC<GatewayManagerViewProps> = ({ onRefres
     setConfig((prev) => ({
       ...prev,
       envVars: {
-        ...prev.envVars,
+        ...(prev.envVars || {}),
         [newEnvKey.trim()]: newEnvValue,
       },
     }));
@@ -315,7 +318,7 @@ export const GatewayManagerView: React.FC<GatewayManagerViewProps> = ({ onRefres
 
   const handleRemoveEnvVar = (key: string) => {
     setConfig((prev) => {
-      const updated = { ...prev.envVars };
+      const updated = { ...(prev.envVars || {}) };
       delete updated[key];
       return { ...prev, envVars: updated };
     });
@@ -331,9 +334,10 @@ export const GatewayManagerView: React.FC<GatewayManagerViewProps> = ({ onRefres
     return `${s}s`;
   };
 
-  const filteredLogs = logs.filter((l) => {
+  const filteredLogs = (logs || []).filter((l) => {
+    if (!l) return false;
     if (logFilter !== 'all' && l.type !== logFilter) return false;
-    if (searchQuery.trim() && !l.message.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery.trim() && !l.message?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
 
@@ -822,7 +826,7 @@ export const GatewayManagerView: React.FC<GatewayManagerViewProps> = ({ onRefres
               </div>
 
               <div className="space-y-2">
-                {Object.entries(config.envVars).map(([key, value]) => (
+                {Object.entries(config.envVars || {}).map(([key, value]) => (
                   <div key={key} className="flex items-center gap-2">
                     <input
                       type="text"

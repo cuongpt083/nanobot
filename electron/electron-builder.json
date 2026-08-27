@@ -9,6 +9,7 @@
     "dist/**/*",
     "electron/**/*",
     "public/**/*",
+    "images/**/*",
     "node_modules/**/*",
     "package.json"
   ],

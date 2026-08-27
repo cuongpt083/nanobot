@@ -331,6 +331,11 @@ declare global {
       openExternal: (url: string) => Promise<boolean>;
       toggleSpotlight: () => Promise<boolean>;
       sendNotification: (payload: { title?: string; body: string }) => Promise<boolean>;
+      minimizeWindow?: () => Promise<boolean>;
+      maximizeWindow?: () => Promise<boolean>;
+      closeWindow?: () => Promise<boolean>;
+      isMaximized?: () => Promise<boolean>;
+      setAlwaysOnTop?: (flag: boolean) => Promise<boolean>;
       gateway?: {
         getStatus: () => Promise<GatewayProcessState>;
         getConfig: () => Promise<GatewayProcessConfig>;

@@ -39,12 +39,20 @@ export const McpServersView: React.FC<McpServersViewProps> = ({
   onTestServer,
 }) => {
   const [selectedServer, setSelectedServer] = useState<McpServerConfig | null>(
-    servers[0] || null,
+    (servers && servers.length > 0 ? servers[0] : null),
   );
   const [isAddingServer, setIsAddingServer] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<any | null>(null);
   const [copiedConfig, setCopiedConfig] = useState(false);
+
+  React.useEffect(() => {
+    if (!selectedServer && servers && servers.length > 0) {
+      setSelectedServer(servers[0]);
+    } else if (selectedServer && servers && !servers.some((s) => s.id === selectedServer.id)) {
+      setSelectedServer(servers[0] || null);
+    }
+  }, [servers, selectedServer]);
 
   // Form State for new server
   const [newName, setNewName] = useState('');
@@ -407,7 +415,7 @@ export const McpServersView: React.FC<McpServersViewProps> = ({
               </h4>
               <div className="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 font-mono text-xs text-emerald-400/90 flex items-center justify-between">
                 <span>
-                  {selectedServer.command} {selectedServer.args.join(' ')}
+                  {selectedServer.command} {(selectedServer.args || []).join(' ')}
                 </span>
                 <span className="text-[10px] text-zinc-500 bg-zinc-950 px-2 py-1 rounded">
                   IPC stdio
