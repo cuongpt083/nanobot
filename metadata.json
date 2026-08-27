@@ -1,0 +1,6 @@
+{
+  "name": "Nanobot Desktop",
+  "description": "A lightweight personal AI agent framework and native Electron desktop application with Claude Desktop-compatible Model Context Protocol (MCP) servers, Quick Summon (Alt+Space), local workspace mount, and multi-channel gateway.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
