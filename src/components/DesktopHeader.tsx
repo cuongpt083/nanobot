@@ -177,6 +177,46 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             )}
           </div>
 
+          {/* Gateway & Server Menu */}
+          <div className="relative">
+            <button
+              id="menu-gateway"
+              onClick={() => handleMenuClick('gateway')}
+              className={`px-2.5 py-1 rounded hover:bg-zinc-800 transition-colors text-zinc-300 ${
+                activeMenu === 'gateway' ? 'bg-zinc-800' : ''
+              }`}
+            >
+              Gateway & Server
+            </button>
+            {activeMenu === 'gateway' && (
+              <div
+                className="absolute top-full left-0 mt-1 w-60 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
+                onMouseLeave={() => setActiveMenu(null)}
+              >
+                <button
+                  onClick={() => {
+                    onSelectTab('gateway-manager');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between"
+                >
+                  <span>Gateway Process Supervisor</span>
+                  <span className="text-[10px] font-mono opacity-70">⇧⌘G</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onSelectTab('gateway-manager');
+                    setActiveMenu(null);
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
+                >
+                  <span>Live Terminal Logs</span>
+                  <span className="text-[10px] font-mono opacity-70">:3000</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* MCP & Tools Menu */}
           <div className="relative">
             <button

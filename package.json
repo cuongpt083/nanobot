@@ -8,6 +8,8 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "lint": "tsc --noEmit",
+    "electron": "electron electron/main.cjs",
+    "desktop": "electron electron/main.cjs",
     "electron:dev": "NODE_ENV=development electron electron/main.cjs",
     "electron:build": "npm run build && electron-builder --config electron/electron-builder.json",
     "electron:build:win": "npm run build && electron-builder --win --config electron/electron-builder.json",

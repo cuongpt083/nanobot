@@ -39,10 +39,11 @@ import { McpServersView } from './components/McpServersView';
 import { WorkspaceExplorerView } from './components/WorkspaceExplorerView';
 import { DesktopInstallerView } from './components/DesktopInstallerView';
 import { QuickSummonModal } from './components/QuickSummonModal';
+import { GatewayManagerView } from './components/GatewayManagerView';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
-    'chat' | 'channels' | 'skills' | 'memory' | 'api' | 'mcp' | 'workspace' | 'desktop-installer'
+    'chat' | 'channels' | 'skills' | 'memory' | 'api' | 'mcp' | 'workspace' | 'desktop-installer' | 'gateway-manager'
   >('chat');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>('');
@@ -409,6 +410,19 @@ export const App: React.FC = () => {
             </button>
 
             <button
+              id="tab-gateway"
+              onClick={() => setActiveTab('gateway-manager')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                activeTab === 'gateway-manager'
+                  ? 'bg-amber-500 text-zinc-950 font-semibold shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+              }`}
+            >
+              <Server className="w-3.5 h-3.5" />
+              <span>Gateway Server</span>
+            </button>
+
+            <button
               id="tab-mcp"
               onClick={() => setActiveTab('mcp')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
@@ -490,14 +504,18 @@ export const App: React.FC = () => {
 
         {/* Right Status & Global Settings */}
         <div className="flex items-center gap-3">
-          <div className="hidden lg:flex items-center gap-3 text-xs font-mono px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400">
+          <button
+            onClick={() => setActiveTab('gateway-manager')}
+            className="hidden lg:flex items-center gap-3 text-xs font-mono px-3 py-1.5 rounded-lg bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 text-zinc-400 cursor-pointer transition-colors"
+            title="Open Gateway Server Manager"
+          >
             <span className="flex items-center gap-1.5 text-emerald-400">
               <Activity className="w-3.5 h-3.5 animate-pulse" />
-              <span>Electron Gateway :3000</span>
+              <span>Gateway :3000</span>
             </span>
             <span>•</span>
             <span>{mcpServers.filter((s) => s.status === 'connected').length} MCP</span>
-          </div>
+          </button>
 
           <button
             id="btn-open-settings"
@@ -512,6 +530,9 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-hidden relative">
+        {activeTab === 'gateway-manager' && (
+          <GatewayManagerView onRefreshGlobalStatus={fetchStatus} />
+        )}
         {activeTab === 'chat' && (
           <ChatView
             sessions={sessions}

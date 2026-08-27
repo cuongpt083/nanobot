@@ -153,3 +153,74 @@ export interface DesktopReleaseInfo {
   sha256: string;
   instructions: string[];
 }
+
+export type GatewayMode = 'node_embedded' | 'python_cli' | 'custom';
+
+export interface GatewayProcessConfig {
+  mode: GatewayMode;
+  host: string;
+  port: number;
+  autoStartOnLaunch: boolean;
+  autoRestartOnCrash: boolean;
+  workingDirectory: string;
+  pythonPath: string;
+  customCommand: string;
+  customArgs: string[];
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  envVars: Record<string, string>;
+  maxLogLines: number;
+}
+
+export interface GatewayProcessState {
+  status: 'running' | 'stopped' | 'starting' | 'stopping' | 'error';
+  pid?: number;
+  host: string;
+  port: number;
+  mode: GatewayMode;
+  uptimeSeconds: number;
+  memoryUsageMb: number;
+  cpuPercent: number;
+  startedAt?: number;
+  lastError?: string;
+  url: string;
+  healthStatus: 'healthy' | 'unhealthy' | 'checking' | 'unknown';
+  healthLatencyMs?: number;
+}
+
+export interface GatewayLogEntry {
+  id: string;
+  timestamp: number;
+  type: 'stdout' | 'stderr' | 'system' | 'http';
+  message: string;
+  level?: 'info' | 'warn' | 'error' | 'debug';
+}
+
+declare global {
+  interface Window {
+    nanobotDesktop?: {
+      isElectron: boolean;
+      getInfo: () => Promise<any>;
+      selectFolder: () => Promise<string | null>;
+      openExternal: (url: string) => Promise<boolean>;
+      toggleSpotlight: () => Promise<boolean>;
+      sendNotification: (payload: { title?: string; body: string }) => Promise<boolean>;
+      gateway?: {
+        getStatus: () => Promise<GatewayProcessState>;
+        getConfig: () => Promise<GatewayProcessConfig>;
+        saveConfig: (config: Partial<GatewayProcessConfig>) => Promise<any>;
+        start: () => Promise<any>;
+        stop: () => Promise<any>;
+        restart: (config?: Partial<GatewayProcessConfig>) => Promise<any>;
+        getLogs: () => Promise<GatewayLogEntry[]>;
+        clearLogs: () => Promise<boolean>;
+        ping: () => Promise<any>;
+        onLog: (callback: (entry: GatewayLogEntry) => void) => () => void;
+        onStatusChange: (callback: (state: GatewayProcessState) => void) => () => void;
+      };
+      on: (channel: string, callback: (...args: any[]) => void) => void;
+      off: (channel: string, callback: (...args: any[]) => void) => void;
+    };
+  }
+}
+
+
