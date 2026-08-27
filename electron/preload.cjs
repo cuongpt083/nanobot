@@ -40,6 +40,17 @@ contextBridge.exposeInMainWorld('nanobotDesktop', {
     },
   },
 
+  // First-run Environment Setup & Provisioning Bridge
+  setup: {
+    getStatus: () => ipcRenderer.invoke('desktop:setup-get-status'),
+    runSetup: (options) => ipcRenderer.invoke('desktop:setup-run', options),
+    onProgress: (callback) => {
+      const handler = (event, data) => callback(data);
+      ipcRenderer.on('desktop:setup-progress', handler);
+      return () => ipcRenderer.removeListener('desktop:setup-progress', handler);
+    },
+  },
+
   on: (channel, callback) => {
     const validChannels = [
       'new-chat',
@@ -50,6 +61,7 @@ contextBridge.exposeInMainWorld('nanobotDesktop', {
       'reload-mcp',
       'desktop:gateway-log',
       'desktop:gateway-status-changed',
+      'desktop:setup-progress',
     ];
     if (validChannels.includes(channel)) {
       const handler = (event, ...args) => callback(...args);

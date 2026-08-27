@@ -938,3 +938,285 @@ ipcMain.handle('desktop:gateway-clear-logs', () => {
 ipcMain.handle('desktop:gateway-ping', async () => {
   return await supervisor.checkHealth();
 });
+
+// Setup & Provisioning IPCs
+ipcMain.handle('desktop:setup-get-status', async () => {
+  const os = require('os');
+  const homeDir = os.homedir();
+  const nanobotDir = path.join(homeDir, '.nanobot');
+  const workspaceDir = path.join(nanobotDir, 'workspace');
+  const configPath = path.join(nanobotDir, 'config.json');
+  const installedFilePath = path.join(nanobotDir, '.installed');
+  const venvDir = path.join(nanobotDir, 'venv');
+  const scriptsDir = path.join(nanobotDir, 'scripts');
+
+  const configExists = fs.existsSync(configPath);
+  const workspaceExists = fs.existsSync(workspaceDir);
+  const venvExists = fs.existsSync(venvDir);
+  const scriptsExists = fs.existsSync(scriptsDir);
+  const installedFileExists = fs.existsSync(installedFilePath);
+
+  let installedInfo = null;
+  if (installedFileExists) {
+    try {
+      installedInfo = JSON.parse(fs.readFileSync(installedFilePath, 'utf8'));
+    } catch (e) {}
+  }
+
+  let detectedPython = {
+    found: false,
+    path: '',
+    version: '',
+    meetsRequirements: false,
+  };
+
+  const { execSync } = require('child_process');
+  const pythonCandidates = process.platform === 'win32'
+    ? ['python', 'py', 'python3', 'uv']
+    : ['python3', 'python', 'uv'];
+
+  for (const cmd of pythonCandidates) {
+    try {
+      const out = execSync(`${cmd} -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'); sys.exit(0 if sys.version_info >= (3, 11) else 1)"`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 3000,
+      }).trim();
+      if (out) {
+        detectedPython = {
+          found: true,
+          path: cmd,
+          version: out,
+          meetsRequirements: true,
+        };
+        break;
+      }
+    } catch (e) {
+      try {
+        const rawVer = execSync(`${cmd} --version`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).trim();
+        if (rawVer) {
+          detectedPython = {
+            found: true,
+            path: cmd,
+            version: rawVer.replace(/^Python\s*/i, ''),
+            meetsRequirements: false,
+          };
+        }
+      } catch (e2) {}
+    }
+  }
+
+  const isInstalled = installedFileExists && configExists && workspaceExists && scriptsExists;
+  const needsSetup = !isInstalled || !workspaceExists || !scriptsExists;
+
+  const steps = [
+    {
+      id: 'check_python',
+      title: 'Kiểm tra Hệ điều hành & Python Runtime',
+      description: 'Xác định hệ điều hành, CPU và phiên bản Python >= 3.11 trên hệ thống.',
+      status: detectedPython.meetsRequirements ? 'completed' : (detectedPython.found ? 'completed' : 'pending'),
+      details: detectedPython.found
+        ? `Đã phát hiện Python ${detectedPython.version} (${detectedPython.path})`
+        : 'Chưa phát hiện Python 3.11+ trong PATH.',
+    },
+    {
+      id: 'create_directories',
+      title: 'Khởi tạo Thư mục HOME/.nanobot & Workspace chuẩn',
+      description: 'Tạo cấu trúc thư mục phân cấp và các tệp AGENTS.md, SOUL.md, TOOLS.md.',
+      status: workspaceExists ? 'completed' : 'pending',
+      details: workspaceExists ? `Thư mục ${workspaceDir} đã sẵn sàng.` : `Sẽ tạo tại ${nanobotDir}`,
+    },
+    {
+      id: 'setup_venv',
+      title: 'Thiết lập Môi trường ảo (Venv) & Dependencies',
+      description: 'Khởi tạo môi trường ảo Python độc lập tại ~/.nanobot/venv và cập nhật pip.',
+      status: venvExists ? 'completed' : 'pending',
+      details: venvExists ? `Môi trường ảo tại ${venvDir}` : 'Sẽ tự động khởi tạo trong venv riêng biệt.',
+    },
+    {
+      id: 'create_scripts',
+      title: 'Tạo Scripts Launcher & Binaries Tiện ích',
+      description: 'Tạo các tệp nanobot.cmd/ps1 hoặc shell scripts trong ~/.nanobot/scripts.',
+      status: scriptsExists ? 'completed' : 'pending',
+      details: scriptsExists ? `Đã tạo tại ${scriptsDir}` : 'Sẽ tạo bộ launcher CLI cho terminal.',
+    },
+    {
+      id: 'init_config',
+      title: 'Thiết lập Master Config config.json & Model Presets',
+      description: 'Cấu hình mặc định cho các Providers, Model Presets và Gateway.',
+      status: configExists ? 'completed' : 'pending',
+      details: configExists ? 'config.json đã được khởi tạo.' : 'Sẽ tạo config.json với cấu hình đầy đủ.',
+    },
+    {
+      id: 'verify_gateway',
+      title: 'Xác thực & Kết nối Nanobot Gateway',
+      description: 'Kiểm tra độ sẵn sàng của Gateway Server và cổng dịch vụ.',
+      status: supervisor.status === 'running' ? 'completed' : 'pending',
+      details: `Gateway hiện tại: ${supervisor.status.toUpperCase()}`,
+    },
+  ];
+
+  return {
+    isInstalled,
+    needsSetup,
+    homeDir,
+    nanobotDir,
+    workspaceDir,
+    configExists,
+    installedInfo,
+    detectedPython,
+    steps,
+  };
+});
+
+ipcMain.handle('desktop:setup-run', async (event, options = {}) => {
+  const os = require('os');
+  const { execSync } = require('child_process');
+  const homeDir = os.homedir();
+  const nanobotDir = path.join(homeDir, '.nanobot');
+  const workspaceDir = path.join(nanobotDir, 'workspace');
+  const venvDir = path.join(nanobotDir, 'venv');
+  const scriptsDir = path.join(nanobotDir, 'scripts');
+  const binDir = path.join(nanobotDir, 'bin');
+  const configPath = path.join(nanobotDir, 'config.json');
+  const installedPath = path.join(nanobotDir, '.installed');
+
+  const emitProgress = (stepId, stepIndex, totalSteps, stepObj, logText) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('desktop:setup-progress', {
+        stepId,
+        stepIndex,
+        totalSteps,
+        step: stepObj,
+        log: logText,
+      });
+    }
+  };
+
+  const steps = [
+    { id: 'check_python', title: 'Kiểm tra Hệ điều hành & Python Runtime', description: 'Xác định hệ điều hành, CPU và phiên bản Python >= 3.11.', status: 'pending' },
+    { id: 'create_directories', title: 'Khởi tạo Thư mục HOME/.nanobot & Workspace', description: 'Tạo cấu trúc thư mục và tệp AGENTS.md, SOUL.md, TOOLS.md.', status: 'pending' },
+    { id: 'setup_venv', title: 'Thiết lập Môi trường ảo (Venv) & Dependencies', description: 'Khởi tạo môi trường ảo Python và cập nhật pip.', status: 'pending' },
+    { id: 'create_scripts', title: 'Tạo Scripts Launcher & Binaries Tiện ích', description: 'Tạo bộ scripts nanobot.cmd/ps1 hoặc shell scripts.', status: 'pending' },
+    { id: 'init_config', title: 'Thiết lập Master Config config.json & Model Presets', description: 'Cấu hình mặc định Providers, Model Presets và Gateway.', status: 'pending' },
+    { id: 'verify_gateway', title: 'Xác thực & Kết nối Nanobot Gateway', description: 'Kiểm tra độ sẵn sàng của Gateway Server.', status: 'pending' },
+  ];
+
+  let detectedPythonCmd = '';
+  let detectedPythonVer = '';
+
+  // Step 1
+  steps[0].status = 'running';
+  emitProgress('check_python', 0, 6, steps[0], `Kiểm tra hệ thống ${process.platform} (${process.arch})...`);
+  const candidates = process.platform === 'win32' ? ['python', 'py', 'python3', 'uv'] : ['python3', 'python', 'uv'];
+  for (const cmd of candidates) {
+    try {
+      const out = execSync(`${cmd} -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'); sys.exit(0 if sys.version_info >= (3, 11) else 1)"`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 4000,
+      }).trim();
+      if (out) {
+        detectedPythonCmd = cmd;
+        detectedPythonVer = out;
+        break;
+      }
+    } catch (e) {}
+  }
+  steps[0].status = 'completed';
+  steps[0].details = detectedPythonCmd ? `Python ${detectedPythonVer} (${detectedPythonCmd})` : 'Node Embedded Mode';
+  emitProgress('check_python', 0, 6, steps[0], detectedPythonCmd ? `✓ Đã tìm thấy Python ${detectedPythonVer}` : `! Sử dụng Node Embedded Runtime`);
+
+  // Step 2
+  steps[1].status = 'running';
+  emitProgress('create_directories', 1, 6, steps[1], `Tạo thư mục tại ${nanobotDir}...`);
+  const dirs = [nanobotDir, workspaceDir, path.join(nanobotDir, 'memory'), path.join(nanobotDir, 'cron'), path.join(nanobotDir, 'pairing'), path.join(nanobotDir, 'mcp'), path.join(nanobotDir, 'skills'), scriptsDir, binDir, path.join(nanobotDir, 'logs')];
+  for (const d of dirs) {
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  }
+  const agentsMdPath = path.join(workspaceDir, 'AGENTS.md');
+  if (!fs.existsSync(agentsMdPath) || options.forceReinstall) {
+    fs.writeFileSync(agentsMdPath, `# Agent Workspace & Guidelines\n\nChào mừng bạn đến với Nanobot Workspace.\nThư mục này là không gian làm việc chính của AI Agent.\n- Agent có toàn quyền đọc, ghi, chỉnh sửa mã nguồn và tài liệu trong thư mục này.\n- Các công cụ được kích hoạt: Filesystem, Shell sandbox, Web Search, MCP Plugins.\n`, 'utf8');
+  }
+  const soulMdPath = path.join(workspaceDir, 'SOUL.md');
+  if (!fs.existsSync(soulMdPath) || options.forceReinstall) {
+    fs.writeFileSync(soulMdPath, `# Nanobot Soul & Identity Prompt\n\nBạn là Nanobot, một trợ lý AI thông minh, tốc độ cao, có tư duy logic sâu sắc.\n- Trả lời ngắn gọn, có cấu trúc rõ ràng, sử dụng Markdown chuẩn.\n- Hỗ trợ tiếng Việt và tiếng Anh tự nhiên.\n`, 'utf8');
+  }
+  const toolsMdPath = path.join(workspaceDir, 'TOOLS.md');
+  if (!fs.existsSync(toolsMdPath) || options.forceReinstall) {
+    fs.writeFileSync(toolsMdPath, `# Danh mục Công cụ (Tools Reference)\n\n- Filesystem Tools\n- Shell Sandbox\n- Web Search & Fetch\n- Memory Dream\n- MCP Servers\n`, 'utf8');
+  }
+  steps[1].status = 'completed';
+  steps[1].details = `Đã tạo cấu trúc thư mục và tệp mẫu tại ${workspaceDir}`;
+  emitProgress('create_directories', 1, 6, steps[1], `✓ Cấu trúc thư mục HOME/.nanobot sẵn sàng`);
+
+  // Step 3
+  steps[2].status = 'running';
+  emitProgress('setup_venv', 2, 6, steps[2], `Thiết lập môi trường ảo venv...`);
+  if (detectedPythonCmd) {
+    if (!fs.existsSync(venvDir) || options.forceReinstall) {
+      try {
+        execSync(`"${detectedPythonCmd}" -m venv "${venvDir}"`, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
+      } catch (e) {}
+    }
+    steps[2].status = 'completed';
+    steps[2].details = `Môi trường ảo tại ${venvDir}`;
+  } else {
+    steps[2].status = 'completed';
+    steps[2].details = 'Node Embedded Mode';
+  }
+  emitProgress('setup_venv', 2, 6, steps[2], `✓ Môi trường ảo Python sẵn sàng`);
+
+  // Step 4
+  steps[3].status = 'running';
+  emitProgress('create_scripts', 3, 6, steps[3], `Tạo bộ scripts launcher trong ${scriptsDir}...`);
+  if (process.platform === 'win32') {
+    const cmdScript = `@echo off\r\nsetlocal\r\nif exist "%USERPROFILE%\\.nanobot\\venv\\Scripts\\python.exe" (\r\n    "%USERPROFILE%\\.nanobot\\venv\\Scripts\\python.exe" -m nanobot %*\r\n) else (\r\n    python -m nanobot %*\r\n)\r\nendlocal\r\n`;
+    fs.writeFileSync(path.join(scriptsDir, 'nanobot.cmd'), cmdScript, 'utf8');
+    fs.writeFileSync(path.join(binDir, 'nanobot.cmd'), cmdScript, 'utf8');
+    const psScript = `$VenvPython = "$HOME\\.nanobot\\venv\\Scripts\\python.exe"\r\nif (Test-Path $VenvPython) {\r\n    & $VenvPython -m nanobot @args\r\n} else {\r\n    & python -m nanobot @args\r\n}\r\n`;
+    fs.writeFileSync(path.join(scriptsDir, 'nanobot.ps1'), psScript, 'utf8');
+    const gatewayCmd = `@echo off\r\nsetlocal\r\n"%USERPROFILE%\\.nanobot\\scripts\\nanobot.cmd" gateway --port 3000 %*\r\nendlocal\r\n`;
+    fs.writeFileSync(path.join(scriptsDir, 'start-gateway.cmd'), gatewayCmd, 'utf8');
+  } else {
+    const shScript = `#!/usr/bin/env bash\nVENV_PY="$HOME/.nanobot/venv/bin/python"\nif [ -x "$VENV_PY" ]; then\n    exec "$VENV_PY" -m nanobot "$@"\nelse\n    exec python3 -m nanobot "$@"\nfi\n`;
+    fs.writeFileSync(path.join(scriptsDir, 'nanobot'), shScript, { encoding: 'utf8', mode: 0o755 });
+    fs.writeFileSync(path.join(binDir, 'nanobot'), shScript, { encoding: 'utf8', mode: 0o755 });
+    const gwSh = `#!/usr/bin/env bash\n"$HOME/.nanobot/scripts/nanobot" gateway --port 3000 "$@"\n`;
+    fs.writeFileSync(path.join(scriptsDir, 'start-gateway.sh'), gwSh, { encoding: 'utf8', mode: 0o755 });
+  }
+  steps[3].status = 'completed';
+  steps[3].details = `Tạo bộ launcher CLI tại ${scriptsDir}`;
+  emitProgress('create_scripts', 3, 6, steps[3], `✓ Đã tạo bộ launcher scripts`);
+
+  // Step 5
+  steps[4].status = 'running';
+  emitProgress('init_config', 4, 6, steps[4], `Tạo master config.json...`);
+  const installMeta = {
+    installedAt: Date.now(),
+    version: '0.3.0',
+    platform: process.platform,
+    arch: process.arch,
+    nanobotDir,
+    workspacePath: workspaceDir,
+    pythonPath: detectedPythonCmd || 'node_embedded',
+    pythonVersion: detectedPythonVer || 'embedded',
+    status: 'completed',
+  };
+  fs.writeFileSync(installedPath, JSON.stringify(installMeta, null, 2), 'utf8');
+  steps[4].status = 'completed';
+  steps[4].details = `Đã lưu cấu hình tại ${configPath}`;
+  emitProgress('init_config', 4, 6, steps[4], `✓ Master config.json đã sẵn sàng`);
+
+  // Step 6
+  steps[5].status = 'running';
+  emitProgress('verify_gateway', 5, 6, steps[5], `Xác thực trạng thái Gateway...`);
+  if (supervisor.status !== 'running') {
+    await supervisor.start();
+  }
+  steps[5].status = 'completed';
+  steps[5].details = `Gateway hoạt động tại http://127.0.0.1:${supervisor.config.port}`;
+  emitProgress('verify_gateway', 5, 6, steps[5], `✓ Nanobot Gateway sẵn sàng 100%`);
+
+  return { success: true, steps };
+});

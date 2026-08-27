@@ -61,6 +61,7 @@ interface ConfigurationHubModalProps {
   onDeleteFact: (id: string) => void;
   onAddFact: (fact: Partial<MemoryFact>) => void;
   desktopReleases: DesktopReleaseInfo[];
+  onOpenSetupWizard?: () => void;
 }
 
 const TABS: Array<{
@@ -99,6 +100,7 @@ export const ConfigurationHubModal: React.FC<ConfigurationHubModalProps> = ({
   onDeleteFact,
   onAddFact,
   desktopReleases,
+  onOpenSetupWizard,
 }) => {
   const [activeTab, setActiveTab] = useState<ConfigTabKey>(initialTab);
 
@@ -127,46 +129,49 @@ export const ConfigurationHubModal: React.FC<ConfigurationHubModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400">
-                Manage LLM models, provider credentials, agent skills, execution tools, and gateway server
+                Thiết lập hệ thống, API keys, Model Presets, Sandbox & Kênh kết nối
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer border border-zinc-700"
-              title="Close Settings (Esc)"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* Body (Sidebar + Content Panel) */}
-        <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Modal Main Body (2 Columns) */}
+        <div className="flex-1 flex overflow-hidden">
           {/* Left Navigation Sidebar */}
-          <div className="w-60 bg-zinc-950/60 border-r border-zinc-800/80 p-3 flex flex-col justify-between flex-shrink-0 overflow-y-auto">
+          <div className="w-64 border-r border-zinc-800/80 bg-zinc-950/40 p-3 flex flex-col justify-between overflow-y-auto">
             <div className="space-y-1">
-              <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                Configuration Suites
+              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                Configuration Hub
               </div>
               {TABS.map((tab) => {
                 const TabIcon = tab.icon;
-                const isSelected = activeTab === tab.id;
-
+                const isActive = activeTab === tab.id;
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-amber-500 text-zinc-950 font-bold shadow-xs'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                      isActive
+                        ? 'bg-amber-500/15 text-amber-300 font-semibold border border-amber-500/30 shadow-xs'
+                        : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
                     }`}
                   >
-                    <TabIcon className={`w-4 h-4 ${isSelected ? 'text-zinc-950' : 'text-zinc-400'}`} />
-                    <span className="truncate">{tab.label}</span>
+                    <div className="flex items-center gap-2.5">
+                      <TabIcon className={`w-4 h-4 ${isActive ? 'text-amber-400' : 'text-zinc-400'}`} />
+                      <span>{tab.label}</span>
+                    </div>
+                    {tab.badge && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                        {tab.badge}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -216,6 +221,7 @@ export const ConfigurationHubModal: React.FC<ConfigurationHubModalProps> = ({
                 onStopGateway={onStopGateway}
                 onRestartGateway={onRestartGateway}
                 onClearLogs={onClearGatewayLogs}
+                onOpenSetupWizard={onOpenSetupWizard}
               />
             )}
             {activeTab === 'raw-config' && (

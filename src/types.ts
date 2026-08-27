@@ -327,6 +327,61 @@ export interface GatewayLogEntry {
   level?: 'info' | 'warn' | 'error' | 'debug';
 }
 
+export type SetupStepId =
+  | 'check_python'
+  | 'create_directories'
+  | 'setup_venv'
+  | 'create_scripts'
+  | 'init_config'
+  | 'verify_gateway';
+
+export type SetupStepStatus = 'pending' | 'running' | 'completed' | 'skipped' | 'error';
+
+export interface SetupStepItem {
+  id: SetupStepId;
+  title: string;
+  description: string;
+  status: SetupStepStatus;
+  details?: string;
+  error?: string;
+  durationMs?: number;
+}
+
+export interface SetupStatusResponse {
+  isInstalled: boolean;
+  needsSetup: boolean;
+  homeDir: string;
+  nanobotDir: string;
+  workspaceDir: string;
+  configExists: boolean;
+  installedInfo?: {
+    installedAt: number;
+    version: string;
+    platform: string;
+    arch: string;
+    pythonPath?: string;
+    workspacePath: string;
+  } | null;
+  detectedPython?: {
+    found: boolean;
+    path?: string;
+    version?: string;
+    meetsRequirements: boolean;
+  };
+  steps: SetupStepItem[];
+}
+
+export interface SetupRunProgressEvent {
+  stepId: SetupStepId;
+  stepIndex: number;
+  totalSteps: number;
+  step: SetupStepItem;
+  log?: string;
+  completed?: boolean;
+  success?: boolean;
+  error?: string;
+}
+
 declare global {
   interface Window {
     nanobotDesktop?: {
@@ -353,6 +408,11 @@ declare global {
         ping: () => Promise<any>;
         onLog: (callback: (entry: GatewayLogEntry) => void) => () => void;
         onStatusChange: (callback: (state: GatewayProcessState) => void) => () => void;
+      };
+      setup?: {
+        getStatus: () => Promise<SetupStatusResponse>;
+        runSetup: (options?: { forceReinstall?: boolean }) => Promise<{ success: boolean; steps: SetupStepItem[]; error?: string }>;
+        onProgress: (callback: (data: SetupRunProgressEvent) => void) => () => void;
       };
       on: (channel: string, callback: (...args: any[]) => void) => void;
       off: (channel: string, callback: (...args: any[]) => void) => void;

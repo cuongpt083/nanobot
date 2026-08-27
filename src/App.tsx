@@ -13,6 +13,7 @@ import { DesktopHeader } from './components/DesktopHeader';
 import { WorkspaceExplorerView } from './components/WorkspaceExplorerView';
 import { QuickSummonModal } from './components/QuickSummonModal';
 import { ConfigurationHubModal, ConfigTabKey } from './components/ConfigurationHub/ConfigurationHubModal';
+import { InitialSetupWizardModal } from './components/InitialSetupWizardModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 export const App: React.FC = () => {
@@ -21,6 +22,7 @@ export const App: React.FC = () => {
   const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
   const [configInitialTab, setConfigInitialTab] = useState<ConfigTabKey>('providers');
   const [isQuickSummonOpen, setIsQuickSummonOpen] = useState<boolean>(false);
+  const [isSetupWizardOpen, setIsSetupWizardOpen] = useState<boolean>(false);
 
   // Master Configuration State
   const [fullConfig, setFullConfig] = useState<NanobotFullConfig>({
@@ -122,6 +124,27 @@ export const App: React.FC = () => {
     compactMode: false,
   });
 
+  const checkSetupStatus = async () => {
+    try {
+      if (window.nanobotDesktop?.setup?.getStatus) {
+        const status = await window.nanobotDesktop.setup.getStatus();
+        if (status.needsSetup) {
+          setIsSetupWizardOpen(true);
+        }
+      } else {
+        const res = await fetch('/api/setup/status');
+        if (res.ok) {
+          const status = await res.json();
+          if (status.needsSetup) {
+            setIsSetupWizardOpen(true);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[SetupCheck] Could not check setup status:', err);
+    }
+  };
+
   // Initial Data Fetching
   useEffect(() => {
     fetchFullConfig();
@@ -130,6 +153,7 @@ export const App: React.FC = () => {
     fetchDesktopSettings();
     fetchDesktopReleases();
     fetchGatewayState();
+    checkSetupStatus();
   }, []);
 
   // Listen for native desktop IPC menu triggers
@@ -151,6 +175,8 @@ export const App: React.FC = () => {
       const handleNavigateTab = (tab: any) => {
         if (tab === 'chat' || tab === 'workspace') {
           setActiveMainView(tab);
+        } else if (tab === 'setup' || tab === 'setup-wizard') {
+          setIsSetupWizardOpen(true);
         } else if (tab) {
           openConfigHub(tab as ConfigTabKey);
         }
@@ -525,6 +551,7 @@ export const App: React.FC = () => {
           });
         }}
         gatewayRunning={gatewayState.status === 'running'}
+        onOpenSetupWizard={() => setIsSetupWizardOpen(true)}
       />
 
       {/* Main Content Stage */}
@@ -586,6 +613,17 @@ export const App: React.FC = () => {
         onDeleteFact={handleDeleteFact}
         onAddFact={handleAddFact}
         desktopReleases={desktopReleases}
+        onOpenSetupWizard={() => setIsSetupWizardOpen(true)}
+      />
+
+      {/* Initial Environment Setup & Provisioning Wizard Modal */}
+      <InitialSetupWizardModal
+        isOpen={isSetupWizardOpen}
+        onClose={() => setIsSetupWizardOpen(false)}
+        onSetupCompleted={() => {
+          fetchFullConfig();
+          fetchGatewayState();
+        }}
       />
     </div>
   );

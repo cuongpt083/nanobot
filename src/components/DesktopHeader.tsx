@@ -33,6 +33,7 @@ interface DesktopHeaderProps {
   onNewChat: () => void;
   onTriggerDream: () => void;
   onOpenConfig: (tab?: ConfigTabKey) => void;
+  onOpenSetupWizard?: () => void;
   activeModelPresetId?: string;
   modelPresets?: Record<string, ModelPresetItemConfig>;
   onSelectModelPreset?: (presetId: string) => void;
@@ -46,6 +47,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   onNewChat,
   onTriggerDream,
   onOpenConfig,
+  onOpenSetupWizard,
   activeModelPresetId = 'primary',
   modelPresets = {},
   onSelectModelPreset,
@@ -397,9 +399,31 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             </button>
             {activeMenu === 'help' && (
               <div
-                className="absolute top-full left-0 mt-1 w-56 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
+                className="absolute top-full left-0 mt-1 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl py-1 z-50 text-xs text-zinc-300"
                 onMouseLeave={() => setActiveMenu(null)}
               >
+                {onOpenSetupWizard && (
+                  <button
+                    onClick={() => {
+                      onOpenSetupWizard();
+                      setActiveMenu(null);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-amber-500 hover:text-zinc-950 transition-colors flex items-center justify-between cursor-pointer font-medium text-amber-400"
+                  >
+                    <span>Cài đặt Môi trường (Setup Wizard)...</span>
+                    <Sparkles className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <div className="my-1 border-t border-zinc-800" />
+                <a
+                  href="https://github.com/cuongpt083/nanobot/blob/main/docs/start-without-technical-background.md"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 transition-colors flex items-center justify-between"
+                >
+                  <span>Non-Technical Quickstart</span>
+                  <ExternalLink className="w-3 h-3 text-zinc-500" />
+                </a>
                 <a
                   href="https://github.com/cuongpt083/nanobot/blob/main/docs/providers.md"
                   target="_blank"
@@ -493,6 +517,18 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           />
           <span>:3000</span>
         </button>
+
+        {/* Setup Wizard Button */}
+        {onOpenSetupWizard && (
+          <button
+            onClick={onOpenSetupWizard}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-medium cursor-pointer transition-colors"
+            title="Trình Cài đặt Môi trường & Dependencies (Setup Wizard)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Setup</span>
+          </button>
+        )}
 
         {/* Master Configuration Button */}
         <button

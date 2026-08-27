@@ -25,6 +25,7 @@ interface GatewayConfigTabProps {
   onStopGateway: () => void;
   onRestartGateway: () => void;
   onClearLogs: () => void;
+  onOpenSetupWizard?: () => void;
 }
 
 export const GatewayConfigTab: React.FC<GatewayConfigTabProps> = ({
@@ -36,6 +37,7 @@ export const GatewayConfigTab: React.FC<GatewayConfigTabProps> = ({
   onStopGateway,
   onRestartGateway,
   onClearLogs,
+  onOpenSetupWizard,
 }) => {
   const [logFilter, setLogFilter] = useState<'all' | 'stdout' | 'stderr'>('all');
 
@@ -70,6 +72,16 @@ export const GatewayConfigTab: React.FC<GatewayConfigTabProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {onOpenSetupWizard && (
+            <button
+              onClick={onOpenSetupWizard}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-xs font-semibold transition-colors cursor-pointer border border-amber-500/30"
+              title="Mở trình Cài đặt Môi trường & Dependencies"
+            >
+              <span>Setup Wizard</span>
+            </button>
+          )}
+
           {gatewayState.status === 'running' ? (
             <>
               <button
