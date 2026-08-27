@@ -661,7 +661,7 @@ interface CustomSkillConfigEntry {
   icon?: string;
 }
 
-let nanobotMasterConfig = {
+const defaultMasterConfigTemplate = {
   version: '0.3.0',
   providers: {
     gemini: {
@@ -861,6 +861,44 @@ let nanobotMasterConfig = {
     unifiedSession: true,
   },
 };
+
+export function getEffectiveNanobotConfig(): typeof defaultMasterConfigTemplate & Record<string, any> {
+  const disk = readNanobotConfig();
+  return {
+    ...defaultMasterConfigTemplate,
+    ...disk,
+    providers: {
+      ...defaultMasterConfigTemplate.providers,
+      ...(disk.providers || {}),
+    },
+    modelPresets: {
+      ...defaultMasterConfigTemplate.modelPresets,
+      ...(disk.modelPresets || {}),
+    },
+    agents: {
+      ...defaultMasterConfigTemplate.agents,
+      ...(disk.agents || {}),
+      defaults: {
+        ...defaultMasterConfigTemplate.agents?.defaults,
+        ...(disk.agents?.defaults || {}),
+      },
+    },
+    tools: {
+      ...defaultMasterConfigTemplate.tools,
+      ...(disk.tools || {}),
+    },
+    skills: {
+      ...defaultMasterConfigTemplate.skills,
+      ...(disk.skills || {}),
+    },
+    gateway: {
+      ...defaultMasterConfigTemplate.gateway,
+      ...(disk.gateway || {}),
+    },
+  };
+}
+
+let nanobotMasterConfig = getEffectiveNanobotConfig();
 
 // =============================================================
 // Nanobot Auto-Provisioning & Environment Setup Engine
@@ -1357,6 +1395,7 @@ app.post('/api/setup/run', async (req: Request, res: Response) => {
 
 // Get full config JSON
 app.get('/api/config', (req: Request, res: Response) => {
+  nanobotMasterConfig = getEffectiveNanobotConfig();
   res.json(nanobotMasterConfig);
 });
 
@@ -1365,12 +1404,30 @@ app.post('/api/config', (req: Request, res: Response) => {
   nanobotMasterConfig = {
     ...nanobotMasterConfig,
     ...req.body,
+    providers: {
+      ...nanobotMasterConfig.providers,
+      ...(req.body.providers || {}),
+    },
+    modelPresets: {
+      ...nanobotMasterConfig.modelPresets,
+      ...(req.body.modelPresets || {}),
+    },
+    agents: {
+      ...nanobotMasterConfig.agents,
+      ...(req.body.agents || {}),
+      defaults: {
+        ...nanobotMasterConfig.agents?.defaults,
+        ...(req.body.agents?.defaults || {}),
+      },
+    },
   };
+  saveNanobotConfig(nanobotMasterConfig);
   res.json({ success: true, config: nanobotMasterConfig });
 });
 
 // Get providers list & credentials status
 app.get('/api/config/providers', (req: Request, res: Response) => {
+  nanobotMasterConfig = getEffectiveNanobotConfig();
   res.json(nanobotMasterConfig.providers);
 });
 
@@ -1392,6 +1449,8 @@ app.post('/api/config/providers/:providerKey', (req: Request, res: Response) => 
     };
   }
 
+  saveNanobotConfig({ providers: nanobotMasterConfig.providers });
+
   res.json({
     success: true,
     provider: providerKey,
@@ -1404,6 +1463,7 @@ app.delete('/api/config/providers/:providerKey', (req: Request, res: Response) =
   const { providerKey } = req.params;
   if (nanobotMasterConfig.providers[providerKey]) {
     delete nanobotMasterConfig.providers[providerKey];
+    saveNanobotConfig({ providers: nanobotMasterConfig.providers });
   }
   res.json({
     success: true,
@@ -1756,17 +1816,18 @@ app.post('/api/config/providers/:providerKey/test', async (req: Request, res: Re
 
 // Get Model Presets
 app.get('/api/config/model-presets', (req: Request, res: Response) => {
+  nanobotMasterConfig = getEffectiveNanobotConfig();
   const presets = Object.values(nanobotMasterConfig.modelPresets);
   res.json({
     presets,
-    activePresetId: nanobotMasterConfig.agents.defaults.modelPreset,
-    fallbackModels: nanobotMasterConfig.agents.defaults.fallbackModels || [],
+    activePresetId: nanobotMasterConfig.agents?.defaults?.modelPreset || 'primary',
+    fallbackModels: nanobotMasterConfig.agents?.defaults?.fallbackModels || [],
   });
 });
 
 // Create or update a Model Preset
 app.post('/api/config/model-presets', (req: Request, res: Response) => {
-  const { id, name, provider, model, maxTokens = 8192, contextWindowTokens = 128000, temperature = 0.7, reasoningEffort } = req.body;
+  const { id, name, provider, model, maxTokens = 8192, contextWindowTokens = 128000, temperature = 0.7, reasoningEffort, isDefault } = req.body;
   const presetId = id || `preset_${Date.now()}`;
 
   nanobotMasterConfig.modelPresets[presetId] = {
@@ -1778,7 +1839,19 @@ app.post('/api/config/model-presets', (req: Request, res: Response) => {
     contextWindowTokens: Number(contextWindowTokens),
     temperature: Number(temperature),
     reasoningEffort,
+    isDefault: Boolean(isDefault),
   };
+
+  if (isDefault) {
+    nanobotMasterConfig.agents = nanobotMasterConfig.agents || { defaults: {} };
+    nanobotMasterConfig.agents.defaults = nanobotMasterConfig.agents.defaults || {};
+    nanobotMasterConfig.agents.defaults.modelPreset = presetId;
+  }
+
+  saveNanobotConfig({
+    modelPresets: nanobotMasterConfig.modelPresets,
+    agents: nanobotMasterConfig.agents,
+  });
 
   res.json({
     success: true,
@@ -1794,18 +1867,22 @@ app.delete('/api/config/model-presets/:id', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Cannot delete the primary default preset' });
   }
   delete nanobotMasterConfig.modelPresets[id];
+  saveNanobotConfig({ modelPresets: nanobotMasterConfig.modelPresets });
   res.json({ success: true, id, presets: Object.values(nanobotMasterConfig.modelPresets) });
 });
 
 // Set active model preset
 app.post('/api/config/active-preset', (req: Request, res: Response) => {
   const { presetId, fallbackModels } = req.body;
+  nanobotMasterConfig.agents = nanobotMasterConfig.agents || { defaults: {} };
+  nanobotMasterConfig.agents.defaults = nanobotMasterConfig.agents.defaults || {};
   if (presetId && nanobotMasterConfig.modelPresets[presetId]) {
     nanobotMasterConfig.agents.defaults.modelPreset = presetId;
   }
   if (Array.isArray(fallbackModels)) {
     nanobotMasterConfig.agents.defaults.fallbackModels = fallbackModels;
   }
+  saveNanobotConfig({ agents: nanobotMasterConfig.agents });
   res.json({
     success: true,
     activePresetId: nanobotMasterConfig.agents.defaults.modelPreset,
@@ -1815,6 +1892,7 @@ app.post('/api/config/active-preset', (req: Request, res: Response) => {
 
 // Get & Update Tools Config
 app.get('/api/config/tools', (req: Request, res: Response) => {
+  nanobotMasterConfig = getEffectiveNanobotConfig();
   res.json(nanobotMasterConfig.tools);
 });
 
@@ -1823,6 +1901,7 @@ app.post('/api/config/tools', (req: Request, res: Response) => {
     ...nanobotMasterConfig.tools,
     ...req.body,
   };
+  saveNanobotConfig({ tools: nanobotMasterConfig.tools });
   res.json({ success: true, tools: nanobotMasterConfig.tools });
 });
 
@@ -1844,17 +1923,20 @@ app.post('/api/config/skills/custom', (req: Request, res: Response) => {
     icon: 'Sparkles',
   };
   nanobotMasterConfig.skills.customSkills.push(newSkill);
+  saveNanobotConfig({ skills: nanobotMasterConfig.skills });
   res.status(201).json(newSkill);
 });
 
 app.delete('/api/config/skills/custom/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   nanobotMasterConfig.skills.customSkills = nanobotMasterConfig.skills.customSkills.filter((s) => s.id !== id);
+  saveNanobotConfig({ skills: nanobotMasterConfig.skills });
   res.json({ success: true, id });
 });
 
 // Raw config.json JSON string read & save
 app.get('/api/config/raw-json', (req: Request, res: Response) => {
+  nanobotMasterConfig = getEffectiveNanobotConfig();
   res.json({
     jsonString: JSON.stringify(nanobotMasterConfig, null, 2),
     filePath: '~/.nanobot/config.json',
@@ -1866,6 +1948,7 @@ app.post('/api/config/raw-json', (req: Request, res: Response) => {
   try {
     const parsed = JSON.parse(jsonString);
     nanobotMasterConfig = parsed;
+    saveNanobotConfig(nanobotMasterConfig);
     res.json({ success: true, message: 'Configuration parsed and saved successfully to ~/.nanobot/config.json' });
   } catch (err: any) {
     res.status(400).json({ error: `JSON Parse Error: ${err.message}` });
