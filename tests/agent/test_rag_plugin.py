@@ -129,3 +129,38 @@ async def test_lightrag_client_error_handling(monkeypatch):
     result = await client.query("What is keto?")
     assert result["retrieved"] is False
     assert "401" in result["error"]
+
+
+def test_rag_mcp_server_stdio_execution():
+    import json
+    import subprocess
+    import sys
+
+    proc = subprocess.Popen(
+        [sys.executable, str(PLUGIN_DIR / "server.py")],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    init_msg = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "test-client", "version": "1.0"}
+        }
+    })
+    tools_msg = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    })
+    stdout, stderr = proc.communicate(input=f"{init_msg}\n{tools_msg}\n", timeout=10)
+    assert proc.returncode == 0
+    assert "rag_search" in stdout
+    assert "rag_check_decision" in stdout
+    assert "rag_health" in stdout
