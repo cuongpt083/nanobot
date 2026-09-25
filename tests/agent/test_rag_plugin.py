@@ -74,3 +74,58 @@ async def test_laya_client_circuit_breaker(monkeypatch):
     should_ret, conf, reason = await client.should_retrieve("Any message")
     assert should_ret is True
     assert "circuit_open" in reason
+
+
+@pytest.mark.asyncio
+async def test_lightrag_client_query_success(monkeypatch):
+    import sys
+    sys.path.insert(0, str(PLUGIN_DIR))
+    from lightrag_client import LightRagClient
+    import httpx
+
+    client = LightRagClient(base_url="http://fake-lightrag", api_key="secret-key")
+
+    async def mock_post(*args, **kwargs):
+        assert kwargs["json"]["mode"] == "mix"
+        assert kwargs["json"]["only_need_context"] is True
+        assert kwargs["headers"].get("X-API-Key") == "secret-key"
+
+        class MockResp:
+            status_code = 200
+            def json(self):
+                return {
+                    "response": "Keto is a high-fat, low-carbohydrate diet.",
+                    "references": [
+                        {"file": "nutrition_guide.pdf", "chunk": 1},
+                        {"file": "keto_manual.md"}
+                    ]
+                }
+        return MockResp()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    result = await client.query("What is keto?", mode="mix")
+    assert result["retrieved"] is True
+    assert "high-fat" in result["content"]
+    assert "nutrition_guide.pdf" in result["sources"]
+    assert "keto_manual.md" in result["sources"]
+
+
+@pytest.mark.asyncio
+async def test_lightrag_client_error_handling(monkeypatch):
+    import sys
+    sys.path.insert(0, str(PLUGIN_DIR))
+    from lightrag_client import LightRagClient
+    import httpx
+
+    client = LightRagClient(base_url="http://fake-lightrag")
+
+    async def mock_post(*args, **kwargs):
+        class MockResp:
+            status_code = 401
+            text = "Unauthorized"
+        return MockResp()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    result = await client.query("What is keto?")
+    assert result["retrieved"] is False
+    assert "401" in result["error"]
