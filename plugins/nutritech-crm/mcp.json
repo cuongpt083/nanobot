@@ -4,7 +4,10 @@
     "nutritech-crm": {
       "type": "stdio",
       "command": "node",
-      "args": ["/home/cuongpt/nutritech-crm-lite/dist/mcp/index.js"]
+      "args": ["/home/cuongpt/nutritech-crm-lite/dist/mcp/index.js"],
+      "env": {
+        "DATABASE_PATH": "/home/cuongpt/nutritech-crm-lite/data/nutritech.db"
+      }
     }
   }
 }

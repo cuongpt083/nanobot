@@ -1,4 +1,6 @@
+import os
 import shutil
+import subprocess
 from pathlib import Path
 import pytest
 from nanobot.agent.plugins import (
@@ -30,6 +32,7 @@ def test_nutritech_mcp_servers_config(tmp_path: Path):
     assert "nutritech-crm" in servers
     assert servers["nutritech-crm"].type == "stdio"
     assert "dist/mcp/index.js" in " ".join(servers["nutritech-crm"].args)
+    assert servers["nutritech-crm"].env.get("DATABASE_PATH") == "/home/cuongpt/nutritech-crm-lite/data/nutritech.db"
 
 
 def test_nutritech_crm_skill_metadata():
@@ -79,3 +82,41 @@ def test_nutritech_plugin_discovery_and_enable(tmp_path: Path):
     servers = agent_plugin_mcp_servers(tmp_path)
     assert "nutritech-crm" in servers
     assert servers["nutritech-crm"].command == "node"
+
+
+def test_nutritech_mcp_stdio_real_execution(tmp_path: Path):
+    import json
+    plugin = _load_manifest(PLUGIN_DIR)
+    assert plugin is not None
+    servers = _plugin_mcp_servers(tmp_path, plugin)
+    server_cfg = servers["nutritech-crm"]
+
+    proc = subprocess.Popen(
+        [server_cfg.command] + server_cfg.args,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={**os.environ, **server_cfg.env},
+        cwd=server_cfg.cwd,
+    )
+    init_msg = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "nanobot-test", "version": "1.0"}
+        }
+    })
+    tools_msg = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    })
+    stdout, stderr = proc.communicate(input=f"{init_msg}\n{tools_msg}\n", timeout=10)
+    assert proc.returncode == 0
+    assert "customer_get_tanita" in stdout
+    assert "customer_list" in stdout
