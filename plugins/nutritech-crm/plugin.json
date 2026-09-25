@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nutritech-crm",
+  "description": "NutriTech CRM integration for nanobot. Provides tools, body composition metrics (Tanita), meal structure calculation, check-in tracking, and customer coaching skills.",
+  "repository": "https://github.com/cuongpt083/nutritech-crm-lite",
+  "extensions": {
+    "dev.nanobot": {
+      "displayName": "NutriTech CRM",
+      "category": "Healthcare & CRM",
+      "accentColor": "#10b981",
+      "permissions": ["mcp:read", "mcp:write"]
+    }
+  }
+}
