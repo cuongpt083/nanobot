@@ -102,5 +102,7 @@ temp/
 exp/
 .playwright-mcp/
 bridge/node_modules/
+bridges/**/node_modules/
+node_modules/
 webui/.verify-*
 .playwright-cli/

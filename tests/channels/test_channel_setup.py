@@ -32,6 +32,7 @@ EXPECTED_CHANNELS = {
     "wecom",
     "weixin",
     "whatsapp",
+    "zalo",
 }
 
 INTERNAL_CHANNEL_FIELDS = {
