@@ -164,3 +164,44 @@ def test_rag_mcp_server_stdio_execution():
     assert "rag_search" in stdout
     assert "rag_check_decision" in stdout
     assert "rag_health" in stdout
+
+
+def test_rag_skill_metadata():
+    from nanobot.agent.skills import parse_skill_metadata, valid_skill_metadata
+    skill_file = PLUGIN_DIR / "skills" / "lightrag-query" / "SKILL.md"
+    assert skill_file.exists()
+    content = skill_file.read_text(encoding="utf-8")
+    meta = parse_skill_metadata(content)
+    assert meta is not None
+    assert valid_skill_metadata(meta, "lightrag-query")
+    assert "rag_search" in content
+    assert "local" in content
+    assert "global" in content
+    assert "mix" in content
+
+
+def test_rag_plugin_discovery_and_enable(tmp_path: Path):
+    import shutil
+    from nanobot.agent.plugins import (
+        discover_agent_plugins,
+        enabled_agent_plugin_skills,
+        agent_plugin_mcp_servers,
+        set_agent_plugin_enabled,
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    plugins_dir = workspace / "plugins"
+    plugins_dir.mkdir()
+    dest = plugins_dir / "rag"
+    shutil.copytree(PLUGIN_DIR, dest)
+
+    plugins = discover_agent_plugins(workspace)
+    assert any(p.name == "rag" for p in plugins)
+
+    set_agent_plugin_enabled(workspace, "rag", True)
+    skills = enabled_agent_plugin_skills(workspace)
+    assert any(name == "lightrag-query" for name, _ in skills)
+
+    servers = agent_plugin_mcp_servers(workspace)
+    assert "rag" in servers
+    assert servers["rag"].command == "python"
