@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "lightrag": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["${PLUGIN_ROOT}/server.py"],
+      "env": {
+        "LIGHTRAG_BASE_URL": "http://localhost:9621",
+        "LIGHTRAG_API_KEY": "",
+        "LIGHTRAG_WORKSPACE": "",
+        "LAYA_ENABLED": "true",
+        "LAYA_SERVICE_URL": "http://localhost:8000/v1/decide",
+        "LAYA_THRESHOLD": "0.70",
+        "LAYA_TIMEOUT_SECONDS": "0.50"
+      }
+    }
+  }
+}

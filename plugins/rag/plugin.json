@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "rag",
+  "version": "1.0.0",
+  "description": "Enterprise RAG plugin connecting Nanobot to LightRAG knowledge graph server with intelligent Laya decision gating.",
+  "repository": "https://github.com/nutritech/nanobot-rag",
+  "extensions": {
+    "dev.nanobot": {
+      "displayName": "LightRAG Knowledge Base",
+      "category": "Knowledge Retrieval",
+      "accentColor": "#0ea5e9",
+      "permissions": ["network", "mcp"]
+    }
+  }
+}
