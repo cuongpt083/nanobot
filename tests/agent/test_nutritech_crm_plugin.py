@@ -37,3 +37,15 @@ def test_nutritech_crm_skill_metadata():
     assert "mcp_nutritech-crm_customer_list" in content
     assert "mcp_nutritech-crm_customer_log_checkin" in content
     assert "mcp_nutritech-crm_customer_get_profile" in content
+
+
+def test_tanita_analysis_skill_metadata():
+    skill_file = PLUGIN_DIR / "skills" / "tanita-analysis" / "SKILL.md"
+    assert skill_file.exists()
+    content = skill_file.read_text(encoding="utf-8")
+    meta = parse_skill_metadata(content)
+    assert meta is not None
+    assert valid_skill_metadata(meta, "tanita-analysis")
+    assert "mcp_nutritech-crm_customer_get_tanita" in content
+    assert "Mỡ nội tạng" in content or "visceral" in content.lower()
+    assert "Tuổi sinh học" in content or "metabolic age" in content.lower()
