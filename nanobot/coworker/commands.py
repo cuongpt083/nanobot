@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.coworker.advisor import state as advisor_state
+from nanobot.coworker.coding.commands import cmd_code
 from nanobot.coworker.config import coworker_config_path, load_coworker_config
 from nanobot.coworker.context import keepalive, optimizer
 from nanobot.coworker.room import scheduler
@@ -143,6 +144,7 @@ def register(router: CommandRouter) -> None:
         ("/room", cmd_room),
         ("/workflow", cmd_workflow),
         ("/ctx", cmd_ctx),
+        ("/code", cmd_code),
     ):
         router.exact(name, handler)
         router.prefix(f"{name} ", handler)

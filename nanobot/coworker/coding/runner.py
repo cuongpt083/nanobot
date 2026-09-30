@@ -121,6 +121,7 @@ class CodingRunner:
             acceptance=acceptance_cmd or repo.acceptance,
             status="started",
         )
+        self.registry.save(task)
         return task, backend, repo
 
     async def execute_task(

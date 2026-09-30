@@ -26,6 +26,7 @@ from nanobot.coworker import directives
 from nanobot.coworker.advisor import state as advisor_state
 from nanobot.coworker.advisor.consult import NON_EVIDENCE_TOOLS, breaker_open_seconds
 from nanobot.coworker.advisor.tool import ADVISOR_TOOL
+from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import keepalive, optimizer
 from nanobot.coworker.context.tools import WASTED_TOOL, wasted_ids
@@ -164,6 +165,7 @@ class CoworkerHook(AgentHook):
         advisor_on = advisor_state.effective(session) is not None
         room_on = room_armed_for(session)
         workflows_on = cfg.workflows.enabled
+        coding_on = cfg.coding.enabled
         sections: list[str] = []
         if advisor_on:
             sections.append(directives.ADVISOR)
@@ -173,6 +175,8 @@ class CoworkerHook(AgentHook):
             sections.append(directives.WORKFLOWS)
         if ctx_cfg.optimize:
             sections.append(directives.WASTED)
+        if coding_on:
+            sections.append(directives.CODING)
         messages = _append_system(messages, sections)
 
         hidden: set[str] = set()
@@ -184,6 +188,8 @@ class CoworkerHook(AgentHook):
             hidden |= WORKFLOW_TOOLS
         if not ctx_cfg.optimize:
             hidden.add(WASTED_TOOL)
+        if not coding_on:
+            hidden.add(CODING_TOOL)
         if tools and hidden:
             tools = [t for t in tools if _tool_name(t) not in hidden]
 
