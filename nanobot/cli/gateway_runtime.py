@@ -5,7 +5,7 @@ import signal
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import typer
 from loguru import logger
@@ -48,6 +48,9 @@ from nanobot.webui.dev import WebUIDevError, WebUIDevServer
 from nanobot.webui.sidebar_state import read_webui_sidebar_state
 
 __all__ = ["_run_gateway"]
+
+if TYPE_CHECKING:
+    from nanobot.providers.anthropic_oauth import ProactiveRefresher
 
 console = Console()
 
@@ -339,6 +342,27 @@ async def _close_gateway_runtime(
     if runtime_tasks is not None and runtime_tasks.done():
         with suppress(asyncio.CancelledError, Exception):
             await runtime_tasks
+
+
+def _start_anthropic_proactive_refresher(
+    config: Config,
+) -> "ProactiveRefresher | None":
+    """Start Anthropic OAuth proactive refresh when a token exists.
+
+    Returns the refresher (or ``None``). The refresher runs on the current event
+    loop and must be stopped during shutdown.
+    """
+
+    from nanobot.providers.anthropic_oauth import start_proactive_refresher
+
+    def _on_error(exc: BaseException) -> None:
+        logger.warning("Anthropic OAuth refresh: {}", exc)
+
+    try:
+        proxy = config.providers.anthropic_oauth.proxy or config.providers.anthropic.proxy
+    except AttributeError:
+        proxy = None
+    return start_proactive_refresher(proxy=proxy, on_error=_on_error)
 
 
 def _run_gateway(
@@ -910,8 +934,10 @@ def _run_gateway(
             tasks,
             console.print,
         )
+        refresher: ProactiveRefresher | None = None
         try:
             await cron.start()
+            refresher = _start_anthropic_proactive_refresher(config)
             # Re-read once on first admission to close the watcher subscription window.
             agent.runtime_resolver.invalidate()
             # Recovery must finish before WebSocket and other channels begin
@@ -1005,6 +1031,8 @@ def _run_gateway(
                     with suppress(asyncio.CancelledError):
                         await shutdown_task
                 cron.stop()
+                if refresher is not None:
+                    await refresher.stop()
                 # A gateway exit interrupts ownership of active turns; it is
                 # not the same as the user stopping a turn.  Keep checkpoints
                 # so the next gateway can offer an explicit Continue action.

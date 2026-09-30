@@ -199,7 +199,7 @@ class PatcherSettings(Base):
     # App-managed identity floor: must never be pinned below the shipped default.
     claude_code_version: str = "2.1.280"
     attribution_template: str = (
-        "x-anthropic-billing-header: cc_version=${version}.a1b; "
+        "x-anthropic-billing-header: cc_version={{version}}.a1b; "
         "cc_entrypoint=cli; cch=00000;"
     )
     add_session_id: bool = True
@@ -267,6 +267,14 @@ class ProvidersConfig(Base):
     azure_openai: ProviderConfig = Field(default_factory=ProviderConfig)  # Azure OpenAI (model = deployment name)
     bedrock: BedrockProviderConfig = Field(default_factory=BedrockProviderConfig)  # AWS Bedrock Converse
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
+    # Anthropic subscription OAuth (Claude Pro/Max token). Patcher defaults on
+    # because this provider exists specifically to drive the OAuth patcher proxy.
+    anthropic_oauth: ProviderConfig = Field(
+        default_factory=lambda: ProviderConfig(
+            auth_mode="oauth", patcher=PatcherSettings(enabled=True)
+        ),
+        exclude=True,
+    )
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     openrouter: ProviderConfig = Field(default_factory=ProviderConfig)
     orcarouter: ProviderConfig = Field(default_factory=ProviderConfig)  # OrcaRouter API gateway

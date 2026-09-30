@@ -33,6 +33,7 @@ from nanobot.providers.patcher.rules import (
     apply_rules,
     build_tool_name_maps,
     default_config,
+    render_template,
     rules_by_category,
 )
 from nanobot.providers.patcher.sse import create_anthropic_sse_reframer
@@ -169,7 +170,7 @@ def transform_system_blocks(
             transformed.append(block)
 
     if attribution_template:
-        attribution = attribution_template.replace("${version}", claude_code_version)
+        attribution = render_template(attribution_template, version=claude_code_version)
         first_text = transformed[0].get("text") if transformed else None
         already = isinstance(first_text, str) and first_text.startswith(
             "x-anthropic-billing-header"
@@ -232,8 +233,8 @@ def build_upstream_headers(config: PatcherConfig, incoming: dict[str, str], sess
     headers["content-type"] = "application/json"
 
     for rule in rules_by_category(config.rules, "header"):
-        value = rule.replace.replace("${version}", config.claude_code_version).replace(
-            "${sessionId}", session_id
+        value = render_template(
+            rule.replace, version=config.claude_code_version, session_id=session_id
         )
         name = rule.find.lower()
         if value == "":

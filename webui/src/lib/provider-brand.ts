@@ -127,6 +127,7 @@ export function logoFallbackUrls(logoUrl: string | null | undefined): string[] {
 }
 
 const PROVIDER_BRAND_ALIASES: Record<string, string> = {
+  anthropic_oauth: "anthropic",
   brave_search: "brave",
   byteplus_coding_plan: "byteplus",
   mimo: "xiaomi_mimo",
@@ -142,6 +143,7 @@ const PROVIDER_BRAND_ALIASES: Record<string, string> = {
 };
 
 const PROVIDER_LABEL_ALIASES: Record<string, string> = {
+  anthropic_oauth: "Anthropic (OAuth)",
   brave_search: "Brave Search",
   byteplus_coding_plan: "BytePlus",
   minimaxAnthropic: "MiniMax",

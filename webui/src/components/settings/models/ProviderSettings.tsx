@@ -76,7 +76,7 @@ export type ProviderForm = {
   profile: string;
 };
 export type CustomProviderDraft = ProviderForm & { name: string };
-const OAUTH_PROXY_PROVIDERS = new Set(["openai_codex", "xai_grok"]);
+const OAUTH_PROXY_PROVIDERS = new Set(["openai_codex", "xai_grok", "anthropic_oauth"]);
 type ProviderRequestOption = {
   kind: "priority" | "hosted_tool";
   titleKey: string;

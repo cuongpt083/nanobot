@@ -25,12 +25,14 @@ _PROVIDER_DISPLAY: dict[str, str] = {
     "openai_codex": "OpenAI Codex",
     "xai_grok": "xAI Grok",
     "github_copilot": "GitHub Copilot",
+    "anthropic_oauth": "Anthropic (OAuth)",
 }
 
 _OAUTH_PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "openai_codex": "openai-codex/gpt-5.6-sol",
     "xai_grok": "xai-grok/grok-4.6",
     "github_copilot": "github-copilot/gpt-5.4-mini",
+    "anthropic_oauth": "anthropic-oauth/claude-sonnet-4-6",
 }
 
 
@@ -153,7 +155,7 @@ def _set_oauth_provider_as_main(
 def provider_login(
     provider: str = typer.Argument(
         ...,
-        help="OAuth provider (e.g. 'openai-codex', 'xai-grok', 'github-copilot')",
+        help="OAuth provider (e.g. 'openai-codex', 'xai-grok', 'github-copilot', 'anthropic-oauth')",
     ),
     set_main: bool = typer.Option(
         False,
@@ -194,7 +196,7 @@ def provider_login(
 def provider_logout(
     provider: str = typer.Argument(
         ...,
-        help="OAuth provider (e.g. 'openai-codex', 'xai-grok', 'github-copilot')",
+        help="OAuth provider (e.g. 'openai-codex', 'xai-grok', 'github-copilot', 'anthropic-oauth')",
     ),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
@@ -364,13 +366,47 @@ def _login_github_copilot() -> None:
         raise typer.Exit(1)
 
 
+def _login_anthropic_oauth() -> None:
+    """Authenticate with Anthropic using the Claude subscription OAuth contract."""
+    from nanobot.providers.anthropic_oauth import login_anthropic_oauth
+
+    console.print("[cyan]Starting Anthropic OAuth login...[/cyan]\n")
+    try:
+        login_anthropic_oauth(print_fn=lambda s: console.print(s))
+    except Exception as e:  # noqa: BLE001 — surface any login failure to the user
+        console.print(f"[red]Authentication error: {e}[/red]")
+        raise typer.Exit(1) from e
+    console.print("[green]✓ Authenticated with Anthropic[/green]")
+    console.print(
+        "[dim]Enable the patcher proxy in config: providers.anthropic_oauth.patcher.enabled[/dim]"
+    )
+
+
+def _logout_anthropic_oauth() -> None:
+    """Clear local Anthropic OAuth credentials."""
+    from nanobot.providers.anthropic_oauth import (
+        get_anthropic_oauth_storage_path,
+        logout_anthropic_oauth,
+    )
+
+    token_path = get_anthropic_oauth_storage_path()
+    provider_label = _PROVIDER_DISPLAY["anthropic_oauth"]
+    if logout_anthropic_oauth():
+        console.print(f"[green]✓ Logged out from {provider_label}[/green]")
+        console.print(f"[dim]Removed: {token_path}[/dim]")
+    else:
+        console.print(f"[yellow]! No local OAuth credentials found for {provider_label}[/yellow]")
+
+
 _LOGIN_HANDLERS: dict[str, Callable[[], None]] = {
     "openai_codex": _login_openai_codex,
     "xai_grok": _login_xai_grok,
     "github_copilot": _login_github_copilot,
+    "anthropic_oauth": _login_anthropic_oauth,
 }
 _LOGOUT_HANDLERS: dict[str, Callable[[], None]] = {
     "openai_codex": _logout_openai_codex,
     "xai_grok": _logout_xai_grok,
     "github_copilot": _logout_github_copilot,
+    "anthropic_oauth": _logout_anthropic_oauth,
 }

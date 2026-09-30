@@ -395,6 +395,40 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         backend="anthropic",
         supports_prompt_caching=True,
     ),
+    # Anthropic subscription OAuth: same backend as `anthropic` but authenticated
+    # with a Claude subscription token, optionally routed through the local
+    # Anthropic OAuth Patcher Proxy. See docs/plan-anthropic-patcher-proxy.md.
+    ProviderSpec(
+        name="anthropic_oauth",
+        keywords=("anthropic-oauth", "anthropic_oauth"),
+        env_key="",
+        display_name="Anthropic (OAuth)",
+        model_catalog="hybrid",
+        builtin_models=(
+            ProviderModelSpec(
+                id="anthropic-oauth/claude-sonnet-4-6",
+                label="Claude Sonnet 4.6",
+                description="Balanced Anthropic model via subscription OAuth.",
+                context_window=200_000,
+            ),
+            ProviderModelSpec(
+                id="anthropic-oauth/claude-opus-4-5",
+                label="Claude Opus 4.5",
+                description="Frontier Anthropic model via subscription OAuth.",
+                context_window=200_000,
+            ),
+            ProviderModelSpec(
+                id="anthropic-oauth/claude-haiku-4-5",
+                label="Claude Haiku 4.5",
+                description="Fast and affordable Anthropic model via subscription OAuth.",
+                context_window=200_000,
+            ),
+        ),
+        backend="anthropic",
+        default_api_base="https://api.anthropic.com",
+        supports_prompt_caching=True,
+        is_oauth=True,
+    ),
     # OpenAI: SDK default base URL (no override needed)
     ProviderSpec(
         name="openai",

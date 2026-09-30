@@ -85,7 +85,7 @@ class ModelSettingsPayload(TypedDict):
     providers: list[dict[str, Any]]
 
 
-_OAUTH_PROXY_PROVIDERS = {"openai_codex", "xai_grok"}
+_OAUTH_PROXY_PROVIDERS = {"openai_codex", "xai_grok", "anthropic_oauth"}
 _WEBUI_OAUTH_TIMEOUT_S = 600
 _MODEL_CONFIGURATION_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -365,6 +365,32 @@ def oauth_provider_status(spec: Any) -> dict[str, Any]:
                 and (getattr(token, "refresh", None) or (expires_at and expires_at > now_ms))
             ),
             "account": getattr(token, "account_id", None) if token else None,
+            "expires_at": expires_at,
+            "login_supported": True,
+        }
+
+    if spec.name == "anthropic_oauth":
+        try:
+            from nanobot.providers.anthropic_oauth import get_anthropic_oauth_login_status
+        except Exception:
+            return {
+                "configured": False,
+                "account": None,
+                "expires_at": None,
+                "login_supported": False,
+            }
+        token = None
+        with suppress(Exception):
+            token = get_anthropic_oauth_login_status()
+        expires_at = getattr(token, "expires", None) if token else None
+        now_ms = int(time.time() * 1000)
+        return {
+            "configured": bool(
+                token
+                and token.access
+                and (getattr(token, "refresh", None) or (expires_at and expires_at > now_ms))
+            ),
+            "account": None,
             "expires_at": expires_at,
             "login_supported": True,
         }
@@ -1632,6 +1658,34 @@ def login_oauth_provider(
             "completion_input": "authorization_code",
         }
 
+    if spec.name == "anthropic_oauth":
+        from nanobot.providers.anthropic_oauth import start_anthropic_oauth_login
+
+        try:
+            proxy = resolve_config_env_vars(
+                config,
+                config_path=config_path,
+            ).providers.anthropic_oauth.proxy or None
+        except ValueError as exc:
+            raise WebUISettingsError(str(exc), status=400) from exc
+        try:
+            anthropic_flow = start_anthropic_oauth_login(
+                proxy=proxy,
+                timeout_s=_WEBUI_OAUTH_TIMEOUT_S,
+            )
+        except Exception as exc:
+            raise WebUISettingsError(f"Anthropic OAuth login failed: {exc}", status=502) from exc
+        flow_id = secrets.token_urlsafe(24)
+        oauth_flows.register(spec.name, flow_id, anthropic_flow)
+        return {
+            "status": "authorization_required",
+            "provider": spec.name,
+            "flow_id": flow_id,
+            "authorization_url": anthropic_flow.authorization_url,
+            "expires_in": anthropic_flow.remaining_seconds,
+            "completion_input": "authorization_code",
+        }
+
     raise WebUISettingsError("OAuth login is not supported for this provider")
 
 
@@ -1646,7 +1700,12 @@ def complete_oauth_provider(
     provider_name = (query_first(query, "provider") or "").strip()
     flow_id = (query_first(query, "flow_id") or "").strip()
     spec = find_by_name(provider_name)
-    if spec is None or spec.name not in {"openai_codex", "xai_grok", "github_copilot"}:
+    if spec is None or spec.name not in {
+        "openai_codex",
+        "xai_grok",
+        "github_copilot",
+        "anthropic_oauth",
+    }:
         raise WebUISettingsError("OAuth completion is not supported for this provider")
     if not flow_id:
         raise WebUISettingsError("flow_id is required")
@@ -1677,6 +1736,8 @@ def complete_oauth_provider(
             if not isinstance(flow, GitHubCopilotOAuthFlow):
                 raise WebUISettingsError("Invalid GitHub sign-in session. Start again.")
             token = flow.complete()
+        elif spec.name == "anthropic_oauth":
+            token = flow.complete(authorization_response)
         else:
             from nanobot.providers.xai_oauth import complete_xai_oauth_login
 
@@ -1738,6 +1799,13 @@ def logout_oauth_provider(
 
         oauth_flows.clear(spec.name)
         logout_xai_oauth()
+        invalidate_oauth_model_catalog(spec.name)
+        return settings_payload(config_path=config_path)
+    elif spec.name == "anthropic_oauth":
+        from nanobot.providers.anthropic_oauth import logout_anthropic_oauth
+
+        oauth_flows.clear(spec.name)
+        logout_anthropic_oauth()
         invalidate_oauth_model_catalog(spec.name)
         return settings_payload(config_path=config_path)
     else:

@@ -124,16 +124,14 @@ nanobot/providers/proactive_refresh.py    # timer per profile, backoff, dead-tok
 ```jsonc
 "providers": {
   "anthropic": {
-    "auth_mode": "oauth",              // "api_key" (default) | "oauth"
-    "oauth_profile": "default",
+    "authMode": "oauth",              // "api_key" (default) | "oauth"
     "patcher": {
       "enabled": true,
       "port": 18793,
-      "target_base_url": "https://api.anthropic.com",
-      "claude_code_version": "2.1.280",  // FLOOR: auto nâng khi app update, không hạ
-      "attribution_template": "x-anthropic-billing-header: cc_version=${version}.a1b; cc_entrypoint=cli; cch=00000;",
-      "add_session_id": true,
-      "extra_headers": {}                  // người dùng override
+      "targetBaseUrl": "https://api.anthropic.com",
+      "claudeCodeVersion": "2.1.280",  // FLOOR: auto nâng khi app update, không hạ
+      "attributionTemplate": "x-anthropic-billing-header: cc_version={{version}}.a1b; cc_entrypoint=cli; cch=00000;",
+      "addSessionId": true
     }
   }
 }
@@ -153,7 +151,7 @@ người dùng cố tình đặt cao hơn hoặc tag phi số thì giữ.
    - `system[]`: áp rule nhóm `system`; chèn block `attribution` vào `system[0]` nếu thiếu;
    - `tools[]`: rename theo `requestMap`, clean description;
    - **headers dựng lại từ đầu**: chỉ giữ `authorization`, `anthropic-version`;
-     áp rule `header` (set/remove, hỗ trợ `${version}`, `${sessionId}`);
+     áp rule `header` (set/remove, hỗ trợ `{{version}}`, `{{sessionId}}`);
      thêm `x-claude-code-session-id`.
 3. **Proxy response**:
    - non-stream: reverse `content[].name` + `input` + `text`;
@@ -207,7 +205,7 @@ người dùng cố tình đặt cao hơn hoặc tag phi số thì giữ.
 
 ## 10. Trạng thái triển khai
 
-Đã triển khai (P0–P4, P5 một phần):
+Đã triển khai đầy đủ (P0–P5):
 
 | Hạng mục | Vị trí |
 |---|---|
@@ -218,37 +216,38 @@ người dùng cố tình đặt cao hơn hoặc tag phi số thì giữ.
 | Config `authMode` + `patcher` | `nanobot/config/schema.py` (`PatcherSettings`, `ProviderConfig`) |
 | Factory wiring (exempt OAuth khỏi yêu cầu API key) | `nanobot/providers/factory.py` |
 | Provider OAuth client + lazy proxy start | `nanobot/providers/anthropic_provider.py` |
+| Registry `anthropic_oauth` + config mặc định OAuth | `nanobot/providers/registry.py`, `ProvidersConfig.anthropic_oauth` |
+| CLI `provider login/logout anthropic-oauth` | `nanobot/cli/provider.py` |
+| Proactive refresh trong vòng đời gateway/API server | `nanobot/cli/gateway_runtime.py`, `nanobot/cli/commands.py` |
+| WebUI settings (status, login, complete, logout) | `nanobot/webui/settings_models.py` |
+| WebUI brand/advanced fields | `webui/src/lib/provider-brand.ts`, `ProviderSettings.tsx` |
 
-Test: `tests/providers/patcher/` (rules, SSE, proxy, E2E),
-`tests/providers/test_anthropic_oauth.py`, `tests/providers/test_anthropic_oauth_wiring.py`.
+Test: `tests/providers/patcher/`, `tests/providers/test_anthropic_oauth.py`,
+`tests/providers/test_anthropic_oauth_wiring.py`, `tests/webui/test_settings_*`.
 
-Còn lại (đề xuất cho phase sau):
+Lưu ý về template: config dùng placeholder `{{version}}` / `{{sessionId}}` (không
+phải `${...}`) vì loader của nanobot coi `${NAME}` là biến môi trường. Code vẫn
+chấp nhận `${...}` như alias khi migrate từ config TypeScript gốc.
 
-- CLI `provider login anthropic-oauth` (cần một `ProviderSpec` `is_oauth` + handler và
-  `ProvidersConfig` field tương ứng).
-- Khởi động `ProactiveRefresher` trong vòng đời app/gateway và IPC/WebUI toast.
-- UI cấu hình patcher trong WebUI.
+Cách dùng:
 
-Cách dùng tối thiểu:
+```bash
+nanobot provider login anthropic-oauth --set-main
+```
 
 ```jsonc
 {
   "providers": {
-    "anthropic": {
+    "anthropic_oauth": {
       "authMode": "oauth",
       "patcher": { "enabled": true, "port": 18793 }
     }
   },
   "agents": {
-    "defaults": { "model": "anthropic/claude-sonnet-4-6", "provider": "anthropic" }
+    "defaults": { "model": "anthropic-oauth/claude-sonnet-4-6", "provider": "anthropic_oauth" }
   }
 }
 ```
 
-Đăng nhập và lấy token bằng API Python (CLI chưa nối):
-
-```python
-from nanobot.providers.anthropic_oauth import login_anthropic_oauth, get_anthropic_oauth_token
-login_anthropic_oauth(print_fn=print)
-token = get_anthropic_oauth_token()
-```
+Chọn mặc định bằng `--set-main`, hoặc bật/tắt patcher và đăng nhập trong WebUI
+Settings → Models → Anthropic (OAuth).

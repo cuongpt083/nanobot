@@ -46,6 +46,7 @@ from nanobot.providers.patcher.rules import (
     builtin_rules,
     compare_versions,
     default_config,
+    render_template,
 )
 from nanobot.providers.patcher.sse import SseReframer, create_anthropic_sse_reframer
 
@@ -71,6 +72,7 @@ __all__ = [
     "describe_upstream_error",
     "get_patcher_proxy",
     "is_retryable_connect_error",
+    "render_template",
     "reverse_full_response",
     "reverse_sse_event",
     "start_anthropic_patcher_proxy",

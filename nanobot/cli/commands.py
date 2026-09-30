@@ -408,11 +408,22 @@ def serve(
         prepare_agent=mcp_provider.connect,
     )
 
+    _refresher_holder: dict[str, Any] = {"ref": None}
+
     async def on_startup(_app: Any) -> None:
         await mcp_provider.connect()
+        from nanobot.providers.anthropic_oauth import start_proactive_refresher
+
+        _refresher_holder["ref"] = start_proactive_refresher(
+            proxy=runtime_config.providers.anthropic_oauth.proxy,
+            on_error=lambda exc: logger.warning("Anthropic OAuth refresh: {}", exc),
+        )
 
     async def on_cleanup(_app: Any) -> None:
         try:
+            refresher = _refresher_holder["ref"]
+            if refresher is not None:
+                await refresher.stop()
             await agent_loop.aclose()
         finally:
             await mcp_provider.aclose()

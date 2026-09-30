@@ -170,3 +170,78 @@ def test_get_token_requires_login(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     )
     with pytest.raises(AnthropicOAuthReauthRequiredError):
         oauth.get_anthropic_oauth_token()
+
+
+def test_login_flow_completes_with_pasted_callback_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    storage = tmp_path / "anthropic.json"
+    monkeypatch.setattr(oauth, "get_anthropic_oauth_storage_path", lambda: storage)
+    expected = AnthropicToken(access="acc", refresh="ref", expires=oauth._now_ms() + 100_000)
+    monkeypatch.setattr(oauth, "exchange_code_for_tokens", lambda *a, **k: expected)
+
+    flow = oauth.start_anthropic_oauth_login(timeout_s=30)
+    try:
+        result = flow.complete(
+            f"http://127.0.0.1:1/callback?code=abc&state={flow._state}"  # noqa: SLF001
+        )
+        assert result == expected
+        assert oauth.load_anthropic_token() == expected
+    finally:
+        flow.cancel()
+
+
+def test_login_flow_rejects_state_mismatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        oauth, "get_anthropic_oauth_storage_path", lambda: tmp_path / "anthropic.json"
+    )
+    flow = oauth.start_anthropic_oauth_login(timeout_s=30)
+    try:
+        with pytest.raises(AnthropicOAuthError):
+            flow.complete("http://127.0.0.1:1/callback?code=abc&state=wrong")
+    finally:
+        flow.cancel()
+
+
+def test_login_flow_pending_returns_none() -> None:
+    flow = oauth.start_anthropic_oauth_login(timeout_s=30)
+    try:
+        assert flow.complete() is None
+    finally:
+        flow.cancel()
+
+
+async def test_proactive_refresher_refreshes_when_due(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import asyncio
+
+    storage = tmp_path / "anthropic.json"
+    monkeypatch.setattr(oauth, "get_anthropic_oauth_storage_path", lambda: storage)
+    oauth.write_anthropic_token(AnthropicToken(access="old", refresh="r1", expires=oauth._now_ms() - 1))
+
+    def fake_get(**_kwargs: object) -> AnthropicToken:
+        token = AnthropicToken(access="new", refresh="r2", expires=oauth._now_ms() + 3_600_000)
+        oauth.write_anthropic_token(token)
+        return token
+
+    monkeypatch.setattr(oauth, "get_anthropic_oauth_token", fake_get)
+    refreshed: list[AnthropicToken] = []
+    refresher = oauth.ProactiveRefresher(on_refreshed=refreshed.append)
+    refresher.start()
+    try:
+        await asyncio.sleep(0.1)
+    finally:
+        await refresher.stop()
+    assert refreshed and refreshed[0].access == "new"
+
+
+def test_start_proactive_refresher_returns_none_without_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        oauth, "get_anthropic_oauth_storage_path", lambda: tmp_path / "missing.json"
+    )
+    assert oauth.start_proactive_refresher() is None

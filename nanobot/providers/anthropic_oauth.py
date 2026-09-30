@@ -428,10 +428,168 @@ def _make_callback_server(
     return server
 
 
+def _parse_authorization_response(value: str, expected_state: str) -> str:
+    """Accept either a bare authorization code or a full callback URL."""
+
+    raw = value.strip()
+    if not raw:
+        raise AnthropicOAuthError("No authorization code was provided.")
+    if "code=" in raw:
+        params = parse_qs(urlsplit(raw).query)
+        received_state = (params.get("state") or [""])[0]
+        if expected_state and received_state and received_state != expected_state:
+            raise AnthropicOAuthError("OAuth state mismatch. Start the sign-in again.")
+        code = (params.get("code") or [""])[0]
+        if not code:
+            raise AnthropicOAuthError("No authorization code found in the callback URL.")
+        return code
+    return raw
+
+
+class AnthropicOAuthLoginFlow:
+    """Pending Anthropic OAuth login that can finish via loopback or a pasted code."""
+
+    def __init__(
+        self,
+        *,
+        authorization_url: str,
+        redirect_uri: str,
+        verifier: str,
+        state: str,
+        proxy: str | None,
+        result_queue: queue.Queue[_CallbackResult],
+        server: ThreadingHTTPServer,
+        timeout_s: float,
+    ) -> None:
+        self.authorization_url = authorization_url
+        self.redirect_uri = redirect_uri
+        self._verifier = verifier
+        self._state = state
+        self._proxy = proxy
+        self._result_queue = result_queue
+        self._server = server
+        self._expires_at = time.monotonic() + timeout_s
+        self._lock = threading.Lock()
+        self._token: AnthropicToken | None = None
+        self._error: Exception | None = None
+        self._closed = False
+        self._server_thread = threading.Thread(
+            target=server.serve_forever,
+            name="nanobot-anthropic-oauth-callback",
+            daemon=True,
+        )
+        self._server_thread.start()
+        self._timeout_timer = threading.Timer(timeout_s, self._expire)
+        self._timeout_timer.daemon = True
+        self._timeout_timer.start()
+
+    @property
+    def expired(self) -> bool:
+        return time.monotonic() >= self._expires_at
+
+    @property
+    def remaining_seconds(self) -> int:
+        return max(0, int(self._expires_at - time.monotonic()))
+
+    def complete(self, authorization_response: str | None = None) -> AnthropicToken | None:
+        """Complete this flow, or return ``None`` while the loopback is pending."""
+
+        with self._lock:
+            if self._token is not None:
+                return self._token
+            self._raise_if_finished()
+
+        if authorization_response is not None:
+            code = _parse_authorization_response(authorization_response, self._state)
+            return self._finish(_CallbackResult(code=code, state=self._state))
+        try:
+            callback = self._result_queue.get_nowait()
+        except queue.Empty:
+            return None
+        return self._finish(callback)
+
+    def wait(self, timeout_s: float) -> AnthropicToken:
+        """Wait for the loopback callback and complete this flow."""
+
+        with self._lock:
+            if self._token is not None:
+                return self._token
+            self._raise_if_finished()
+        try:
+            callback = self._result_queue.get(timeout=timeout_s)
+        except queue.Empty as exc:
+            with self._lock:
+                if self._error is not None:
+                    raise self._error
+            raise AnthropicOAuthError("Timed out waiting for Anthropic sign-in.") from exc
+        return self._finish(callback)
+
+    def cancel(self) -> None:
+        """Stop the callback listener for an abandoned flow."""
+
+        with self._lock:
+            if self._token is None and self._error is None:
+                self._error = AnthropicOAuthError("Anthropic sign-in was cancelled.")
+            self._close_locked()
+
+    def _finish(self, callback: _CallbackResult) -> AnthropicToken:
+        with self._lock:
+            if self._token is not None:
+                return self._token
+            self._raise_if_finished()
+            self._close_locked()
+            try:
+                if callback.state and callback.state != self._state:
+                    raise AnthropicOAuthError("OAuth state mismatch. Start the sign-in again.")
+                token = exchange_code_for_tokens(
+                    callback.code,
+                    self._verifier,
+                    self.redirect_uri,
+                    self._state,
+                    proxy=self._proxy,
+                )
+                with _token_lock():
+                    write_anthropic_token(token)
+                verified = load_anthropic_token()
+                if verified is None or verified.expires != token.expires:
+                    raise AnthropicOAuthError(
+                        "Anthropic credentials could not be verified after writing."
+                    )
+            except Exception as exc:
+                self._error = exc
+                raise
+            self._token = token
+            return token
+
+    def _expire(self) -> None:
+        with self._lock:
+            if self._token is not None or self._error is not None:
+                return
+            self._error = AnthropicOAuthError("Anthropic sign-in expired. Start again.")
+            self._close_locked()
+
+    def _raise_if_finished(self) -> None:
+        if self._token is not None:
+            return
+        if self._error is not None:
+            raise self._error
+
+    def _close_locked(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._timeout_timer.cancel()
+        with suppress(Exception):
+            self._server.shutdown()
+            self._server.server_close()
+        if threading.current_thread() is not self._server_thread:
+            self._server_thread.join(timeout=2)
+
+
 def start_anthropic_oauth_login(
-    *, proxy: str | None = None
-) -> tuple[str, str, str, ThreadingHTTPServer, queue.Queue[_CallbackResult]]:
-    """Start a login: returns ``(authorize_url, redirect_uri, verifier, server, queue)``."""
+    *, proxy: str | None = None, timeout_s: float = 300
+) -> AnthropicOAuthLoginFlow:
+    """Create a non-blocking OAuth flow for browser or pasted-callback completion."""
 
     verifier, challenge = generate_pkce()
     state = secrets.token_urlsafe(32)
@@ -439,10 +597,16 @@ def start_anthropic_oauth_login(
     server = _make_callback_server(state, result_queue)
     redirect_uri = f"http://127.0.0.1:{server.server_port}/callback"
     authorize_url = _build_authorize_url(redirect_uri, challenge, state)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    _ = proxy  # reserved for parity with other providers; httpx call happens at exchange
-    return authorize_url, redirect_uri, verifier, server, result_queue
+    return AnthropicOAuthLoginFlow(
+        authorization_url=authorize_url,
+        redirect_uri=redirect_uri,
+        verifier=verifier,
+        state=state,
+        proxy=proxy,
+        result_queue=result_queue,
+        server=server,
+        timeout_s=timeout_s,
+    )
 
 
 def login_anthropic_oauth(
@@ -454,30 +618,15 @@ def login_anthropic_oauth(
 ) -> AnthropicToken:
     """Run the browser flow, persist the token and verify it by reading it back."""
 
-    authorize_url, redirect_uri, verifier, server, result_queue = start_anthropic_oauth_login(
-        proxy=proxy
-    )
+    flow = start_anthropic_oauth_login(proxy=proxy, timeout_s=callback_timeout_s)
     print_fn("Opening Anthropic sign-in in your browser...")
-    print_fn(f"If it does not open automatically, visit:\n{authorize_url}")
+    print_fn(f"If it does not open automatically, visit:\n{flow.authorization_url}")
     with suppress(Exception):
-        browser_opener(authorize_url)
+        browser_opener(flow.authorization_url)
     try:
-        result = result_queue.get(timeout=callback_timeout_s)
-    except queue.Empty as exc:
-        raise AnthropicOAuthError("Anthropic sign-in timed out.") from exc
+        return flow.wait(callback_timeout_s)
     finally:
-        server.shutdown()
-        server.server_close()
-
-    token = exchange_code_for_tokens(
-        result.code, verifier, redirect_uri, result.state, proxy=proxy
-    )
-    write_anthropic_token(token)
-    # Read back: never trust that the write landed.
-    verified = load_anthropic_token()
-    if verified is None or verified.expires != token.expires:
-        raise AnthropicOAuthError("Anthropic credentials could not be verified after writing.")
-    return token
+        flow.cancel()
 
 
 # ── Proactive refresher ──
@@ -515,7 +664,7 @@ class ProactiveRefresher:
     def start(self) -> None:
         if self._task is None or self._task.done():
             self._running = True
-            self._task = asyncio.get_event_loop().create_task(self._run())
+            self._task = asyncio.get_running_loop().create_task(self._run())
 
     async def stop(self) -> None:
         self._running = False
@@ -557,3 +706,26 @@ class ProactiveRefresher:
             self._attempt = 0
             if self._on_refreshed is not None:
                 self._on_refreshed(refreshed)
+
+
+def start_proactive_refresher(
+    *,
+    proxy: str | None = None,
+    on_refreshed: Callable[[AnthropicToken], None] | None = None,
+    on_error: Callable[[BaseException], None] | None = None,
+) -> ProactiveRefresher | None:
+    """Start a proactive refresher when an Anthropic token exists.
+
+    Returns ``None`` (and does nothing) when no token is stored, so callers can
+    wire this unconditionally into a startup hook.
+    """
+
+    if load_anthropic_token() is None:
+        return None
+    refresher = ProactiveRefresher(
+        proxy=proxy,
+        on_refreshed=on_refreshed,
+        on_error=on_error,
+    )
+    refresher.start()
+    return refresher

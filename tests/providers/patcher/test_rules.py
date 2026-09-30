@@ -135,3 +135,14 @@ def test_rule_dict_round_trip() -> None:
     restored = PatcherRule.from_dict(rule.to_dict())
     assert restored == rule
     assert PatcherRule.from_dict({"id": 1}) is None
+
+
+def test_render_template_supports_both_placeholder_forms() -> None:
+    from nanobot.providers.patcher.rules import render_template
+
+    assert (
+        render_template("v={{version}} s={{sessionId}}", version="1.2", session_id="abc")
+        == "v=1.2 s=abc"
+    )
+    # Legacy TypeScript-style placeholders remain accepted.
+    assert render_template("v=${version}", version="1.2") == "v=1.2"

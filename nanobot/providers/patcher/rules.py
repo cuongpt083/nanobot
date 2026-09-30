@@ -40,9 +40,11 @@ DEFAULT_TARGET_URL = "https://api.anthropic.com"
 #: an update may raise it, and a persisted value must never pin it lower.
 DEFAULT_CC_VERSION = "2.1.280"
 
-#: Attribution header injected as ``system[0]`` (``${version}`` is substituted).
+#: Attribution header injected as ``system[0]``. ``{{version}}`` is substituted.
+#: We use ``{{...}}`` (not ``${...}``) because nanobot's config loader treats
+#: ``${NAME}`` as an environment-variable reference.
 DEFAULT_ATTRIBUTION = (
-    "x-anthropic-billing-header: cc_version=${version}.a1b; "
+    "x-anthropic-billing-header: cc_version={{version}}.a1b; "
     "cc_entrypoint=cli; cch=00000;"
 )
 
@@ -56,7 +58,23 @@ DEFAULT_BETA_HEADERS = (
     "afk-mode-2026-01-31,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07"
 )
 
-DEFAULT_USER_AGENT_TEMPLATE = "claude-cli/${version} (external, sdk-cli)"
+DEFAULT_USER_AGENT_TEMPLATE = "claude-cli/{{version}} (external, sdk-cli)"
+
+
+def render_template(template: str, *, version: str = "", session_id: str = "") -> str:
+    """Substitute ``{{version}}``/``{{sessionId}}`` (and legacy ``${...}``) placeholders.
+
+    ``${...}`` is kept as an input alias for migration from the original
+    TypeScript config, but the shipped defaults use ``{{...}}`` so nanobot's
+    env-var resolver never mistakes a template for an environment reference.
+    """
+
+    return (
+        template.replace("{{version}}", version)
+        .replace("${version}", version)
+        .replace("{{sessionId}}", session_id)
+        .replace("${sessionId}", session_id)
+    )
 
 
 # ── Data model ──
