@@ -18,6 +18,7 @@ from loguru import logger
 
 from nanobot.coworker.context import optimizer
 from nanobot.coworker.runtime import spawn_background
+from nanobot.providers.base import LLMResponse, ProviderCallContext
 
 PING_PROMPT = "[cache keep-alive] Automated cache-warming ping. Do not call any tools. Reply with exactly: ok"
 
@@ -75,6 +76,27 @@ def capture(
     )
 
 
+async def _ping_once(cap: _Capture, session_key: str) -> LLMResponse:
+    """Replay the captured request as a cache-warming ping.
+
+    D10: keep the real request's generation parameters (max_tokens, temperature,
+    reasoning_effort) — changing thinking parameters drops the cached messages on
+    Anthropic. D4: route through ``chat_with_context`` with the session id so
+    providers that derive cache affinity from it (Codex ``prompt_cache_key``,
+    opencode affinity header) ping the same cache shard as the real request —
+    a plain ``chat`` ping would warm a different shard and only cost money.
+    """
+    return await cap.provider.chat_with_context(
+        provider_context=ProviderCallContext(session_id=session_key),
+        messages=[*cap.messages, {"role": "user", "content": PING_PROMPT}],
+        tools=cap.tools,
+        model=cap.model,
+        max_tokens=cap.max_tokens,
+        temperature=cap.temperature,
+        reasoning_effort=cap.reasoning_effort,
+    )
+
+
 async def _ping_loop(
     session_key: str,
     cap: _Capture,
@@ -93,14 +115,7 @@ async def _ping_loop(
         if time.time() - last_touch > ttl_s:
             return  # cache already expired: re-warming without a user is pure loss
         try:
-            response = await cap.provider.chat(
-                messages=[*cap.messages, {"role": "user", "content": PING_PROMPT}],
-                tools=cap.tools,
-                model=cap.model,
-                max_tokens=cap.max_tokens,
-                temperature=cap.temperature,
-                reasoning_effort=cap.reasoning_effort,
-            )
+            response = await _ping_once(cap, session_key)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
