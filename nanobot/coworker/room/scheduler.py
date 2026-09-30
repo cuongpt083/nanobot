@@ -190,9 +190,25 @@ def _workspace():
 
 async def _run_guest(room: _Room, agent: RoomAgentConfig, delegation: Delegation) -> str | None:
     svc = services()
+    cfg = load_coworker_config()
+    if agent.backend:
+        from nanobot.coworker.coding.runner import CodingRunner
+
+        runner = CodingRunner(cfg, _workspace())
+        task, backend_obj, repo_cfg = runner.admit(
+            brief=delegation.task,
+            session_key=room.session_key,
+            channel=room.channel,
+            chat_id=room.chat_id,
+            backend_name=agent.backend,
+        )
+        return await asyncio.wait_for(
+            runner.execute_task(task, backend_obj, repo_cfg, wait=True),
+            timeout=cfg.room.guest_timeout_seconds,
+        )
+
     if svc is None or svc.subagents is None:
         raise RuntimeError("subagent manager unavailable")
-    cfg = load_coworker_config()
     runtime = runtime_for_preset(agent.preset) if agent.preset else room.owner_runtime
     if runtime is None:
         runtime = runtime_for_preset("default")

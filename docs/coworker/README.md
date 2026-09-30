@@ -157,7 +157,64 @@ payload shape is re-applied verbatim, so trimming never busts a live cache.
   excerpt) for the user to generalize.
 - Run state: `<workspace>/.coworker/workflow-runs/<slug>/<run-id>/{run.json,trace.jsonl}`.
 
+### Coding agent (Pi & agy)
+
+Delegate heavy coding work (multi-file edits, large refactors, bug fixes requiring a test/acceptance loop)
+to an external coding harness running headless in an isolated git worktree, while nanobot coordinates,
+verifies the results, and reports back in chat.
+
+#### Backends supported
+- **Pi** (`pi`): Lean, fast, steerable in-flight edits (`--mode rpc`).
+- **agy** (`agy`): Google Antigravity CLI with broad research capabilities (`--output-format stream-json`).
+
+#### Setup steps
+1. **Install and authenticate harnesses outside nanobot**:
+   - Pi: `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, configure credentials via `pi auth`.
+   - agy: install `agy` binary, complete interactive login in a terminal.
+2. **Configure repositories in `~/.nanobot/coworker.json`**:
+   ```json
+   {
+     "coding": {
+       "enabled": true,
+       "default_backend": "pi",
+       "repos": [
+         {
+           "path": "/path/to/your/git/repo",
+           "base_ref": "main",
+           "acceptance": "pytest -q"
+         }
+       ],
+       "pi": {
+         "allow_unsandboxed": true
+       },
+       "agy": {
+         "allow_unsandboxed": true
+       }
+     }
+   }
+   ```
+
+#### Usage
+- **Agent tool**: `coding_agent(action="start", task="...", backend="pi|agy", acceptance="...")`
+  Starts a task in the background. The LLM ends its turn immediately and is automatically re-summoned
+  with `[auto-coding-result]` once the harness completes and nanobot verifies acceptance.
+- **Slash commands**:
+  - `/code list`: list active and recent coding tasks.
+  - `/code status <id>`: check status, commits, and diffstat of a task.
+  - `/code diff <id>`: inspect full git diff.
+  - `/code steer <id> <message>`: steer a running Pi task mid-flight.
+  - `/code abort <id>`: abort an active task.
+  - `/code merge <id>`: squash-merge verified task changes into the base branch and clean up worktree.
+  - `/code discard <id>`: discard worktree and delete the task branch.
+  - `/code resume <id> <message>`: resume an interrupted or failed task with a new round.
+
+#### Multi-agent room integration
+A teammate in `room.agents` can have `backend: "pi"` or `backend: "agy"` configured. When the room
+coordinator delegates a coding sub-task to that teammate, it runs through the coding runner with
+isolated worktree and acceptance verification.
+
 ## Tests
 
 `tests/coworker/` — seams, optimizer gating, workflow engine/drive/distill, advisor guards,
-room scheduling (chaining, WAIT_FOR, budget), hook orchestration.
+room scheduling (chaining, WAIT_FOR, budget), hook orchestration, and coding harness delegation
+(`tests/coworker/coding/`).
