@@ -73,6 +73,7 @@ class AdvisorTool(CoworkerTool):
                 error=f"advisor preset {eff.preset!r} cannot be loaded: {exc}",
                 fallback="Continue on your own judgment and tell the user the advisor preset is misconfigured.",
             )
+        brainstorm = eff.mode == advisor_state.MODE_BRAINSTORM
         messages = live_messages(request.session_key) or list(session.messages)
         started = time.monotonic()
         result = await run_consult(
@@ -81,8 +82,10 @@ class AdvisorTool(CoworkerTool):
             focus=(focus or "")[:500] or None,
             max_tokens=eff.max_tokens,
             timeout_s=load_coworker_config().advisor.timeout_seconds,
-            allow_thin=eff.early_refused or eff.uses > 0,
+            # Brainstorming has no "orient first" phase: the conversation itself is the context.
+            allow_thin=brainstorm or eff.early_refused or eff.uses > 0,
             session_key=request.session_key,
+            brainstorm=brainstorm,
         )
         if result.code not in ("insufficient_context", "advisor_unavailable") and result.error != (
             "session transcript is empty"
@@ -117,6 +120,14 @@ class AdvisorTool(CoworkerTool):
                 ),
             )
         uses = advisor_state.count_use(session)
+        advisor_state.record_exchange(
+            session,
+            model=result.model or eff.preset,
+            focus=focus,
+            advice=result.text,
+            mode=eff.mode,
+            now=time.time(),
+        )
         return ToolResult(
             f"ADVISOR ({result.model}) — advice {uses}/{eff.max_uses}:\n\n{result.text}\n\n---\n"
             "(Reminder: consult the advisor again when the same error recurs, when a result contradicts your "

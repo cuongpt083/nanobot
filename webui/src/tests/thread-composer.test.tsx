@@ -1891,6 +1891,36 @@ describe("ThreadComposer", () => {
     });
   });
 
+  it("offers coding agents and the advisor after @ and sends the mention as plain text", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        agentMentions={[
+          { id: "agy", kind: "coding", label: "agy", detail: "coding agent", enabled: true },
+          { id: "advisor", kind: "advisor", label: "advisor", detail: "second opinion", enabled: true },
+        ]}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "@ag", selectionStart: 3 } });
+
+    expect(screen.getByRole("group", { name: "Agents" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /@agy/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("option", { name: /@advisor/i })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input).toHaveValue("@agy ");
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "@agy fix the login test", selectionStart: 23 } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend.mock.calls[0][0]).toBe("@agy fix the login test");
+  });
+
   it("keeps keyboard-selected mention options visible while navigating", () => {
     const scrollIntoView = vi.fn();
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;

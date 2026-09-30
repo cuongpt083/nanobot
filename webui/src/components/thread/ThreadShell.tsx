@@ -58,6 +58,7 @@ import {
 import type { CanonicalRunSnapshot, StreamError } from "@/lib/nanobot-client";
 import type {
   ChatSummary,
+  CoworkerMention,
   FilePreviewPayload,
   FileReferenceMetadata,
   RoundUsage,
@@ -709,6 +710,7 @@ export function ThreadShell({
   }, [client]);
   const [booting, setBooting] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
+  const [agentMentions, setAgentMentions] = useState<CoworkerMention[]>([]);
   const [mentionCatalogRequestCount, setMentionCatalogRequestCount] = useState(0);
   const requestMentionCatalogs = useCallback(() => setMentionCatalogRequestCount((count) => count + 1), []);
   const cliApps = useInstalledSettingItems({
@@ -1769,6 +1771,7 @@ export function ThreadShell({
           onMentionSearch={requestMentionCatalogs}
           cliApps={cliApps}
           mcpPresets={mcpPresets}
+          agentMentions={agentMentions}
           sessions={mentionSessions}
           skills={skills}
           onStop={stop}
@@ -1861,6 +1864,8 @@ export function ThreadShell({
   ) : undefined;
   const coworkerInspectorAction = historyKey ? (
     <CoworkerHeaderControls
+      client={client}
+      onMentionsChange={setAgentMentions}
       sessionKey={historyKey}
       token={token}
       turnActive={turnActive}

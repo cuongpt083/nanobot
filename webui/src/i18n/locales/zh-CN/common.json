@@ -1786,7 +1786,13 @@
         "cliTitle": "CLI 应用：{{name}}",
         "mcpTitle": "MCP 服务：{{name}}",
         "sessionBadge": "Nanobot 对话",
-        "sessionDescription": "引用历史会话 @{{name}}"
+        "sessionDescription": "引用历史会话 @{{name}}",
+        "agentGroup": "智能体",
+        "agentBadge": {
+          "coding": "编码智能体",
+          "advisor": "顾问",
+          "teammate": "队友"
+        }
       },
       "encoding": "处理中…",
       "remove": "移除附件",

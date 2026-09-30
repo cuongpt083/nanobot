@@ -42,19 +42,39 @@ def _route(ctx: CommandContext) -> tuple[str, str]:
     return ctx.msg.channel, ctx.msg.chat_id
 
 
+_ADVISOR_USAGE = "Usage: /advisor on [preset] | off | brainstorm | code | <preset> | default | status"
+
+
 async def cmd_advisor(ctx: CommandContext) -> OutboundMessage:
     session = _session(ctx)
-    arg = ctx.args.strip()
-    if arg and arg != "status":
-        advisor_state.set_preset(session, None if arg == "default" else arg)
+    head, _, rest = ctx.args.strip().partition(" ")
+    verb, rest = head.lower(), rest.strip()
+    try:
+        if verb in ("", "status"):
+            pass
+        elif verb == "on":
+            advisor_state.apply_switch(session, enabled=True, preset=rest or None)
+        elif verb == "off":
+            advisor_state.apply_switch(session, enabled=False)
+        elif verb == "brainstorm":
+            advisor_state.apply_switch(session, enabled=True, mode=advisor_state.MODE_BRAINSTORM, preset=rest or None)
+        elif verb == "code":
+            advisor_state.apply_switch(session, mode=advisor_state.MODE_CODING)
+        elif verb == "default":
+            advisor_state.set_preset(session, None)
+        else:
+            advisor_state.apply_switch(session, enabled=True, preset=head)
+    except ValueError as exc:
+        return _reply(ctx, f"⚠️ {exc}\n{_ADVISOR_USAGE}")
+    if verb not in ("", "status"):
         ctx.loop.sessions.save(session)
     eff = advisor_state.effective(session)
     if eff is None:
-        return _reply(ctx, "🧭 Advisor: off for this session.\nUsage: /advisor <preset> | off | default")
+        return _reply(ctx, f"🧭 Advisor: off for this session.\n{_ADVISOR_USAGE}")
     return _reply(
         ctx,
-        f"🧭 Advisor: preset `{eff.preset}` — {eff.uses}/{eff.max_uses} consults used.\n"
-        "Usage: /advisor <preset> | off | default",
+        f"🧭 Advisor: on ({eff.mode}), preset `{eff.preset}` — {eff.uses}/{eff.max_uses} consults used.\n"
+        f"{_ADVISOR_USAGE}",
     )
 
 

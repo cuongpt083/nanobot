@@ -10,7 +10,7 @@ from nanobot.coworker.advisor import state as advisor_state
 from nanobot.coworker.advisor.consult import active_consult, breaker_open_seconds
 from nanobot.coworker.coding.tasks import CodingTask, shared_registry
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
-from nanobot.coworker.context import optimizer
+from nanobot.coworker.context import metrics, optimizer
 from nanobot.coworker.room.scheduler import room_snapshot
 from nanobot.coworker.room.store import RoomStateStore, room_id_for
 from nanobot.coworker.room.tools import room_armed_for
@@ -168,6 +168,8 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
         "system_frozen": bool(opt_desc.get("system_frozen", False)),
         "sent_messages": int(opt_desc.get("sent_messages", 0)),
         "original_messages": int(opt_desc.get("original_messages", 0)),
+        # What the provider reported back (hit rate, read/write tokens), as opposed to what we sent.
+        "usage": metrics.snapshot(key),
     }
 
     # 2. Advisor
@@ -182,6 +184,9 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "max_tokens": cfg.advisor.max_tokens,
             "breaker_open_seconds": 0,
             "last_consult": last_consult,
+            "mode": advisor_state.current_mode(session),
+            "default_preset": cfg.advisor.preset,
+            "history": advisor_state.history(session),
         }
     else:
         advisor_status = {
@@ -192,6 +197,9 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "max_tokens": adv_eff.max_tokens,
             "breaker_open_seconds": round(breaker_open_seconds(adv_eff.preset)),
             "last_consult": last_consult,
+            "mode": adv_eff.mode,
+            "default_preset": cfg.advisor.preset,
+            "history": advisor_state.history(session),
         }
 
     # 3. Room & Teammates
@@ -254,6 +262,30 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
     participants += _teammate_participants(cfg, key, armed)
     participants += _coding_participants(tasks)
 
+    # 6. Names the composer can offer after "@": what each one does when mentioned.
+    room_ids = {a.id for a in cfg.room.agents}
+    mentions: list[dict[str, Any]] = [
+        {"id": a.id, "kind": "teammate", "label": a.name or a.id, "detail": a.bio}
+        for a in cfg.room.agents
+    ]
+    for backend in ("pi", "agy"):
+        if backend not in room_ids:
+            mentions.append({
+                "id": backend,
+                "kind": "coding",
+                "label": backend,
+                "detail": "coding agent" if cfg.coding.enabled else "coding agent (disabled in settings)",
+                "enabled": cfg.coding.enabled,
+            })
+    if "advisor" not in room_ids:
+        mentions.append({
+            "id": "advisor",
+            "kind": "advisor",
+            "label": "advisor",
+            "detail": "second opinion" if adv_eff is not None else "second opinion (switched off)",
+            "enabled": adv_eff is not None,
+        })
+
     return {
         "caching": caching_status,
         "advisor": advisor_status,
@@ -263,5 +295,6 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "tasks": [_task_summary(t) for t in tasks],
         },
         "participants": participants,
+        "mentions": mentions,
         "generated_at": time.time(),
     }

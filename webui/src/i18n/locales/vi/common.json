@@ -1603,7 +1603,13 @@
         "cliTitle": "Ứng dụng CLI: {{name}}",
         "mcpTitle": "Máy chủ MCP: {{name}}",
         "sessionBadge": "Cuộc trò chuyện Nanobot",
-        "sessionDescription": "Tham chiếu @{{name}} như cuộc trò chuyện trước"
+        "sessionDescription": "Tham chiếu @{{name}} như cuộc trò chuyện trước",
+          "agentGroup": "Agent",
+          "agentBadge": {
+            "coding": "Agent lập trình",
+            "advisor": "Advisor",
+            "teammate": "Đồng đội"
+          }
       },
       "workspace": {
         "accessAria": "Chế độ truy cập không gian làm việc",
@@ -1996,8 +2002,37 @@
       "armed": "Đang trực",
       "idle": "Nghỉ",
       "availableAgents": "Danh sách Teammate",
-      "codingTitle": "Tác vụ Lập trình (Coding Agent)"
+      "codingTitle": "Tác vụ Lập trình (Coding Agent)",
+      "advisorOffHint": "Đang tắt cho cuộc trò chuyện này. Dùng công tắc Advisor ở đầu trang để bật."
     },
+      "advisorControl": {
+        "title": "Advisor",
+        "tooltipOn": "Advisor đang bật cho cuộc trò chuyện này",
+        "tooltipOff": "Bật một mô hình mạnh hơn để lấy ý kiến thứ hai",
+        "description": "Mô hình mạnh hơn mà agent tham vấn để lấy ý kiến thứ hai. Dùng được cho mọi chủ đề, không chỉ code.",
+        "toggle": "Advisor cho cuộc trò chuyện này",
+        "mode": "Dùng cho",
+        "modeBrainstorm": "Brainstorm",
+        "modeCoding": "Lập trình",
+        "hintBrainstorm": "Thảo luận và ra quyết định: agent xin ý kiến thứ hai trước khi đưa ra đề xuất.",
+        "hintCoding": "Công việc kỹ thuật: agent đọc code trước, tham vấn trước khi ghi và trước khi kết thúc.",
+        "model": "Mô hình advisor",
+        "choosePreset": "Chọn một preset mô hình"
+      },
+      "advisorExchanges": {
+        "title": "Hỏi đáp với Advisor",
+        "empty": "Chưa có lần tham vấn nào. Agent sẽ hỏi advisor khi cần ý kiến thứ hai.",
+        "noFocus": "Đã xem xét toàn bộ phiên"
+      },
+      "cache": {
+        "none": "Phiên này chưa có yêu cầu nào tới mô hình.",
+        "unreported": "Nhà cung cấp này không báo cáo mức dùng prompt cache nên chưa biết tỷ lệ trúng.",
+        "hitRate": "Tỷ lệ trúng cache (phiên)",
+        "read": "Từ cache",
+        "write": "Mới ghi cache",
+        "input": "Tổng input",
+        "last": "Yêu cầu gần nhất: {{rate}} từ cache ({{read}} / {{input}} token)"
+      },
     "advisor": {
       "reviewTitle": "Cố vấn cấp cao - Đánh giá chiến lược",
       "automated": "Điểm kiểm tra"

@@ -1603,7 +1603,13 @@
         "cliTitle": "CLI 앱: {{name}}",
         "mcpTitle": "MCP 서버: {{name}}",
         "sessionBadge": "Nanobot 대화",
-        "sessionDescription": "@{{name}}을 이전 채팅으로 참조"
+        "sessionDescription": "@{{name}}을 이전 채팅으로 참조",
+        "agentGroup": "에이전트",
+        "agentBadge": {
+          "coding": "코딩 에이전트",
+          "advisor": "어드바이저",
+          "teammate": "팀원"
+        }
       },
       "workspace": {
         "accessAria": "작업공간 접근 모드",

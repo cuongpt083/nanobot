@@ -26,6 +26,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CoworkerAdvisorExchanges } from "@/components/coworker/CoworkerAdvisorExchanges";
+import { CoworkerCacheUsageBlock, formatPercent } from "@/components/coworker/CoworkerCacheUsage";
 import { CoworkerParticipantList } from "@/components/coworker/CoworkerParticipants";
 import { useCoworkerStatus } from "@/hooks/useCoworkerStatus";
 import { cn } from "@/lib/utils";
@@ -66,6 +68,8 @@ export function CoworkerInspectorPopover({
   const { status, loading, liveRemainingSeconds } = feed ?? own;
 
   const isWarm = status?.caching?.is_warm ?? false;
+  const usage = status?.caching?.usage;
+  const hitRate = usage?.reported ? usage.hit_rate : null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -78,11 +82,17 @@ export function CoworkerInspectorPopover({
                 size="icon"
                 aria-label={t("coworker.inspector.title", { defaultValue: "Coworker Inspector" })}
                 className={cn(
-                  "host-no-drag relative h-8 w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground",
+                  "host-no-drag relative h-8 min-w-8 rounded-full text-muted-foreground/85 hover:bg-accent/40 hover:text-foreground",
+                  hitRate !== null ? "w-auto gap-1 px-2" : "w-8",
                   isWarm && "text-amber-600 dark:text-amber-400",
                 )}
               >
                 <Layers className="h-4 w-4" />
+                {hitRate !== null ? (
+                  <span className="text-[11px] font-medium tabular-nums" data-testid="coworker-cache-hit-rate">
+                    {formatPercent(hitRate)}
+                  </span>
+                ) : null}
                 {isWarm ? (
                   <span className="absolute right-1 top-1 flex h-2 w-2">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -190,6 +200,7 @@ export function CoworkerInspectorPopover({
                   </div>
                 </div>
               </div>
+              <CoworkerCacheUsageBlock usage={status?.caching?.usage} />
             </div>
 
             {/* 2. Senior Advisor */}
@@ -227,6 +238,28 @@ export function CoworkerInspectorPopover({
                         : "Operational"}
                     </span>
                   </div>
+                  <div className="flex items-center justify-between text-muted-foreground">
+                    <span>{t("coworker.advisorControl.mode", { defaultValue: "Use it for" })}:</span>
+                    <span className="font-semibold text-foreground">
+                      {status.advisor.mode === "brainstorm"
+                        ? t("coworker.advisorControl.modeBrainstorm", { defaultValue: "Brainstorm" })
+                        : t("coworker.advisorControl.modeCoding", { defaultValue: "Coding" })}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  {t("coworker.inspector.advisorOffHint", {
+                    defaultValue: "Off for this chat. Use the Advisor switch in the header to turn it on.",
+                  })}
+                </p>
+              )}
+              {status?.advisor?.enabled || (status?.advisor?.history?.length ?? 0) > 0 ? (
+                <div className="mt-2.5 border-t border-border/40 pt-2">
+                  <div className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+                    {t("coworker.advisorExchanges.title", { defaultValue: "Advisor Q&A" })}
+                  </div>
+                  <CoworkerAdvisorExchanges exchanges={status?.advisor?.history} />
                 </div>
               ) : null}
             </div>

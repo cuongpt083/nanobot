@@ -515,7 +515,7 @@ class GatewayHTTPHandler:
     def _is_webui_mutation_path(self, path: str) -> bool:
         if self.settings_routes.is_mutation_path(path):
             return True
-        if re.match(r"^/api/sessions/[^/]+/delete$", path):
+        if re.match(r"^/api/sessions/[^/]+/(delete|coworker/advisor)$", path):
             return True
         if re.match(r"^/api/webui/automations/(enable|disable|delete|run|update)$", path):
             return True
@@ -544,6 +544,11 @@ class GatewayHTTPHandler:
             if not isinstance(key, str) or not key.strip():
                 return _http_error(400, "missing session key")
             return f"/api/sessions/{quote(key, safe='')}/delete"
+        if action == "session.coworker.advisor":
+            key = payload.get("key")
+            if not isinstance(key, str) or not key.strip():
+                return _http_error(400, "missing session key")
+            return f"/api/sessions/{quote(key, safe='')}/coworker/advisor"
         connect_action = _WEBUI_CHANNEL_CONNECT_ACTIONS.get(action)
         if connect_action is not None:
             channel = payload.get("channel")
@@ -784,6 +789,10 @@ class GatewayHTTPHandler:
         if m:
             return await self._handle_session_coworker_get(request, m.group(1))
 
+        m = re.match(r"^/api/sessions/([^/]+)/coworker/advisor$", got)
+        if m:
+            return await self._handle_session_coworker_advisor(request, m.group(1))
+
 
         m = re.match(r"^/api/sessions/([^/]+)/file-preview$", got)
         if m:
@@ -848,7 +857,9 @@ class GatewayHTTPHandler:
             return _http_error(404, "session not found")
         if self.session_manager is None:
             return _http_error(503, "session manager unavailable")
-        session = await asyncio.to_thread(
+        # Prefer the live session: consult counts and the exchange log are only flushed to disk
+        # when a turn ends, so the on-disk snapshot lags behind while an advisor call is running.
+        session = self.session_manager.get_cached(decoded_key) or await asyncio.to_thread(
             self.session_manager.read_session_snapshot,
             decoded_key,
         )
@@ -857,6 +868,51 @@ class GatewayHTTPHandler:
         from nanobot.coworker.status import coworker_session_status
 
         return _http_json_response(coworker_session_status(session))
+
+    async def _handle_session_coworker_advisor(self, request: WsRequest, key: str) -> Response:
+        """Manual per-session advisor switch: ``{enabled?, preset?, mode?}``."""
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if not getattr(request, _WEBUI_MUTATION_REQUEST_ATTR, False):
+            return _http_error(405, "WebUI mutations require an authenticated WebSocket")
+        decoded_key = _decode_api_key(key)
+        if decoded_key is None:
+            return _http_error(400, "invalid session key")
+        if not _is_websocket_channel_session_key(decoded_key):
+            return _http_error(404, "session not found")
+        if self.session_manager is None:
+            return _http_error(503, "session manager unavailable")
+        payload = _mutation_payload(request) or {}
+        enabled = payload.get("enabled")
+        preset = payload.get("preset")
+        mode = payload.get("mode")
+        if enabled is not None and not isinstance(enabled, bool):
+            return _http_error(400, "enabled must be a boolean")
+        if preset is not None and not isinstance(preset, str):
+            return _http_error(400, "preset must be a string")
+        if mode is not None and not isinstance(mode, str):
+            return _http_error(400, "mode must be a string")
+        from nanobot.coworker.advisor import state as advisor_state
+        from nanobot.coworker.status import coworker_session_status
+
+        manager = self.session_manager
+
+        def apply() -> dict[str, Any]:
+            session = manager.get_or_create(decoded_key)
+            advisor_state.apply_switch(
+                session,
+                enabled=enabled,
+                preset=(preset or "").strip() or None,
+                mode=mode,
+            )
+            manager.save(session)
+            return coworker_session_status(session)
+
+        try:
+            status = await asyncio.to_thread(apply)
+        except ValueError as exc:
+            return _http_error(400, str(exc))
+        return _http_json_response(status)
 
 
     async def _handle_sessions_list(self, request: WsRequest) -> Response:

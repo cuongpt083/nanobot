@@ -1601,7 +1601,13 @@
         "cliTitle": "Aplicativo CLI: {{name}}",
         "mcpTitle": "Servidor MCP: {{name}}",
         "sessionBadge": "Conversa do Nanobot",
-        "sessionDescription": "Referenciar @{{name}} como chat anterior"
+        "sessionDescription": "Referenciar @{{name}} como chat anterior",
+        "agentGroup": "Agentes",
+        "agentBadge": {
+          "coding": "Agente de código",
+          "advisor": "Consultor",
+          "teammate": "Colega"
+        }
       },
       "encoding": "Codificando…",
       "remove": "Remover anexo",

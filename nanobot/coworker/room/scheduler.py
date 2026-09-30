@@ -149,6 +149,16 @@ def set_armed(session: Session, armed: bool) -> None:
     session_state(session)["room"] = {"armed": armed}
 
 
+def mention_ids(text: str) -> list[str]:
+    """Every distinct ``@name`` in the text (lowercased, in order), configured or not."""
+    seen: list[str] = []
+    for match in _MENTION.finditer(text or ""):
+        name = match.group(1).lower()
+        if name not in seen:
+            seen.append(name)
+    return seen
+
+
 def mentioned_agents(text: str) -> list[str]:
     cfg = load_coworker_config()
     known = {a.id for a in cfg.room.agents}

@@ -7,6 +7,7 @@ import type {
   ChannelValidationPayload,
   ChatSummary,
   CliAppsPayload,
+  CoworkerAdvisorSwitch,
   CoworkerSettingsPayload,
   CoworkerSettingsUpdate,
   CoworkerStatus,
@@ -520,6 +521,14 @@ export async function fetchCoworkerStatus(
     undefined,
     API_READ_TIMEOUT_MS,
   );
+}
+
+export async function setCoworkerAdvisor(
+  transport: WebUIMutationTransport,
+  key: string,
+  change: CoworkerAdvisorSwitch,
+): Promise<CoworkerStatus> {
+  return mutation<CoworkerStatus>(transport, "session.coworker.advisor", { key, ...change });
 }
 
 export async function fetchCoworkerSettings(

@@ -94,8 +94,17 @@ off or inert by default, so an unconfigured install behaves exactly like upstrea
 ## Feature notes
 
 ### Advisor
-- Tool `advisor(focus?)` is visible only when a preset is configured (globally or
-  `/advisor <preset>` per session; `/advisor off`, `/advisor default`).
+- Tool `advisor(focus?)` is visible only when a preset is configured (globally, or per session with the
+  **Advisor** switch in the chat header / `/advisor on [preset]`; `/advisor off`, `/advisor default`).
+  The switch is manual and per session: it overrides the global setting in both directions.
+- Two modes, chosen in the same popover or with `/advisor brainstorm` / `/advisor code`:
+  - **coding** (default): orient, consult before the first write, consult again before finishing;
+    thin-context refusal and the review nudge apply.
+  - **brainstorm**: for discussion and decisions. The agent consults before it recommends anything,
+    with no "read files first" phase (no thin-context refusal), under a thinking-partner reviewer prompt
+    that argues for a position instead of reviewing work. No review nudge.
+- Every successful consult is kept (last 6, `focus` + advice, cleared by `/new`) and shown as **Advisor Q&A**
+  in the header popover and the inspector, so you can see what the agent asked and what it was told.
 - The consult forwards the executor's **live** message list (system prompt + history +
   current run, captured by the hook) as quoted data under a clean reviewer system prompt.
   Oversized tool results are elided; over budget, the first task turn + newest tail are kept.
@@ -122,6 +131,16 @@ off or inert by default, so an unconfigured install behaves exactly like upstrea
   multi-agent registry); no remote/federated agents; no direct `@agent` bypass of the
   coordinator.
 
+### Addressing agents with `@`
+The composer offers `@agy`, `@pi`, `@advisor` and every configured room agent (from `mentions[]` in the
+session status). A room agent id keeps its room behaviour. The others are routed by a one-line note appended
+to that user message (never to the system prompt, so the cached prefix is untouched):
+- `@agy` / `@pi`: the coordinator delegates the request to that backend with `coding_agent(action="start")`.
+  If coding is disabled the note says so and points at Settings → Capabilities → Coworker → Coding.
+- `@advisor`: the coordinator consults the advisor with the question and reports where it agrees or disagrees.
+  If the advisor is off the note says how to turn it on.
+The coordinator still performs the hand-off; there is no direct bypass of it.
+
 ### Token cache & trim
 One rule, from AICoworker: **a change to the cached prompt prefix is adopted only while the
 provider cache is cold** (idle > TTL, default 300 s). While warm, the previously adopted
@@ -140,6 +159,10 @@ payload shape is re-applied verbatim, so trimming never busts a live cache.
 - Only the outgoing payload changes; the session transcript is never modified. Providers
   with server-side conversation state (`stateful=True`) are not trimmed.
 - `/ctx` shows the per-session optimizer and keep-alive state.
+- The inspector also shows what the **provider** reported for the session (`caching.usage`): hit rate, tokens
+  read from cache, tokens newly written, input total, the last request and a bar per recent request. It is
+  kept in memory per session (lost on restart), and providers that return no cache fields are shown as
+  "not reported" rather than as 0%. The header inspector button shows the session hit rate.
 
 ### Workflows
 - Location: `<workspace>/workflows/<slug>/` (ref `<slug>`) or
@@ -228,7 +251,8 @@ isolated worktree and acceptance verification.
 - **Apps → Coding** shows Pi and agy (binary path/version; custom commands are located but never run).
 - **Participants**: the chat header shows chips for the agents taking part in the session (coordinator,
   advisor mid-consult, teammates working/queued/waiting, coding tasks with tool count and last tool); the
-  inspector lists them in detail. Data comes from `participants[]` in
+  inspector lists them in detail. The **Advisor** button next to it is the manual per-session switch
+  (mutation `session.coworker.advisor`, body `{enabled?, preset?, mode?}`). Data comes from `participants[]` in
   `GET /api/sessions/{key}/coworker` and is polled every 3 s only while something is active.
 
 ## Tests

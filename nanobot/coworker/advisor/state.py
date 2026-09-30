@@ -7,9 +7,14 @@ from typing import Any
 
 from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.runtime import session_state
-from nanobot.coworker.transcript import as_dict
+from nanobot.coworker.transcript import as_dict, as_list
 
 OFF = "off"
+MODE_CODING = "coding"
+MODE_BRAINSTORM = "brainstorm"
+MODES = (MODE_CODING, MODE_BRAINSTORM)
+HISTORY_LIMIT = 6
+ADVICE_MAX_CHARS = 6000
 
 
 @dataclass(frozen=True)
@@ -19,6 +24,7 @@ class AdvisorEffective:
     max_uses: int
     max_tokens: int
     early_refused: bool
+    mode: str = MODE_CODING
 
 
 def _slot(session: Any) -> dict[str, Any]:
@@ -32,6 +38,7 @@ def _slot(session: Any) -> dict[str, Any]:
     if size < int(slot.get("seen_len", 0) or 0):
         slot.pop("uses", None)
         slot.pop("early_refused", None)
+        slot.pop("history", None)
     slot["seen_len"] = size
     return slot
 
@@ -50,7 +57,12 @@ def effective(session: Any) -> AdvisorEffective | None:
         max_uses=int(slot.get("max_uses") or cfg.max_uses),
         max_tokens=cfg.max_tokens,
         early_refused=slot.get("early_refused") is True,
+        mode=mode_of(slot),
     )
+
+
+def mode_of(slot: dict[str, Any]) -> str:
+    return MODE_BRAINSTORM if slot.get("mode") == MODE_BRAINSTORM else MODE_CODING
 
 
 def set_preset(session: Any, preset: str | None) -> None:
@@ -60,6 +72,40 @@ def set_preset(session: Any, preset: str | None) -> None:
         slot.pop("preset", None)
     else:
         slot["preset"] = preset
+
+
+def apply_switch(
+    session: Any,
+    *,
+    enabled: bool | None = None,
+    preset: str | None = None,
+    mode: str | None = None,
+) -> AdvisorEffective | None:
+    """Manual per-session switch. Turning on needs a preset: the given one, the session's, or the global."""
+    if mode is not None:
+        if mode not in MODES:
+            raise ValueError(f"unknown advisor mode {mode!r}")
+        set_mode(session, mode)
+    if enabled is False:
+        set_preset(session, OFF)
+    elif enabled is True or preset:
+        if preset:
+            if preset == OFF:
+                raise ValueError("preset 'off' cannot be selected while enabling the advisor")
+            set_preset(session, preset)
+        elif _slot(session).get("preset") in (None, OFF):
+            set_preset(session, None)  # fall back to the global default preset
+        if effective(session) is None:
+            raise ValueError("no advisor preset configured: choose a model preset")
+    return effective(session)
+
+
+def set_mode(session: Any, mode: str) -> None:
+    _slot(session)["mode"] = MODE_BRAINSTORM if mode == MODE_BRAINSTORM else MODE_CODING
+
+
+def current_mode(session: Any) -> str:
+    return mode_of(_slot(session))
 
 
 def count_use(session: Any) -> int:
@@ -92,6 +138,34 @@ def record_consult(
         "duration_ms": duration_ms,
         "ok": ok,
     }
+
+
+def record_exchange(
+    session: Any,
+    *,
+    model: str,
+    focus: str | None,
+    advice: str,
+    mode: str,
+    now: float,
+) -> None:
+    """Keep the latest question/answer pairs so the WebUI can show what the executor asked."""
+    slot = _slot(session)
+    history: list[Any] = as_list(slot.get("history")) or []
+    history.append({
+        "at": now,
+        "model": model,
+        "mode": mode,
+        "focus": (focus or "")[:FOCUS_MAX_CHARS] or None,
+        "advice": advice[:ADVICE_MAX_CHARS],
+        "n": int(slot.get("uses", 0) or 0),
+    })
+    slot["history"] = history[-HISTORY_LIMIT:]
+
+
+def history(session: Any) -> list[dict[str, Any]]:
+    raw: list[Any] = as_list(_slot(session).get("history")) or []
+    return [d for d in (as_dict(x) for x in raw) if d is not None]
 
 
 def last_consult(session: Any) -> dict[str, Any] | None:

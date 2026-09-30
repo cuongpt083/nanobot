@@ -258,6 +258,28 @@ export interface SessionDeleteResult {
   automations?: SessionAutomationJob[];
 }
 
+/** What the provider reported back for this session's requests (not what nanobot sent). */
+export interface CoworkerCacheUsage {
+  calls: number;
+  /** False until a provider reports cache counts (some never do). */
+  reported: boolean;
+  /** Share of reported input tokens served from cache, 0..1. */
+  hit_rate: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  last: {
+    at: number;
+    input_tokens: number;
+    cache_read_tokens: number | null;
+    cache_write_tokens: number | null;
+    hit_rate: number | null;
+  } | null;
+  /** Hit rate of the most recent calls, oldest first; null where the provider reported nothing. */
+  recent_hit_rates: Array<number | null>;
+}
+
 export interface CoworkerCachingStatus {
   enabled: boolean;
   is_warm: boolean;
@@ -271,6 +293,8 @@ export interface CoworkerCachingStatus {
   system_frozen: boolean;
   sent_messages: number;
   original_messages: number;
+  /** Absent on servers that predate cache metrics. */
+  usage?: CoworkerCacheUsage;
 }
 
 export interface CoworkerLastConsult {
@@ -279,6 +303,26 @@ export interface CoworkerLastConsult {
   focus: string | null;
   duration_ms: number;
   ok: boolean;
+}
+
+export type CoworkerAdvisorMode = "coding" | "brainstorm";
+
+/** One question the executor put to the advisor and the answer it got back. */
+export interface CoworkerAdvisorExchange {
+  at: number;
+  model: string;
+  mode: CoworkerAdvisorMode;
+  focus: string | null;
+  advice: string;
+  /** Which consult of the session this was (1-based). */
+  n: number;
+}
+
+/** Manual per-session switch; omitted fields are left unchanged. */
+export interface CoworkerAdvisorSwitch {
+  enabled?: boolean;
+  preset?: string;
+  mode?: CoworkerAdvisorMode;
 }
 
 export interface CoworkerAdvisorStatus {
@@ -290,6 +334,10 @@ export interface CoworkerAdvisorStatus {
   breaker_open_seconds: number;
   /** Absent on servers that predate the participants view. */
   last_consult?: CoworkerLastConsult | null;
+  mode?: CoworkerAdvisorMode;
+  /** Global default preset from coworker.json, used when the switch is turned on without a choice. */
+  default_preset?: string | null;
+  history?: CoworkerAdvisorExchange[];
 }
 
 export interface CoworkerRoomStatus {
@@ -360,6 +408,16 @@ export interface CoworkerParticipant {
   };
 }
 
+/** A name the composer offers after "@" and what nanobot does with it. */
+export interface CoworkerMention {
+  id: string;
+  kind: "teammate" | "coding" | "advisor";
+  label: string;
+  detail: string;
+  /** False when mentioning it would only produce a "not enabled" reply. */
+  enabled?: boolean;
+}
+
 export interface CoworkerStatus {
   caching: CoworkerCachingStatus;
   advisor: CoworkerAdvisorStatus;
@@ -367,6 +425,7 @@ export interface CoworkerStatus {
   coding: CoworkerCodingStatus;
   /** Absent on servers that predate the participants view. */
   participants?: CoworkerParticipant[];
+  mentions?: CoworkerMention[];
 }
 
 

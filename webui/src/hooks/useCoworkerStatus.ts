@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { usePageVisibility } from "@/hooks/usePageVisibility";
 import { fetchCoworkerStatus } from "@/lib/api";
@@ -108,8 +108,15 @@ export function useCoworkerStatus(
     return () => window.clearInterval(interval);
   }, [open, pageVisible, status?.caching?.is_warm]);
 
+  /** Adopt a status returned by a mutation so the UI reflects it without waiting for the next poll. */
+  const applyStatus = useCallback((next: CoworkerStatus) => {
+    setStatus(next);
+    setLiveRemainingSeconds(next.caching.remaining_seconds || 0);
+  }, []);
+
   return {
     status,
+    applyStatus,
     loading,
     loadFailed,
     liveRemainingSeconds,

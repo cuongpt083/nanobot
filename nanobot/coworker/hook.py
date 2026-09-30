@@ -28,7 +28,7 @@ from nanobot.coworker.advisor.consult import NON_EVIDENCE_TOOLS, breaker_open_se
 from nanobot.coworker.advisor.tool import ADVISOR_TOOL
 from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
-from nanobot.coworker.context import keepalive, optimizer
+from nanobot.coworker.context import keepalive, metrics, optimizer
 from nanobot.coworker.context.tools import WASTED_TOOL, wasted_ids
 from nanobot.coworker.room import scheduler
 from nanobot.coworker.room.tools import ROOM_TOOLS, room_armed_for
@@ -88,6 +88,55 @@ def _append_system(messages: list[dict[str, Any]], sections: list[str]) -> list[
     return [head, *messages[1:]]
 
 
+_CODING_BACKENDS = ("pi", "agy")
+ADVISOR_MENTION = "advisor"
+
+
+def _with_note(message: dict[str, Any], note: str) -> dict[str, Any] | None:
+    content: object = message.get("content")
+    blocks = as_list(content)
+    if isinstance(content, str):
+        return {**message, "content": f"{content}\n\n{note}"}
+    if blocks is not None:
+        return {**message, "content": [*blocks, {"type": "text", "text": note}]}
+    return None
+
+
+def _annotate_mentions(
+    messages: list[dict[str, Any]], cfg: CoworkerConfig, *, advisor_on: bool
+) -> list[dict[str, Any]]:
+    """Tell the model when a user message addresses ``@agy`` / ``@pi`` / ``@advisor``.
+
+    Derived from each message's own text, so a given message always gets the same bytes and the
+    cached prefix of earlier turns is never disturbed.
+    """
+    room_ids = {a.id for a in cfg.room.agents}  # room teammates are routed by the room scheduler
+    out: list[dict[str, Any]] | None = None
+    for i, message in enumerate(messages):
+        if message.get("role") != "user":
+            continue
+        text = content_text(message.get("content"))
+        if not text or "@" not in text or is_auto_turn(text):
+            continue
+        notes: list[str] = []
+        for name in scheduler.mention_ids(text):
+            if name in room_ids:
+                continue
+            if name in _CODING_BACKENDS:
+                notes.append(directives.coding_mention_note(name, enabled=cfg.coding.enabled))
+            elif name == ADVISOR_MENTION:
+                notes.append(directives.advisor_mention_note(enabled=advisor_on))
+        if not notes:
+            continue
+        annotated = _with_note(message, "\n".join(notes))
+        if annotated is None:
+            continue
+        if out is None:
+            out = list(messages)
+        out[i] = annotated
+    return out if out is not None else messages
+
+
 def _tool_name(definition: dict[str, Any]) -> str:
     fn = as_dict(definition.get("function"))
     return str(fn.get("name")) if fn is not None else str(definition.get("name") or "")
@@ -132,6 +181,9 @@ class CoworkerHook(AgentHook):
     async def before_iteration(self, context: AgentHookContext) -> None:
         remember_live_messages(self._key, context.messages)
 
+    async def after_iteration(self, context: AgentHookContext) -> None:
+        metrics.record(self._key, context.usage)
+
     async def on_finally(self, context: AgentRunHookContext) -> None:
         forget_live_messages(self._key)
         mark_turn_finished(self._key)
@@ -169,13 +221,15 @@ class CoworkerHook(AgentHook):
                 ),
             )
 
-        advisor_on = advisor_state.effective(session) is not None
+        advisor_eff = advisor_state.effective(session)
+        advisor_on = advisor_eff is not None
         room_on = room_armed_for(session)
         workflows_on = cfg.workflows.enabled
         coding_on = cfg.coding.enabled
         sections: list[str] = []
-        if advisor_on:
-            sections.append(directives.ADVISOR)
+        if advisor_eff is not None:
+            brainstorm = advisor_eff.mode == advisor_state.MODE_BRAINSTORM
+            sections.append(directives.ADVISOR_BRAINSTORM if brainstorm else directives.ADVISOR)
         if room_on:
             sections += [directives.room_owner(cfg.room.agents), directives.ROOM_STATE]
         if workflows_on and _has_workflows():
@@ -185,6 +239,7 @@ class CoworkerHook(AgentHook):
         if coding_on:
             sections.append(directives.CODING)
         messages = _append_system(messages, sections)
+        messages = _annotate_mentions(messages, cfg, advisor_on=advisor_on)
 
         hidden: set[str] = set()
         if not advisor_on:
@@ -282,6 +337,8 @@ class CoworkerHook(AgentHook):
         eff = advisor_state.effective(session)
         if eff is None or eff.uses >= eff.max_uses:
             return
+        if eff.mode == advisor_state.MODE_BRAINSTORM:
+            return  # the review nudge is about vetting work; brainstorming has none to vet
         consulted = False
         gap = 0
         for name in context.tools_used:

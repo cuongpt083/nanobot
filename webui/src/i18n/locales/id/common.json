@@ -1603,7 +1603,13 @@
         "cliTitle": "Aplikasi CLI: {{name}}",
         "mcpTitle": "Server MCP: {{name}}",
         "sessionBadge": "Percakapan Nanobot",
-        "sessionDescription": "Referensikan @{{name}} sebagai chat sebelumnya"
+        "sessionDescription": "Referensikan @{{name}} sebagai chat sebelumnya",
+        "agentGroup": "Agen",
+        "agentBadge": {
+          "coding": "Agen coding",
+          "advisor": "Penasihat",
+          "teammate": "Rekan tim"
+        }
       },
       "workspace": {
         "accessAria": "Mode akses ruang kerja",

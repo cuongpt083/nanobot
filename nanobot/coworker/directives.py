@@ -38,6 +38,23 @@ ADVISOR = "\n".join([
     "evidence contradicts it, surface the conflict in one more advisor call before committing.",
 ])
 
+ADVISOR_BRAINSTORM = "\n".join([
+    "## Advisor (brainstorm mode)",
+    "",
+    "The user switched the advisor ON for this conversation. You have an `advisor` tool backed by a "
+    "stronger model that acts as a thinking partner: it sees the whole conversation and answers with "
+    "reasoning only.",
+    "",
+    "Use it for discussion, not just for code: call `advisor` BEFORE you give a recommendation, a plan "
+    "or a judgment on any open-ended question (strategy, design, trade-offs, writing, decisions). You "
+    "do not need to read files or gather evidence first. Put the real question in `focus`.",
+    "",
+    "Then answer the user yourself: show where the advisor's view agrees with yours and where it "
+    "differs, name the disagreement plainly instead of hiding it, and give your own conclusion. Do "
+    "not paste the advisor's text verbatim. Skip the advisor for greetings, clarifying questions and "
+    "one-line factual answers.",
+])
+
 ROOM_STATE = "\n".join([
     "## Shared room state",
     "`room_state` is a key/value scratchpad shared by EVERY agent in this room. EVERY room turn: START "
@@ -128,4 +145,38 @@ CODING = "\n".join([
     "delegating, (b) when a task fails acceptance a second time, and (c) with a `focus` like \"review this "
     "diff\" after reading the diff and before recommending a merge. The advisor only sees what you have seen, "
     "so read the diff first. If it flags a real problem, use `coding_agent(action='steer')` or `/code resume`.",
+    "5. When a user message is annotated with `[nanobot: the user addressed the coding agent @<name> ...]`, "
+    "follow that note: delegate to that backend immediately.",
 ])
+
+
+
+# Per-message notes appended to the user turn that addresses an agent by @name. They live on the message
+# (not in the system prompt) so the cached prompt prefix stays byte-stable, and are re-derived from the
+# text of every such message so earlier turns keep the exact same bytes on later requests.
+
+def coding_mention_note(backend: str, *, enabled: bool) -> str:
+    if not enabled:
+        return (
+            f"[nanobot: the user addressed @{backend}, but coding agents are disabled. Tell them to enable "
+            "Settings > Capabilities > Coworker > Coding and add a repository; do not do the work yourself "
+            "unless they ask.]"
+        )
+    return (
+        f"[nanobot: the user addressed the coding agent @{backend}. Hand this request to it now: call "
+        f"coding_agent(action='start', backend='{backend}', task=<self-contained brief from this message>), "
+        "add `acceptance` if the repo has a test command, then end your turn. Do not do the work yourself "
+        "and do not ask which agent to use. If the call fails, tell the user exactly what is missing.]"
+    )
+
+
+def advisor_mention_note(*, enabled: bool) -> str:
+    if not enabled:
+        return (
+            "[nanobot: the user addressed @advisor, but the advisor is switched off for this conversation. "
+            "Tell them to turn it on with the Advisor switch in the chat header (or /advisor on).]"
+        )
+    return (
+        "[nanobot: the user addressed @advisor. Call the advisor tool now with their question as `focus`, "
+        "then answer them, saying where you agree or disagree with it.]"
+    )

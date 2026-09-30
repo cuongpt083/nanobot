@@ -176,7 +176,7 @@ describe("CoworkerHeaderControls polling", () => {
       .mockResolvedValueOnce(status([participant({ id: "researcher", label: "Researcher", state: "working" })]))
       .mockResolvedValue(status([participant({ id: "researcher", label: "Researcher", state: "done" })]));
 
-    render(<CoworkerHeaderControls sessionKey="websocket:s" token="t" />);
+    render(<CoworkerHeaderControls client={{ requestMutation: vi.fn() }} sessionKey="websocket:s" token="t" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -203,7 +203,7 @@ describe("CoworkerHeaderControls polling", () => {
 
   it("does not poll an idle session beyond the initial probe", async () => {
     const fetchSpy = vi.spyOn(api, "fetchCoworkerStatus").mockResolvedValue(status([]));
-    render(<CoworkerHeaderControls sessionKey="websocket:s" token="t" />);
+    render(<CoworkerHeaderControls client={{ requestMutation: vi.fn() }} sessionKey="websocket:s" token="t" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(20_000);
     });

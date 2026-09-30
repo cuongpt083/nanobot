@@ -1603,7 +1603,13 @@
         "cliTitle": "CLI 應用程式：{{name}}",
         "mcpTitle": "MCP 伺服器：{{name}}",
         "sessionBadge": "Nanobot 對話",
-        "sessionDescription": "引用先前的對話 @{{name}}"
+        "sessionDescription": "引用先前的對話 @{{name}}",
+        "agentGroup": "智慧代理",
+        "agentBadge": {
+          "coding": "程式碼代理",
+          "advisor": "顧問",
+          "teammate": "隊友"
+        }
       },
       "workspace": {
         "accessAria": "工作區存取模式",
