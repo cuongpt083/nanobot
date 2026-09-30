@@ -190,6 +190,21 @@ class AgentsConfig(Base):
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
 
 
+class PatcherSettings(Base):
+    """Anthropic OAuth patcher proxy settings (see docs/plan-anthropic-patcher-proxy.md)."""
+
+    enabled: bool = False
+    port: int = Field(default=18793, ge=1, le=65535)
+    target_base_url: str = "https://api.anthropic.com"
+    # App-managed identity floor: must never be pinned below the shipped default.
+    claude_code_version: str = "2.1.280"
+    attribution_template: str = (
+        "x-anthropic-billing-header: cc_version=${version}.a1b; "
+        "cc_entrypoint=cli; cch=00000;"
+    )
+    add_session_id: bool = True
+
+
 class ProviderConfig(Base):
     """LLM provider configuration."""
 
@@ -206,6 +221,8 @@ class ProviderConfig(Base):
     extra_query: dict[str, str] | None = None  # Extra query params (e.g. api-version for Azure-style gateways)
     proxy: str | None = None  # Explicit HTTP proxy; image downloads trust its DNS and egress
     thinking_style: str | None = None  # Thinking/reasoning style for custom providers
+    auth_mode: Literal["api_key", "oauth"] = "api_key"  # Anthropic: OAuth subscription vs API key
+    patcher: PatcherSettings | None = None  # Anthropic OAuth patcher proxy
 
     # Valid values mirror the keys of _THINKING_STYLE_MAP in
     # nanobot/providers/openai_compat_provider.py. Kept duplicated here to

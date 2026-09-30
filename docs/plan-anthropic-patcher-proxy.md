@@ -204,3 +204,51 @@ người dùng cố tình đặt cao hơn hoặc tag phi số thì giữ.
   dùng API key trực tiếp không bao giờ gặp.
 - **Khả nghịch mong manh**: ánh xạ tool-name phải song ánh và chuỗi thay thế không được
   xuất hiện tự nhiên trong nội dung (xem Q3).
+
+## 10. Trạng thái triển khai
+
+Đã triển khai (P0–P4, P5 một phần):
+
+| Hạng mục | Vị trí |
+|---|---|
+| Rule engine + config/version floor | `nanobot/providers/patcher/rules.py` |
+| SSE re-framer (event-aware, gom tool input) | `nanobot/providers/patcher/sse.py` |
+| Proxy aiohttp (transform, reverse, resilience, error mapping) | `nanobot/providers/patcher/proxy.py` |
+| Anthropic OAuth (PKCE, refresh rotation, storage, proactive refresher) | `nanobot/providers/anthropic_oauth.py` |
+| Config `authMode` + `patcher` | `nanobot/config/schema.py` (`PatcherSettings`, `ProviderConfig`) |
+| Factory wiring (exempt OAuth khỏi yêu cầu API key) | `nanobot/providers/factory.py` |
+| Provider OAuth client + lazy proxy start | `nanobot/providers/anthropic_provider.py` |
+
+Test: `tests/providers/patcher/` (rules, SSE, proxy, E2E),
+`tests/providers/test_anthropic_oauth.py`, `tests/providers/test_anthropic_oauth_wiring.py`.
+
+Còn lại (đề xuất cho phase sau):
+
+- CLI `provider login anthropic-oauth` (cần một `ProviderSpec` `is_oauth` + handler và
+  `ProvidersConfig` field tương ứng).
+- Khởi động `ProactiveRefresher` trong vòng đời app/gateway và IPC/WebUI toast.
+- UI cấu hình patcher trong WebUI.
+
+Cách dùng tối thiểu:
+
+```jsonc
+{
+  "providers": {
+    "anthropic": {
+      "authMode": "oauth",
+      "patcher": { "enabled": true, "port": 18793 }
+    }
+  },
+  "agents": {
+    "defaults": { "model": "anthropic/claude-sonnet-4-6", "provider": "anthropic" }
+  }
+}
+```
+
+Đăng nhập và lấy token bằng API Python (CLI chưa nối):
+
+```python
+from nanobot.providers.anthropic_oauth import login_anthropic_oauth, get_anthropic_oauth_token
+login_anthropic_oauth(print_fn=print)
+token = get_anthropic_oauth_token()
+```

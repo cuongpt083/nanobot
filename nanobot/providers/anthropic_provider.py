@@ -10,7 +10,7 @@ import secrets
 import string
 from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
 
@@ -22,6 +22,10 @@ from nanobot.providers.base import (
     resolve_stream_idle_timeout_s,
     tool_arguments_object_for_replay,
 )
+
+if TYPE_CHECKING:
+    from nanobot.providers.patcher.proxy import AnthropicPatcherProxy
+    from nanobot.providers.patcher.rules import PatcherConfig
 
 _ALNUM = string.ascii_letters + string.digits
 
@@ -93,23 +97,71 @@ class AnthropicProvider(LLMProvider):
         extra_headers: dict[str, str] | None = None,
         *,
         provider_name: str = "anthropic",
+        auth_mode: str = "api_key",
+        patcher_config: PatcherConfig | None = None,
     ):
         super().__init__(api_key, api_base, provider_name=provider_name)
         self.default_model = default_model
         self.extra_headers = extra_headers or {}
+        self._auth_mode = auth_mode
+        self._patcher_config = patcher_config
+        self._patcher_proxy: AnthropicPatcherProxy | None = None
 
         from anthropic import AsyncAnthropic
 
         client_kw: dict[str, Any] = {}
-        if api_key:
-            client_kw["api_key"] = api_key
-        if api_base:
-            client_kw["base_url"] = self._normalize_base_url(api_base)
+        if auth_mode == "oauth":
+            # Subscription OAuth: the SDK refreshes through this callable (and
+            # re-invokes it with force_refresh after a 401).
+            from anthropic import AccessToken  # pyright: ignore[reportPrivateImportUsage]
+
+            from nanobot.providers.anthropic_oauth import get_anthropic_oauth_token
+
+            def _oauth_credentials(*, force_refresh: bool = False) -> AccessToken:
+                token = get_anthropic_oauth_token(force_refresh=force_refresh)
+                return AccessToken(token=token.access, expires_at=token.expires // 1000)
+
+            client_kw["credentials"] = _oauth_credentials
+            if patcher_config is not None and patcher_config.enabled:
+                client_kw["base_url"] = f"http://127.0.0.1:{patcher_config.port}"
+        else:
+            if api_key:
+                client_kw["api_key"] = api_key
+            if api_base:
+                client_kw["base_url"] = self._normalize_base_url(api_base)
+        if patcher_config is not None and patcher_config.enabled and auth_mode != "oauth":
+            # Patcher without OAuth is a configuration error: refuse silently
+            # routing API-key traffic through the spoof proxy.
+            logger.warning(
+                "Anthropic patcher is enabled but auth_mode={!r}; ignoring patcher",
+                auth_mode,
+            )
         if extra_headers:
             client_kw["default_headers"] = extra_headers
         # Keep retries centralized in LLMProvider._run_with_retry to avoid retry amplification.
         client_kw["max_retries"] = 0
         self._client = AsyncAnthropic(**client_kw)
+
+    async def _ensure_patcher_started(self) -> None:
+        """Lazily start the local patcher proxy when OAuth + patcher is enabled."""
+
+        if self._auth_mode != "oauth":
+            return
+        if self._patcher_config is None or not self._patcher_config.enabled:
+            return
+        if self._patcher_proxy is None:
+            from nanobot.providers.patcher.proxy import AnthropicPatcherProxy
+
+            self._patcher_proxy = AnthropicPatcherProxy(self._patcher_config)
+        if not self._patcher_proxy.is_running:
+            await self._patcher_proxy.start()
+
+    async def aclose(self) -> None:
+        """Release the patcher proxy if this provider started one."""
+
+        if self._patcher_proxy is not None:
+            await self._patcher_proxy.stop()
+            self._patcher_proxy = None
 
     @staticmethod
     def _normalize_base_url(api_base: str) -> str:
@@ -741,6 +793,7 @@ class AnthropicProvider(LLMProvider):
         reasoning_effort: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
     ) -> LLMResponse:
+        await self._ensure_patcher_started()
         kwargs = self._build_kwargs(
             messages, tools, model, max_tokens, temperature,
             reasoning_effort, tool_choice,
@@ -779,6 +832,7 @@ class AnthropicProvider(LLMProvider):
         on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
         on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> LLMResponse:
+        await self._ensure_patcher_started()
         kwargs = self._build_kwargs(
             messages, tools, model, max_tokens, temperature,
             reasoning_effort, tool_choice,

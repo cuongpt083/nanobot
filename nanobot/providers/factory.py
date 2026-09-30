@@ -119,6 +119,9 @@ def _resolve_provider_setup(
     ):
         needs_key = not (p and p.api_key)
         exempt = spec and (spec.is_oauth or spec.is_local or spec.is_direct)
+        # Anthropic OAuth subscription mode has no API key by design.
+        if backend == "anthropic" and p is not None and p.auth_mode == "oauth":
+            exempt = True
         if needs_key and not exempt:
             raise ValueError(f"No API key configured for provider '{provider_name}'.")
 
@@ -200,13 +203,29 @@ def _make_provider_core(
         provider = GitHubCopilotProvider(default_model=model, provider_name=provider_name)
     elif backend == "anthropic":
         from nanobot.providers.anthropic_provider import AnthropicProvider
+        from nanobot.providers.patcher.rules import PatcherConfig, builtin_rules
 
+        auth_mode = p.auth_mode if p else "api_key"
+        patcher_config: PatcherConfig | None = None
+        if p is not None and p.patcher is not None:
+            settings = p.patcher
+            patcher_config = PatcherConfig(
+                enabled=settings.enabled,
+                port=settings.port,
+                target_base_url=settings.target_base_url,
+                claude_code_version=settings.claude_code_version,
+                attribution_template=settings.attribution_template,
+                add_session_id=settings.add_session_id,
+                rules=builtin_rules(),
+            )
         provider = AnthropicProvider(
             api_key=p.api_key if p else None,
             api_base=config.get_api_base(model, preset=preset),
             default_model=model,
             extra_headers=_provider_extra_headers(spec, p),
             provider_name=provider_name,
+            auth_mode=auth_mode,
+            patcher_config=patcher_config,
         )
     elif backend == "bedrock":
         from nanobot.providers.bedrock_provider import BedrockProvider
