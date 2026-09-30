@@ -15,8 +15,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from laya_client import LayaClient
-from lightrag_client import LightRagClient
+from laya_client import LayaClient  # noqa: E402
+from lightrag_client import LightRagClient  # noqa: E402
 
 # Read configuration from environment
 LIGHTRAG_BASE_URL = os.getenv("LIGHTRAG_BASE_URL", "http://localhost:9621")

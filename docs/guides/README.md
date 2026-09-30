@@ -48,4 +48,5 @@ Use **Settings → Channels** in the WebUI for guided setup. These guides explai
 | Improve Ollama tool prompt-cache reuse | [Configure Ollama prompt caching](./configure-ollama-prompt-cache.md) |
 | Add Langfuse tracing | [Configure Langfuse observability](./configure-langfuse-observability.md) |
 | Secure local tools | [Secure a local AI agent](./secure-local-ai-agent.md) |
+| Configure RAG plugin & MCP | [Configure RAG plugin & MCP](./configure-rag-plugin-and-mcp.md) |
 | Deploy the gateway | [Deploy nanobot gateway](./deploy-nanobot-gateway.md) |
