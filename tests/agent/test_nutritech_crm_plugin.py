@@ -2,15 +2,16 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+
 import pytest
+
 from nanobot.agent.plugins import (
     _load_manifest,
     _plugin_mcp_servers,
+    agent_plugin_mcp_servers,
     discover_agent_plugins,
     enabled_agent_plugin_skills,
-    agent_plugin_mcp_servers,
     set_agent_plugin_enabled,
-    AgentPlugin,
 )
 from nanobot.agent.skills import parse_skill_metadata, valid_skill_metadata
 
@@ -45,6 +46,8 @@ def test_nutritech_crm_skill_metadata():
     assert "mcp_nutritech-crm_customer_list" in content
     assert "mcp_nutritech-crm_customer_log_checkin" in content
     assert "mcp_nutritech-crm_customer_get_profile" in content
+    assert "mcp_nutritech-crm_channel_status" in content
+    assert "mcp_nutritech-crm_channel_pair" in content
 
 
 def test_tanita_analysis_skill_metadata():
@@ -84,6 +87,10 @@ def test_nutritech_plugin_discovery_and_enable(tmp_path: Path):
     assert servers["nutritech-crm"].command == "node"
 
 
+@pytest.mark.skipif(
+    not Path("/home/cuongpt/nutritech-crm-lite/dist/mcp/index.js").exists(),
+    reason="nutritech-crm-lite stdio MCP script not found locally",
+)
 def test_nutritech_mcp_stdio_real_execution(tmp_path: Path):
     import json
     plugin = _load_manifest(PLUGIN_DIR)

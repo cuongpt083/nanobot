@@ -8,6 +8,21 @@ metadata: {"nanobot":{"emoji":"🥗","category":"Healthcare & CRM"}}
 
 Hướng dẫn quy trình cho AI Agent để kết nối, truy vấn dữ liệu và hỗ trợ Huấn luyện viên Dinh dưỡng (Coach) thông qua máy chủ MCP `nutritech-crm`.
 
+## 0. Ghép nối và Kiểm tra Liên kết Tài khoản CRM (Channel Pairing)
+
+Khi Coach bắt đầu sử dụng bot trên Telegram/Zalo hoặc yêu cầu ghép nối tài khoản:
+1. **Kiểm tra trạng thái liên kết:**
+   - **Công cụ:** `mcp_nutritech-crm_channel_status`
+   - **Tham số:** `platform` (ví dụ: `"telegram"`), `platformUserId` (ID Telegram của người dùng, lấy từ ngữ cảnh `sender_id`).
+2. **Ghép nối bằng mã Pairing Code:**
+   - Khi người dùng gửi lệnh `/pair <mã>` hoặc yêu cầu ghép nối/kết nối CRM kèm mã (8 ký tự):
+   - **Công cụ:** `mcp_nutritech-crm_channel_pair`
+   - **Tham số:**
+     - `code`: Mã kết nối 8 ký tự (ví dụ: `N9HD6CS2`).
+     - `platform`: Nền tảng hiện tại (ví dụ: `"telegram"`).
+     - `platformUserId`: ID của người dùng trên nền tảng chat (ví dụ: Telegram `sender_id`).
+   - Sau khi gọi tool, thông báo kết quả ghép nối thành công và chào mừng Coach bằng tên tài khoản CRM đã liên kết.
+
 ## 1. Tìm kiếm và Nhận diện Khách hàng
 
 Trước khi thực hiện bất kỳ hành động nào (check-in, tra cứu thực đơn, xem tiến độ), luôn xác định danh tính khách hàng:
