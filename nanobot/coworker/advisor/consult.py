@@ -177,7 +177,7 @@ def serialize_transcript(messages: list[dict[str, Any]]) -> tuple[str, int]:
     return "\n\n".join([p for p in (anchor, marker) if p] + tail), dropped
 
 
-def _current_run(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def current_run(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Messages since the last genuine (non-injected) user turn."""
     for i in range(len(messages) - 1, -1, -1):
         m = messages[i]
@@ -194,7 +194,7 @@ def _evidence_count(messages: list[dict[str, Any]]) -> int:
 
 
 def is_thin_context(messages: list[dict[str, Any]]) -> bool:
-    run = _current_run(messages)
+    run = current_run(messages)
     run_chars = sum(len(content_text(m.get("content"))) for m in run)
     return _evidence_count(run) == 0 and _evidence_count(messages) < 3 and run_chars < THIN_MIN_CHARS
 

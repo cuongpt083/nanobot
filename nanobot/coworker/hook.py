@@ -24,7 +24,12 @@ from nanobot.agent.hook import (
 from nanobot.agent.tools.context import current_request_context
 from nanobot.coworker import directives
 from nanobot.coworker.advisor import state as advisor_state
-from nanobot.coworker.advisor.consult import NON_EVIDENCE_TOOLS, breaker_open_seconds
+from nanobot.coworker.advisor.consult import breaker_open_seconds
+from nanobot.coworker.advisor.policy import (
+    ADVISOR_REVIEW_MARKER,
+    KIND_ADVISOR_REVIEW,
+    is_work_tool,
+)
 from nanobot.coworker.advisor.tool import ADVISOR_TOOL
 from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
@@ -49,15 +54,9 @@ from nanobot.coworker.workflows import drive
 from nanobot.coworker.workflows.registry import list_workflows
 from nanobot.coworker.workflows.tools import WORKFLOW_TOOLS
 
-ADVISOR_REVIEW_MARKER = "[auto-advisor-review]"
-KIND_ADVISOR_REVIEW = "advisor_review"
 KIND_CODING_RESULT = "coding_result"
 # Injected turns that still deserve an advisor nudge (the executor just received work to vet).
 _NUDGE_KINDS = frozenset({KIND_CODING_RESULT})
-_READ_ONLY_TOOLS = frozenset({
-    "read_file", "list_dir", "glob", "grep", "search", "web_search", "web_fetch", "sessions_list",
-    "session_messages", "cron",
-})
 _workflow_index_cache: tuple[float, bool] = (0.0, False)
 
 
@@ -344,7 +343,7 @@ class CoworkerHook(AgentHook):
         for name in context.tools_used:
             if name == ADVISOR_TOOL:
                 consulted, gap = True, 0
-            elif name not in NON_EVIDENCE_TOOLS and name not in _READ_ONLY_TOOLS:
+            elif is_work_tool(name):
                 gap += 1
         if result_turn:
             # The executor just received a finished coding task: a review is due unless it already asked.
