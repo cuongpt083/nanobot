@@ -32,6 +32,7 @@ from nanobot.process_runtime import (
     process_identity_record,
     process_is_running,
 )
+from nanobot.utils.helpers import replace_path_with_retry
 
 GatewayStartOptions = ProcessStartOptions
 
@@ -674,7 +675,7 @@ class GatewayClientLease:
                 handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-            temporary.replace(self.state_path)
+            replace_path_with_retry(temporary, self.state_path)
         finally:
             temporary.unlink(missing_ok=True)
 

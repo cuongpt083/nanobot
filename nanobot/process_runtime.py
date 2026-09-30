@@ -23,6 +23,7 @@ from typing import Any, Generic, Literal, TypeVar, cast
 
 from filelock import FileLock
 
+from nanobot.utils.helpers import replace_path_with_retry
 from nanobot.utils.rotating_output import (
     BACKGROUND_LOG_BACKUP_COUNT_ENV,
     BACKGROUND_LOG_MAX_BYTES_ENV,
@@ -499,7 +500,7 @@ class ManagedProcessRuntime(Generic[_StartOptionsT]):
                 handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
-            tmp_path.replace(self.paths.state_path)
+            replace_path_with_retry(tmp_path, self.paths.state_path)
         finally:
             tmp_path.unlink(missing_ok=True)
 

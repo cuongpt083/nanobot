@@ -22,6 +22,7 @@ from nanobot.gateway import (
 )
 from nanobot.gateway.runtime import monitor_gateway_clients
 from nanobot.process_runtime import process_is_running
+from nanobot.utils import helpers
 from nanobot.utils.rotating_output import (
     BACKGROUND_LOG_BACKUP_COUNT_ENV,
     BACKGROUND_LOG_MAX_BYTES_ENV,
@@ -741,6 +742,30 @@ def test_lease_snapshot_prunes_a_reused_client_pid(tmp_path, monkeypatch):
         "auto_stop": True,
         "clients": {},
     }
+
+
+def test_lease_write_retries_a_transient_windows_lock(tmp_path, monkeypatch):
+    """A momentary sharing violation must not abort a lease state write."""
+    runtime = GatewayRuntime(paths=_paths(tmp_path), platform_name="Linux")
+    monkeypatch.setattr(runtime, "_process_identity", lambda pid: pid)
+    monkeypatch.setattr(runtime, "_is_pid_running", lambda _pid: True)
+    client = GatewayClientLease(runtime, kind="webui", token="client")
+    real_replace = os.replace
+    failures = {"remaining": 1}
+
+    def flaky_replace(src, dst):
+        if failures["remaining"]:
+            failures["remaining"] -= 1
+            raise PermissionError(5, "Access is denied")
+        real_replace(src, dst)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(helpers.os, "replace", flaky_replace)
+        client.acquire()
+
+    assert failures["remaining"] == 0
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))
+    assert set(state["clients"]) == {"client"}
 
 
 def test_lease_snapshot_keeps_a_legacy_localized_darwin_client(tmp_path, monkeypatch):

@@ -552,6 +552,37 @@ def _cleanup_tool_result_buckets(root: Path, current_bucket: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+_REPLACE_RETRY_ATTEMPTS = 20
+_REPLACE_RETRY_DELAY_S = 0.05
+
+
+def replace_path_with_retry(
+    source: Path,
+    target: Path,
+    *,
+    attempts: int = _REPLACE_RETRY_ATTEMPTS,
+    delay_s: float = _REPLACE_RETRY_DELAY_S,
+) -> None:
+    """Publish *source* over *target*, retrying transient lock failures.
+
+    On Windows ``os.replace`` raises ``PermissionError`` (``WinError 5`` or
+    ``ERROR_SHARING_VIOLATION``) while another process briefly holds the
+    destination open without delete sharing -- a status reader, antivirus, or
+    the file indexer. Unlike POSIX, a plain Python ``open`` does not share
+    delete access, so a concurrent read can abort the write at random. Retry
+    with a short bounded backoff so an ephemeral handle cannot abort a state
+    write.
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay_s)
+
+
 def atomic_write_lines(path: Path, lines: Iterable[str], *, fsync: bool = True) -> None:
     """Atomically replace *path* with already-serialized record lines.
 

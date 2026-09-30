@@ -9,6 +9,7 @@ from nanobot.utils.helpers import (
     _write_text_atomic,
     atomic_write_lines,
     content_with_media_breadcrumbs,
+    replace_path_with_retry,
     split_message,
     truncate_text_to_tokens,
 )
@@ -188,6 +189,51 @@ def test_write_text_atomic_keeps_file_when_directory_fsync_is_unsupported(
 
     assert target.read_text(encoding="utf-8") == '{"pending": {}}'
     assert len(fsync_calls) == 1
+
+
+def test_replace_path_with_retry_survives_transient_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A brief Windows sharing violation must not abort the publish."""
+    source = tmp_path / "state.json.tmp"
+    target = tmp_path / "state.json"
+    source.write_text("new", encoding="utf-8")
+    target.write_text("old", encoding="utf-8")
+    real_replace = os.replace
+    calls: list[int] = []
+
+    def flaky_replace(src: object, dst: object) -> None:
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError(5, "Access is denied")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(helpers.os, "replace", flaky_replace)
+
+    replace_path_with_retry(source, target, delay_s=0.0)
+
+    assert target.read_text(encoding="utf-8") == "new"
+    assert len(calls) == 3
+
+
+def test_replace_path_with_retry_reraises_after_exhausting_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A persistent failure must surface instead of silently losing the write."""
+    source = tmp_path / "state.json.tmp"
+    target = tmp_path / "state.json"
+    source.write_text("new", encoding="utf-8")
+    target.write_text("old", encoding="utf-8")
+
+    def always_fail(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(helpers.os, "replace", always_fail)
+
+    with pytest.raises(PermissionError):
+        replace_path_with_retry(source, target, attempts=3, delay_s=0.0)
+
+    assert target.read_text(encoding="utf-8") == "old"
 
 
 def test_atomic_write_lines_round_trip_replaces_target(tmp_path: Path) -> None:
