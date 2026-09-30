@@ -7,6 +7,7 @@ import type {
   ChannelValidationPayload,
   ChatSummary,
   CliAppsPayload,
+  CoworkerStatus,
   FilePreviewPayload,
   FileReferenceMetadata,
   ImageGenerationSettingsUpdate,
@@ -500,6 +501,19 @@ export async function fetchSessionAutomations(
 ): Promise<SessionAutomationsPayload> {
   return request<SessionAutomationsPayload>(
     `${base}/api/sessions/${encodeURIComponent(key)}/automations`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchCoworkerStatus(
+  token: string,
+  key: string,
+  base: string = "",
+): Promise<CoworkerStatus> {
+  return request<CoworkerStatus>(
+    `${base}/api/sessions/${encodeURIComponent(key)}/coworker`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,

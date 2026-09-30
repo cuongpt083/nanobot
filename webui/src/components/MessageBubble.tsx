@@ -30,6 +30,7 @@ import { MarkdownText } from "@/components/MarkdownText";
 import { SlashCommandText } from "@/components/SlashCommandText";
 import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
 import { ContextCompactionNotice } from "@/components/thread/ContextCompactionNotice";
+import { CoworkerMessageCard, parseCoworkerMessage } from "@/components/coworker/CoworkerMessageCard";
 import { UserMessageText } from "@/components/UserMessageText";
 import {
   Tooltip,
@@ -505,8 +506,20 @@ export function MessageBubble({
         sessionMentions={message.sessionMentions}
       />
     );
+
+    const coworkerCard = parseCoworkerMessage(userContent);
+    if (coworkerCard) {
+      return (
+        <div className="group relative mx-auto my-1 flex w-full max-w-[min(90%,42rem)] flex-col items-center">
+          {contextMenu}
+          <CoworkerMessageCard data={coworkerCard} onOpenFilePreview={onOpenFilePreview} />
+        </div>
+      );
+    }
+
     return (
       <div
+
         data-user-text-bubble={hasText && !hasImages && !hasMedia && !quotedContext || undefined}
         className="group relative ml-auto flex w-fit max-w-[min(85%,36rem)] flex-col items-end gap-1.5"
       >

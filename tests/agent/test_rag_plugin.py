@@ -1,5 +1,7 @@
 from pathlib import Path
+
 import pytest
+
 from nanobot.agent.plugins import (
     _load_manifest,
     _plugin_mcp_servers,
@@ -31,8 +33,8 @@ def test_rag_mcp_servers_config(tmp_path: Path):
 async def test_laya_client_decision_true(monkeypatch):
     import sys
     sys.path.insert(0, str(PLUGIN_DIR))
-    from laya_client import LayaClient
     import httpx
+    from laya_client import LayaClient
 
     client = LayaClient(service_url="http://fake-laya/v1/decide", threshold=0.7)
 
@@ -54,8 +56,8 @@ async def test_laya_client_decision_true(monkeypatch):
 async def test_laya_client_circuit_breaker(monkeypatch):
     import sys
     sys.path.insert(0, str(PLUGIN_DIR))
-    from laya_client import LayaClient
     import httpx
+    from laya_client import LayaClient
 
     client = LayaClient(service_url="http://fake-laya/v1/decide", failure_threshold=3, cooldown_seconds=10.0)
 
@@ -80,8 +82,8 @@ async def test_laya_client_circuit_breaker(monkeypatch):
 async def test_lightrag_client_query_success(monkeypatch):
     import sys
     sys.path.insert(0, str(PLUGIN_DIR))
-    from lightrag_client import LightRagClient
     import httpx
+    from lightrag_client import LightRagClient
 
     client = LightRagClient(base_url="http://fake-lightrag", api_key="secret-key")
 
@@ -114,8 +116,8 @@ async def test_lightrag_client_query_success(monkeypatch):
 async def test_lightrag_client_error_handling(monkeypatch):
     import sys
     sys.path.insert(0, str(PLUGIN_DIR))
-    from lightrag_client import LightRagClient
     import httpx
+    from lightrag_client import LightRagClient
 
     client = LightRagClient(base_url="http://fake-lightrag")
 
@@ -182,10 +184,11 @@ def test_rag_skill_metadata():
 
 def test_rag_plugin_discovery_and_enable(tmp_path: Path):
     import shutil
+
     from nanobot.agent.plugins import (
+        agent_plugin_mcp_servers,
         discover_agent_plugins,
         enabled_agent_plugin_skills,
-        agent_plugin_mcp_servers,
         set_agent_plugin_enabled,
     )
     workspace = tmp_path / "workspace"

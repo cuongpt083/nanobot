@@ -886,6 +886,12 @@ class AgentRunner:
             tool_definitions=tool_definitions,
             transcript=transcript,
         )
+        messages, tool_definitions = hook.transform_request(
+            context,
+            messages,
+            tool_definitions,
+            stateful=provider_context is not None and provider_context.conversation_state is not None,
+        )
 
         kwargs = self._build_request_kwargs(
             spec,
