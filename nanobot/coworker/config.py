@@ -11,6 +11,7 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import Literal
 
 from loguru import logger
 from pydantic import Field, ValidationError, field_validator
@@ -40,6 +41,7 @@ class RoomAgentConfig(Base):
     emoji: str = ""
     bio: str = ""
     preset: str | None = None  # model preset; None = the owner's runtime
+    backend: Literal["pi", "agy"] | None = None  # coding harness backend if used as coder
     instructions: str = ""
 
     @field_validator("id")
@@ -84,11 +86,86 @@ class WorkflowConfig(Base):
     max_step_turns: int = Field(default=100, ge=1)
 
 
+class PiBackendConfig(Base):
+    command: list[str] = ["pi"]
+    agent_dir: str | None = None
+    tools: list[str] | None = None
+    extensions: bool = True
+    trust_project_files: bool = False
+    pass_env: list[str] = Field(default_factory=list)
+    allow_unsandboxed: bool = False
+
+
+_AGY_DISALLOWED_FLAGS = {
+    "--model",
+    "-model",
+    "--effort",
+    "-effort",
+    "-p",
+    "--print",
+    "-print",
+    "--prompt",
+    "-prompt",
+    "--output-format",
+    "-output-format",
+    "--conversation",
+    "-conversation",
+    "-c",
+    "--continue",
+    "-continue",
+}
+
+
+class AgyBackendConfig(Base):
+    command: list[str] = ["agy"]
+    agy_sandbox: bool = True
+    mode: Literal["accept-edits"] | None = None
+    extra_args: list[str] = Field(default_factory=list)
+    pass_env: list[str] = Field(default_factory=list)
+    allow_unsandboxed: bool = False
+
+    @field_validator("extra_args")
+    @classmethod
+    def _validate_extra_args(cls, args: list[str]) -> list[str]:
+        for arg in args:
+            flag = arg.split("=", 1)[0].strip()
+            if flag in _AGY_DISALLOWED_FLAGS:
+                raise ValueError(f"disallowed flag in extra_args: {flag}")
+        return args
+
+
+class RepoConfig(Base):
+    path: str
+    acceptance: str | None = None
+    base_ref: str = "HEAD"
+    backend: Literal["pi", "agy"] | None = None
+
+
+class CodingAgentConfig(Base):
+    enabled: bool = False
+    default_backend: Literal["pi", "agy"] = "pi"
+    pi: PiBackendConfig = Field(default_factory=PiBackendConfig)
+    agy: AgyBackendConfig = Field(default_factory=AgyBackendConfig)
+    repos: list[RepoConfig] = Field(default_factory=list)
+    worktree_root: str | None = None
+    sandbox: Literal["none", "bwrap"] = "none"
+    timeout_minutes: int = Field(default=45, ge=1)
+    idle_timeout_minutes: int = Field(default=10, ge=1)
+    max_concurrent_per_session: int = Field(default=1, ge=1)
+    max_concurrent_total: int = Field(default=2, ge=1)
+    fix_rounds: int = Field(default=1, ge=0)
+    progress_every_seconds: int = Field(default=60, ge=1)
+    merge_strategy: Literal["squash", "no-ff", "ff-only"] = "squash"
+    delete_branch_after_merge: bool = True
+    keep_failed_worktrees_days: int = Field(default=3, ge=0)
+
+
 class CoworkerConfig(Base):
     advisor: AdvisorConfig = Field(default_factory=AdvisorConfig)
     room: RoomConfig = Field(default_factory=RoomConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     workflows: WorkflowConfig = Field(default_factory=WorkflowConfig)
+    coding: CodingAgentConfig = Field(default_factory=CodingAgentConfig)
 
     def agent(self, agent_id: str) -> RoomAgentConfig | None:
         key = agent_id.strip().lstrip("@").lower()
