@@ -7,6 +7,8 @@ import type {
   ChannelValidationPayload,
   ChatSummary,
   CliAppsPayload,
+  CoworkerSettingsPayload,
+  CoworkerSettingsUpdate,
   CoworkerStatus,
   FilePreviewPayload,
   FileReferenceMetadata,
@@ -517,6 +519,29 @@ export async function fetchCoworkerStatus(
     token,
     undefined,
     API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchCoworkerSettings(
+  token: string,
+  base: string = "",
+): Promise<CoworkerSettingsPayload> {
+  return request<CoworkerSettingsPayload>(
+    `${base}/api/settings/coworker`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function updateCoworkerSettings(
+  transport: WebUIMutationTransport,
+  sections: CoworkerSettingsUpdate,
+): Promise<CoworkerSettingsPayload> {
+  return mutation<CoworkerSettingsPayload>(
+    transport,
+    "settings.coworker.update",
+    { ...sections },
   );
 }
 

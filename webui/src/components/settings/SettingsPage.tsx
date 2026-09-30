@@ -8,6 +8,7 @@ import { SettingsFeature } from "@/components/settings/shared/SettingsFeature";
 
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
 import { ImageGenerationSettings } from "@/components/settings/capabilities/ImageGenerationSettings";
+import { CoworkerSettingsEntry } from "@/components/settings/capabilities/CoworkerSettings";
 import { AdvancedSettings } from "@/components/settings/capabilities/SecuritySettings";
 import { TranscriptionSettings } from "@/components/settings/capabilities/TranscriptionSettings";
 import { WebSettings } from "@/components/settings/capabilities/WebSettings";
@@ -313,6 +314,7 @@ export function SettingsPage({
               enabled={state.value("agents.defaults.dream.enabled") === true}
               disabled={restartInProgress || state.saving === "memory" || !settings.runtime_config} error={state.errors.memory}
               onChange={(enabled) => toggleRuntime("agents.defaults.dream.enabled", enabled)} />
+            <CoworkerSettingsEntry initialOpen={activeSection === "coworker"} />
             {!settings.runtime_config ? <p className="settings-list-inset text-[13px] text-muted-foreground">{t("settings.runtimeConfig.unavailable")}</p> : null}
           </section>
         );
@@ -540,6 +542,7 @@ export function SettingsPage({
               requiresRestartPending={pendingRestartSections.runtime}
               onQueryChange={setAppsQuery}
               onFilterChange={setAppsKindFilter}
+              onOpenCoworkerSettings={() => selectSection("coworker")}
               onCliAction={handleCliAppAction}
               onMcpAction={handleMcpPresetAction}
               onMcpOAuthConnect={handleMcpOAuthConnect}

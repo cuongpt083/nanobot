@@ -103,7 +103,9 @@ off or inert by default, so an unconfigured install behaves exactly like upstrea
   (2 failures → 30 min pause), per-transcript budget (`maxUses`, reset on `/new`).
 - Review nudge: after a genuine user turn with ≥ `firstConsultGap` state-changing tool calls
   and no consult (or ≥ `reconsultGap` since the last one), an `[auto-advisor-review]` turn
-  is injected. Never on cron/heartbeat/injected turns.
+  is injected. Never on cron/heartbeat turns, and never on injected turns — except the
+  `[auto-coding-result]` turn: when a coding task finishes and the agent has not consulted, it is
+  nudged once to read the diff (`coding_agent action="diff"`) and consult before recommending a merge.
 
 ### Rooms
 - A session becomes a room with `/room on`, or automatically when the user @mentions a
@@ -198,6 +200,9 @@ verifies the results, and reports back in chat.
 - **Agent tool**: `coding_agent(action="start", task="...", backend="pi|agy", acceptance="...")`
   Starts a task in the background. The LLM ends its turn immediately and is automatically re-summoned
   with `[auto-coding-result]` once the harness completes and nanobot verifies acceptance.
+  Other actions: `status`, `steer` (Pi), `abort`, `result` (summary + diffstat + acceptance) and
+  `diff` (read-only full diff, capped at 20 000 chars — read it before asking the advisor to review,
+  since the advisor only sees what the agent has seen).
 - **Slash commands**:
   - `/code list`: list active and recent coding tasks.
   - `/code status <id>`: check status, commits, and diffstat of a task.
@@ -212,6 +217,19 @@ verifies the results, and reports back in chat.
 A teammate in `room.agents` can have `backend: "pi"` or `backend: "agy"` configured. When the room
 coordinator delegates a coding sub-task to that teammate, it runs through the coding runner with
 isolated worktree and acceptance verification.
+
+## WebUI
+
+- **Settings → Capabilities → Coworker** edits `coworker.json` (Advisor, Team, Coding tabs). Sections are
+  validated as `CoworkerConfig`, preset names and repositories are checked (repos must be absolute git
+  work trees), credential-looking `passEnv` names are refused, and the file is written atomically with
+  unknown keys preserved. Changes apply without a restart. API: `GET /api/settings/coworker`,
+  mutation `settings.coworker.update` (`POST /api/settings/coworker/update`).
+- **Apps → Coding** shows Pi and agy (binary path/version; custom commands are located but never run).
+- **Participants**: the chat header shows chips for the agents taking part in the session (coordinator,
+  advisor mid-consult, teammates working/queued/waiting, coding tasks with tool count and last tool); the
+  inspector lists them in detail. Data comes from `participants[]` in
+  `GET /api/sessions/{key}/coworker` and is polled every 3 s only while something is active.
 
 ## Tests
 

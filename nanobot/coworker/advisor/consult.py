@@ -80,7 +80,21 @@ class ConsultResult:
     dropped_messages: int = 0
 
 
+@dataclass(frozen=True)
+class ActiveConsult:
+    """A consult currently in flight (drives the WebUI participants view)."""
+
+    started_at: float
+    model: str
+    focus: str | None
+
+
 _breaker: dict[str, tuple[int, float]] = {}
+_active: dict[str, ActiveConsult] = {}
+
+
+def active_consult(session_key: str | None) -> ActiveConsult | None:
+    return _active.get(session_key) if session_key else None
 
 
 def breaker_open_seconds(model_key: str, now: float | None = None) -> float:
@@ -102,6 +116,7 @@ def _breaker_record(model_key: str, ok: bool) -> None:
 
 def reset_breaker() -> None:
     _breaker.clear()
+    _active.clear()
 
 
 def _render(message: dict[str, Any]) -> str | None:
@@ -195,6 +210,7 @@ async def run_consult(
     max_tokens: int,
     timeout_s: float,
     allow_thin: bool,
+    session_key: str | None = None,
 ) -> ConsultResult:
     """One-shot, tool-less completion on the advisor runtime."""
     model_key = str(getattr(runtime, "model", "") or "advisor")
@@ -218,6 +234,10 @@ async def run_consult(
         {"role": "user", "content": prompt},
     ]
     started = time.monotonic()
+    if session_key:
+        _active[session_key] = ActiveConsult(
+            started_at=time.time(), model=model_key, focus=(focus or "").strip() or None
+        )
     try:
         response = await asyncio.wait_for(
             runtime.provider.chat_with_retry(
@@ -234,6 +254,9 @@ async def run_consult(
     except Exception as exc:  # provider errors must never crash the executor's turn
         _breaker_record(model_key, False)
         return ConsultResult(ok=False, model=model_key, error=f"{type(exc).__name__}: {exc}")
+    finally:
+        if session_key:
+            _active.pop(session_key, None)
 
     text = (response.content or "").strip()
     failed = response.finish_reason == "error" or not text

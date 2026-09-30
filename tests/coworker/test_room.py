@@ -142,3 +142,61 @@ async def test_room_state_tool_records_the_acting_agent(env) -> None:
             scheduler.current_room_actor.reset(token)
         listing = json.loads(await tool.execute(action="list"))
     assert {k["key"]: k["by"] for k in listing["keys"]} == {"findings": "researcher", "plan": "owner"}
+
+
+@pytest.mark.asyncio
+async def test_room_snapshot_tracks_active_queued_and_recent(env) -> None:
+    env.configure(_config())
+    seen: dict[str, Any] = {}
+
+    async def on_run(agent: str) -> None:
+        if agent == "researcher":
+            seen["mid"] = scheduler.room_snapshot(KEY)
+
+    env.subagents = FakeSubagents({"researcher": ["Facts"], "writer": ["Copy"]}, on_run=on_run)
+    env.bind()
+    scheduler.record_delegation(KEY, "researcher", "find facts", by="owner", runtime=OWNER_RUNTIME)
+    scheduler.record_delegation(KEY, "writer", "write copy", by="owner", runtime=OWNER_RUNTIME)
+    scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
+    await _drain(KEY)
+
+    mid = seen["mid"]
+    assert [g.agent_id for g in mid.active] == ["researcher"] and mid.active[0].task == "find facts"
+    assert [d.agent_id for d in mid.queued] == ["writer"]
+
+    after = scheduler.room_snapshot(KEY)
+    assert after.active == [] and after.queued == [] and after.waiting == {}
+    assert [(o.agent_id, o.state) for o in after.recent] == [("researcher", "done"), ("writer", "done")]
+
+
+@pytest.mark.asyncio
+async def test_room_snapshot_marks_waiting_and_failed_agents(env) -> None:
+    env.configure(_config())
+    seen: dict[str, Any] = {}
+
+    async def on_run(agent: str) -> None:
+        if agent == "writer" and len(env.subagents.calls) == 1:
+            await RoomDelegateTool().execute(agent="researcher", task="get numbers")
+        if agent == "researcher":
+            seen["snap"] = scheduler.room_snapshot(KEY)
+
+    env.subagents = FakeSubagents(
+        {"writer": ["WAIT_FOR @researcher\nneed numbers", "Final"], "researcher": ["42%"]}, on_run=on_run,
+    )
+    env.bind()
+    scheduler.record_delegation(KEY, "writer", "write copy", by="owner", runtime=OWNER_RUNTIME)
+    scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
+    await _drain(KEY)
+    assert seen["snap"].waiting == {"writer": "researcher"}
+    assert scheduler.room_snapshot(KEY).waiting == {}
+
+    class Boom(FakeSubagents):
+        async def run_inline(self, **kwargs: Any) -> str:
+            raise RuntimeError("model down")
+
+    env.subagents = Boom({})
+    env.bind()
+    scheduler.record_delegation(KEY, "researcher", "again", by="owner", runtime=OWNER_RUNTIME)
+    scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
+    await _drain(KEY)
+    assert scheduler.room_snapshot(KEY).recent[-1].state == "error"

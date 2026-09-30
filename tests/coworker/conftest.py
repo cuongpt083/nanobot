@@ -13,6 +13,7 @@ import nanobot.agent.loop  # noqa: F401  # resolve config forward refs before se
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.coworker import runtime
 from nanobot.coworker.advisor.consult import reset_breaker
+from nanobot.coworker.coding.tasks import reset_shared_registries
 from nanobot.coworker.config import CoworkerConfig, set_coworker_config_override
 from nanobot.coworker.context import keepalive, optimizer
 from nanobot.coworker.room import scheduler
@@ -56,6 +57,8 @@ def _isolated_coworker_state() -> Iterator[None]:
     reset_breaker()
     optimizer.reset_states()
     scheduler.reset_rooms()
+    runtime.reset_running_turns()
+    reset_shared_registries()
     yield
     set_coworker_config_override(None)
 

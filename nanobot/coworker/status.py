@@ -2,18 +2,142 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
 from nanobot.coworker.advisor import state as advisor_state
-from nanobot.coworker.advisor.consult import breaker_open_seconds
-from nanobot.coworker.coding.tasks import TaskRegistry
-from nanobot.coworker.config import load_coworker_config
+from nanobot.coworker.advisor.consult import active_consult, breaker_open_seconds
+from nanobot.coworker.coding.tasks import CodingTask, shared_registry
+from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import optimizer
+from nanobot.coworker.room.scheduler import room_snapshot
 from nanobot.coworker.room.store import RoomStateStore, room_id_for
 from nanobot.coworker.room.tools import room_armed_for
-from nanobot.coworker.runtime import services
+from nanobot.coworker.runtime import services, turn_running_since
 from nanobot.session.manager import Session
+
+# Participant states: idle | queued | working | waiting | done | error | paused
+ACTIVE_TASK_STATUSES = ("started", "running")
+RECENT_FINISHED_TASKS = 3
+_TASK_STATE = {
+    "started": "working",
+    "running": "working",
+    "succeeded": "done",
+    "failed_acceptance": "error",
+    "timed_out": "error",
+    "error": "error",
+    "aborted": "paused",
+    "interrupted": "paused",
+}
+_OUTCOME_STATE = {"done": "done", "error": "error", "timeout": "error"}
+
+
+def _participant(
+    pid: str,
+    kind: str,
+    label: str,
+    engine: str,
+    state: str,
+    *,
+    task: str | None = None,
+    since: float | None = None,
+    detail: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": pid,
+        "kind": kind,
+        "label": label,
+        "engine": engine,
+        "state": state,
+        "task": task,
+        "since": since,
+        "detail": detail or {},
+    }
+
+
+def _task_summary(task: CodingTask) -> dict[str, Any]:
+    return {
+        "id": task.id,
+        "backend": task.backend,
+        "status": task.status,
+        "brief": task.brief,
+        "branch": task.branch,
+        "diffstat": task.diffstat,
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+        "live": dict(task.live),
+    }
+
+
+def _session_tasks(ws_root: Path, key: str) -> list[CodingTask]:
+    """This session's tasks: in-flight first, then the most recent."""
+    mine = [t for t in shared_registry(ws_root).list_tasks() if t.session_key == key]
+    active = [t for t in mine if t.status in ACTIVE_TASK_STATUSES]
+    finished = [t for t in mine if t.status not in ACTIVE_TASK_STATUSES]
+    return [*active, *finished][:10]
+
+
+def _coding_participants(tasks: list[CodingTask]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    finished = 0
+    for t in tasks:
+        is_active = t.status in ACTIVE_TASK_STATUSES
+        if not is_active:
+            finished += 1
+            if finished > RECENT_FINISHED_TASKS:
+                continue
+        live = t.live
+        out.append(_participant(
+            t.id,
+            "coding",
+            f"{t.backend} · {t.id}",
+            f"backend:{t.backend}",
+            _TASK_STATE.get(t.status, "idle"),
+            task=t.brief,
+            since=t.created_at,
+            detail={
+                "status": t.status,
+                "tools": int(live.get("tool_count", 0) or 0),
+                "last_tool": live.get("last_tool"),
+                "rounds": int(live.get("rounds", 1) or 1),
+                "last_event_at": live.get("last_event_at"),
+                "branch": t.branch,
+                "diffstat": t.diffstat,
+            },
+        ))
+    return out
+
+
+def _teammate_participants(
+    cfg: CoworkerConfig, key: str, armed: bool
+) -> list[dict[str, Any]]:
+    snap = room_snapshot(key)
+    active = {g.agent_id: g for g in snap.active}
+    queued: dict[str, str] = {}
+    for d in snap.queued:
+        queued.setdefault(d.agent_id, d.task)
+    recent: dict[str, str] = {o.agent_id: o.state for o in snap.recent}
+    out: list[dict[str, Any]] = []
+    for agent in cfg.room.agents:
+        since: float | None = None
+        task: str | None = None
+        if agent.id in active:
+            state, task, since = "working", active[agent.id].task, active[agent.id].started_at
+        elif agent.id in snap.waiting:
+            state, task = "waiting", f"waiting for @{snap.waiting[agent.id]}"
+        elif agent.id in queued:
+            state, task = "queued", queued[agent.id]
+        elif agent.id in recent:
+            state = _OUTCOME_STATE.get(recent[agent.id], "idle")
+        else:
+            state = "idle"
+        if not armed and state == "idle":
+            continue
+        label = f"{agent.emoji + ' ' if agent.emoji else ''}{agent.name or agent.id}"
+        engine = f"backend:{agent.backend}" if agent.backend else f"preset:{agent.preset or 'default'}"
+        out.append(_participant(agent.id, "teammate", label, engine, state, task=task, since=since))
+    return out
 
 
 def coworker_session_status(session: Session) -> dict[str, Any]:
@@ -48,6 +172,7 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
 
     # 2. Advisor
     adv_eff = advisor_state.effective(session)
+    last_consult = advisor_state.last_consult(session)
     if adv_eff is None:
         advisor_status: dict[str, Any] = {
             "enabled": False,
@@ -56,6 +181,7 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "max_uses": cfg.advisor.max_uses,
             "max_tokens": cfg.advisor.max_tokens,
             "breaker_open_seconds": 0,
+            "last_consult": last_consult,
         }
     else:
         advisor_status = {
@@ -65,6 +191,7 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "max_uses": adv_eff.max_uses,
             "max_tokens": adv_eff.max_tokens,
             "breaker_open_seconds": round(breaker_open_seconds(adv_eff.preset)),
+            "last_consult": last_consult,
         }
 
     # 3. Room & Teammates
@@ -86,25 +213,46 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
     }
 
     # 4. Coding Agent Tasks
-    tasks_list: list[dict[str, Any]] = []
+    tasks: list[CodingTask] = []
     if cfg.coding.enabled:
         try:
-            registry = TaskRegistry(ws_root)
-            all_tasks = registry.list_tasks()
-            for t in all_tasks:
-                if t.session_key == key or len(tasks_list) < 5:
-                    tasks_list.append({
-                        "id": t.id,
-                        "backend": t.backend,
-                        "status": t.status,
-                        "brief": t.brief,
-                        "branch": t.branch,
-                        "diffstat": t.diffstat,
-                        "created_at": t.created_at,
-                        "updated_at": t.updated_at,
-                    })
+            tasks = _session_tasks(ws_root, key)
         except Exception:
-            pass
+            tasks = []
+
+    # 5. Participants: who is taking part in this session's work right now.
+    running_since = turn_running_since(key)
+    participants: list[dict[str, Any]] = [
+        _participant(
+            "coordinator",
+            "coordinator",
+            "Coordinator",
+            "session",
+            "working" if running_since is not None else "idle",
+            since=running_since,
+        )
+    ]
+    if adv_eff is not None:
+        consult = active_consult(key)
+        breaker = round(breaker_open_seconds(adv_eff.preset))
+        state = "working" if consult is not None else ("paused" if breaker > 0 else "idle")
+        participants.append(_participant(
+            "advisor",
+            "advisor",
+            "Advisor",
+            f"preset:{adv_eff.preset}",
+            state,
+            task=consult.focus if consult is not None else None,
+            since=consult.started_at if consult is not None else None,
+            detail={
+                "uses": adv_eff.uses,
+                "max_uses": adv_eff.max_uses,
+                "breaker_open_seconds": breaker,
+                "last_consult": last_consult,
+            },
+        ))
+    participants += _teammate_participants(cfg, key, armed)
+    participants += _coding_participants(tasks)
 
     return {
         "caching": caching_status,
@@ -112,6 +260,8 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
         "room": room_status,
         "coding": {
             "enabled": cfg.coding.enabled,
-            "tasks": tasks_list[:10],
+            "tasks": [_task_summary(t) for t in tasks],
         },
+        "participants": participants,
+        "generated_at": time.time(),
     }

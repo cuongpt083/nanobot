@@ -37,6 +37,8 @@ from nanobot.coworker.runtime import (
     get_session,
     inject_turn,
     is_automated_turn,
+    mark_turn_finished,
+    mark_turn_running,
     post_to_chat,
     remember_live_messages,
     services,
@@ -49,6 +51,9 @@ from nanobot.coworker.workflows.tools import WORKFLOW_TOOLS
 
 ADVISOR_REVIEW_MARKER = "[auto-advisor-review]"
 KIND_ADVISOR_REVIEW = "advisor_review"
+KIND_CODING_RESULT = "coding_result"
+# Injected turns that still deserve an advisor nudge (the executor just received work to vet).
+_NUDGE_KINDS = frozenset({KIND_CODING_RESULT})
 _READ_ONLY_TOOLS = frozenset({
     "read_file", "list_dir", "glob", "grep", "search", "web_search", "web_fetch", "sessions_list",
     "session_messages", "cron",
@@ -108,6 +113,7 @@ class CoworkerHook(AgentHook):
         )
 
     async def before_run(self, context: AgentRunHookContext) -> None:
+        mark_turn_running(self._key)
         if not self._is_genuine_candidate():
             return
         last_user = next((m for m in reversed(context.messages) if m.get("role") == "user"), None)
@@ -128,6 +134,7 @@ class CoworkerHook(AgentHook):
 
     async def on_finally(self, context: AgentRunHookContext) -> None:
         forget_live_messages(self._key)
+        mark_turn_finished(self._key)
 
     # ---------- payload ----------
 
@@ -263,9 +270,14 @@ class CoworkerHook(AgentHook):
     async def _maybe_nudge_advisor(
         self, key: str, session: Any, context: AgentRunHookContext, cfg: CoworkerConfig
     ) -> None:
-        if not cfg.advisor.review_nudge or self._kind is not None:
+        if not cfg.advisor.review_nudge:
             return
-        if self._genuine_text is None or context.stop_reason not in ("completed", None):
+        result_turn = self._kind in _NUDGE_KINDS
+        if self._kind is not None and not result_turn:
+            return
+        if not result_turn and self._genuine_text is None:
+            return
+        if context.stop_reason not in ("completed", None):
             return
         eff = advisor_state.effective(session)
         if eff is None or eff.uses >= eff.max_uses:
@@ -277,9 +289,14 @@ class CoworkerHook(AgentHook):
                 consulted, gap = True, 0
             elif name not in NON_EVIDENCE_TOOLS and name not in _READ_ONLY_TOOLS:
                 gap += 1
-        threshold = cfg.advisor.reconsult_gap if consulted else cfg.advisor.first_consult_gap
-        if gap < threshold:
-            return
+        if result_turn:
+            # The executor just received a finished coding task: a review is due unless it already asked.
+            if consulted:
+                return
+        else:
+            threshold = cfg.advisor.reconsult_gap if consulted else cfg.advisor.first_consult_gap
+            if gap < threshold:
+                return
         try:
             from nanobot.coworker.runtime import runtime_for_preset
 
@@ -289,14 +306,22 @@ class CoworkerHook(AgentHook):
         if breaker_open_seconds(model_key) > 0:
             logger.warning("coworker: advisor review nudge skipped, circuit open for {}", model_key)
             return
-        text = (
-            f"{ADVISOR_REVIEW_MARKER} You have done a lot of work ({gap} steps) since your last advisor consult. "
-            if consulted
-            else f"{ADVISOR_REVIEW_MARKER} You did substantive work this run without consulting the advisor. "
-        ) + (
-            "Call advisor() NOW for a review — it sees your full transcript including everything you just did. "
-            "If it flags a real problem, fix it before finishing; otherwise briefly confirm completion."
-        )
+        if result_turn:
+            text = (
+                f"{ADVISOR_REVIEW_MARKER} A coding task finished and you have not consulted the advisor on it. "
+                "Read the real changes first (coding_agent action=\"diff\" with the task id), then call "
+                "advisor(focus=\"review this diff and the acceptance result before I recommend a merge\"). "
+                "If it flags a real problem, steer or resume the task; otherwise report to the user."
+            )
+        else:
+            text = (
+                f"{ADVISOR_REVIEW_MARKER} You have done a lot of work ({gap} steps) since your last advisor consult. "
+                if consulted
+                else f"{ADVISOR_REVIEW_MARKER} You did substantive work this run without consulting the advisor. "
+            ) + (
+                "Call advisor() NOW for a review — it sees your full transcript including everything you just did. "
+                "If it flags a real problem, fix it before finishing; otherwise briefly confirm completion."
+            )
         logger.info("coworker: advisor review nudge for {} (gap={}, consulted={})", self._key, gap, consulted)
         await inject_turn(
             session_key=key,

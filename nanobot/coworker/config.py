@@ -206,6 +206,12 @@ def load_coworker_config() -> CoworkerConfig:
     return config
 
 
+def invalidate_coworker_config_cache() -> None:
+    """Force the next load to re-read the file (used right after the WebUI writes it)."""
+    global _cache
+    _cache = None
+
+
 def set_coworker_config_override(config: CoworkerConfig | None) -> None:
     """Pin the config in-process (tests and SDK embedding)."""
     global _override

@@ -70,3 +70,29 @@ def count_use(session: Any) -> int:
 
 def mark_early_refusal(session: Any) -> None:
     _slot(session)["early_refused"] = True
+
+
+FOCUS_MAX_CHARS = 200
+
+
+def record_consult(
+    session: Any,
+    *,
+    model: str,
+    focus: str | None,
+    duration_ms: int,
+    ok: bool,
+    now: float,
+) -> None:
+    """Remember the latest real consult attempt (refusals for thin context are not recorded)."""
+    _slot(session)["last_consult"] = {
+        "at": now,
+        "model": model,
+        "focus": (focus or "")[:FOCUS_MAX_CHARS] or None,
+        "duration_ms": duration_ms,
+        "ok": ok,
+    }
+
+
+def last_consult(session: Any) -> dict[str, Any] | None:
+    return as_dict(_slot(session).get("last_consult"))

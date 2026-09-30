@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from nanobot.agent.tools.base import ToolResult, tool_parameters
@@ -73,6 +74,7 @@ class AdvisorTool(CoworkerTool):
                 fallback="Continue on your own judgment and tell the user the advisor preset is misconfigured.",
             )
         messages = live_messages(request.session_key) or list(session.messages)
+        started = time.monotonic()
         result = await run_consult(
             messages=messages,
             runtime=runtime,
@@ -80,7 +82,19 @@ class AdvisorTool(CoworkerTool):
             max_tokens=eff.max_tokens,
             timeout_s=load_coworker_config().advisor.timeout_seconds,
             allow_thin=eff.early_refused or eff.uses > 0,
+            session_key=request.session_key,
         )
+        if result.code not in ("insufficient_context", "advisor_unavailable") and result.error != (
+            "session transcript is empty"
+        ):
+            advisor_state.record_consult(
+                session,
+                model=result.model or eff.preset,
+                focus=focus,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                ok=result.ok,
+                now=time.time(),
+            )
         if result.code == "insufficient_context":
             advisor_state.mark_early_refusal(session)
             return self.payload(

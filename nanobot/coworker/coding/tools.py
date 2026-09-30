@@ -14,6 +14,7 @@ from nanobot.coworker.runtime import services, spawn_background
 from nanobot.coworker.tools_base import CoworkerTool
 
 CODING_TOOL = "coding_agent"
+DIFF_MAX_CHARS = 20_000
 
 
 @tool_parameters({
@@ -21,8 +22,9 @@ CODING_TOOL = "coding_agent"
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["start", "status", "steer", "abort", "result"],
-            "description": "Action to perform: start, status, steer, abort, or result.",
+            "enum": ["start", "status", "steer", "abort", "result", "diff"],
+            "description": "Action to perform: start, status, steer, abort, result, or diff "
+            "(read the task's full code diff, e.g. before asking the advisor to review it).",
         },
         "task": {
             "type": "string",
@@ -56,7 +58,7 @@ CODING_TOOL = "coding_agent"
         },
         "id": {
             "type": "string",
-            "description": "Task ID (ct-...) for status, steer, abort, or result.",
+            "description": "Task ID (ct-...) for status, steer, abort, result, or diff.",
         },
         "message": {
             "type": "string",
@@ -201,6 +203,38 @@ class CodingAgentTool(CoworkerTool):
                 commits=t.commits,
                 acceptance=t.acceptance_output,
                 error=t.error,
+            )
+
+        if act == "diff":
+            if not id:
+                return self.payload("error", error="Task 'id' is required for 'diff'.")
+            t = runner.registry.get(id)
+            if not t:
+                return self.payload("error", error=f"Task '{id}' not found.")
+            worktree = Path(t.worktree) if t.worktree else None
+            if worktree is None or not worktree.exists():
+                return self.payload("error", error=f"Worktree for task '{id}' is no longer available.")
+            diff_text = await runner.workspace_mgr.get_full_diff(worktree, t.base)
+            if not diff_text.strip():
+                return self.payload("ok", id=t.id, diff="", note="No diff against the base ref.")
+            total = len(diff_text)
+            truncated = total > DIFF_MAX_CHARS
+            if truncated:
+                diff_text = diff_text[:DIFF_MAX_CHARS]
+            return self.payload(
+                "ok",
+                id=t.id,
+                branch=t.branch,
+                diffstat=t.diffstat,
+                truncated=truncated,
+                total_chars=total,
+                diff=diff_text,
+                note=(
+                    f"Diff truncated to {DIFF_MAX_CHARS} of {total} characters; "
+                    "read specific files in the worktree for the rest."
+                    if truncated
+                    else None
+                ),
             )
 
         return self.payload("error", error=f"Unknown action: {action!r}")

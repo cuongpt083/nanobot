@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/**/*.test.js",
+    "login": "node src/login.js",
     "start": "node src/server.js"
   },
   "dependencies": {

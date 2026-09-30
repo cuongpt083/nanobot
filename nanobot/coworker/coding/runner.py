@@ -25,14 +25,19 @@ from nanobot.coworker.coding.brief import (
 )
 from nanobot.coworker.coding.tasks import (
     CodingTask,
-    TaskRegistry,
     generate_task_id,
+    shared_registry,
 )
 from nanobot.coworker.coding.workspace import WorkspaceManager
 from nanobot.coworker.runtime import inject_turn, post_to_chat
 
 if TYPE_CHECKING:
     from nanobot.coworker.config import CoworkerConfig, RepoConfig
+
+
+# Running backends by task id, shared by every runner instance so steer/abort issued from a later
+# tool call or `/code` command reaches the process started by an earlier one.
+_ACTIVE_BACKENDS: dict[str, CodingBackend] = {}
 
 
 class CodingRunner:
@@ -42,8 +47,8 @@ class CodingRunner:
         self.config = config
         self.workspace_root = workspace_root
         self.workspace_mgr = WorkspaceManager(config.coding, workspace_root)
-        self.registry = TaskRegistry(workspace_root)
-        self._active_backends: dict[str, CodingBackend] = {}
+        self.registry = shared_registry(workspace_root)
+        self._active_backends = _ACTIVE_BACKENDS
 
     def admit(
         self,
@@ -156,6 +161,9 @@ class CodingRunner:
         start_time = time.time()
         last_progress_time = start_time
         fix_rounds_left = self.config.coding.fix_rounds
+        total_tools = 0
+        rounds = 1
+        task.live = {"tool_count": 0, "last_tool": None, "last_event_at": start_time, "rounds": rounds}
 
         try:
             # Launch first round
@@ -175,6 +183,7 @@ class CodingRunner:
                 async for event in run:
                     now = time.time()
                     last_event_time = now
+                    task.live["last_event_at"] = now
 
                     # Wall clock timeout
                     if now - start_time > wall_timeout_seconds:
@@ -187,7 +196,10 @@ class CodingRunner:
                     if isinstance(event, BackendEventTool):
                         if event.state == "start":
                             tool_count += 1
+                            total_tools += 1
                             last_tool = event.tool_name
+                            task.live["tool_count"] = total_tools
+                            task.live["last_tool"] = last_tool
 
                     if isinstance(event, BackendEventProgress):
                         # Progress throttled reporting
@@ -242,6 +254,8 @@ class CodingRunner:
                         break
                     elif fix_rounds_left > 0 and task.resume_ref:
                         fix_rounds_left -= 1
+                        rounds += 1
+                        task.live["rounds"] = rounds
                         logger.info(f"Acceptance failed for task {task.id}; launching fix round ({fix_rounds_left} remaining)")
                         fu_prompt = render_acceptance_failure_prompt(task.acceptance, acc_out)
                         run = backend.follow_up(

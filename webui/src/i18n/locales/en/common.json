@@ -2206,6 +2206,34 @@
     },
     "coding": {
       "resultTitle": "Coding Task Result"
+    },
+    "participants": {
+      "title": "Working on this",
+      "listTitle": "Participants",
+      "stripLabel": "Agents taking part in this session",
+      "empty": "No other agents are involved yet.",
+      "noTask": "No active task",
+      "lastConsult": "Last consult",
+      "consultOk": "advice given",
+      "consultFailed": "failed",
+      "tools": "{{count}} tools",
+      "rounds": "round {{count}}",
+      "uses": "{{used}}/{{max}} consults",
+      "state": {
+        "idle": "Idle",
+        "queued": "Queued",
+        "working": "Working",
+        "waiting": "Waiting",
+        "done": "Done",
+        "error": "Failed",
+        "paused": "Paused"
+      },
+      "kind": {
+        "coordinator": "Coordinator",
+        "advisor": "Advisor",
+        "teammate": "Teammate",
+        "coding": "Coding agent"
+      }
     }
   }
 }

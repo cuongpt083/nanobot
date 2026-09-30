@@ -150,7 +150,11 @@ _SYSTEM_ROUTES = {
     },
 }
 
+_COWORKER_SETTINGS_PATH = "/api/settings/coworker"
+_COWORKER_SETTINGS_UPDATE_PATH = "/api/settings/coworker/update"
+
 _SETTINGS_MUTATION_PATHS = frozenset({
+    _COWORKER_SETTINGS_UPDATE_PATH,
     "/api/settings/runtime-config/update",
     "/api/settings/update",
     "/api/settings/model-configurations/create",
@@ -287,6 +291,11 @@ class WebUISettingsRouter:
             return self._handle_mcp_oauth_complete(request)
         if path == "/api/settings/mcp-oauth/cancel":
             return await self._handle_mcp_oauth_cancel(request)
+
+        if path in (_COWORKER_SETTINGS_PATH, _COWORKER_SETTINGS_UPDATE_PATH):
+            if not self._authorized(request):
+                return self._unauthorized()
+            return await self._handle_coworker_settings(request, update=path.endswith("/update"))
 
         route = self._route(path)
         if route is None:
@@ -472,6 +481,29 @@ class WebUISettingsRouter:
 
     def _handle_settings_usage(self) -> Response:
         return self._json_response(self.settings.read(settings_usage_payload))
+
+    async def _handle_coworker_settings(self, request: WsRequest, *, update: bool) -> Response:
+        """Coworker (advisor / team / coding) settings; logic lives in ``nanobot.coworker``."""
+        from nanobot.coworker.settings_api import (
+            CoworkerSettingsError,
+            coworker_settings_payload,
+            update_coworker_settings,
+        )
+
+        def run() -> dict[str, Any]:
+            preset_names = list(self.settings.config.load().model_presets)
+            if not update:
+                return coworker_settings_payload(preset_names)
+            return update_coworker_settings(_mutation_payload(request) or {}, preset_names)
+
+        try:
+            payload = await asyncio.to_thread(run)
+        except CoworkerSettingsError as exc:
+            return self._error_response(exc.status, exc.message)
+        except Exception:
+            self.logger.exception("coworker settings request failed")
+            return self._error_response(500, "coworker settings request failed")
+        return self._json_response(payload)
 
     def _model_operations(self) -> model_domain.ModelSettingsOperations:
         return model_domain.ModelSettingsOperations(

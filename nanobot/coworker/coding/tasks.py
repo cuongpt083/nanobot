@@ -57,6 +57,9 @@ class CodingTask:
     acceptance_output: str | None = None
     error: str | None = None
     raw_error_line: str | None = None
+    # Live progress for the WebUI (tool_count, last_tool, last_event_at, rounds); the registry keeps
+    # the same object in memory, so mutating it is visible to status without a disk write per event.
+    live: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -122,3 +125,25 @@ class TaskRegistry:
             for t in self._memory_cache.values()
             if t.status in ("started", "running") and (session_key is None or t.session_key == session_key)
         )
+
+
+_shared: dict[Path, TaskRegistry] = {}
+
+
+def shared_registry(workspace_root: Path) -> TaskRegistry:
+    """Process-wide registry per workspace.
+
+    Constructing a ``TaskRegistry`` performs restart recovery (in-flight tasks become
+    ``interrupted``), so it must happen once per process — not on every tool call, command or
+    status poll — otherwise a running task is clobbered and its live progress is invisible.
+    """
+    key = workspace_root.expanduser().resolve()
+    registry = _shared.get(key)
+    if registry is None:
+        registry = _shared[key] = TaskRegistry(key)
+    return registry
+
+
+def reset_shared_registries() -> None:
+    """Test hook."""
+    _shared.clear()

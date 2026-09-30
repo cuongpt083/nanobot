@@ -17,7 +17,7 @@ import { ModelFallbackNotice } from "@/components/thread/ModelFallbackNotice";
 import { RecoveryNotice } from "@/components/thread/RecoveryNotice";
 import { SessionInfoPopover } from "@/components/thread/SessionInfoPopover";
 import type { ComposerDraftStore } from "@/lib/composer-draft";
-import { CoworkerInspectorPopover } from "@/components/coworker/CoworkerInspectorPopover";
+import { CoworkerHeaderControls } from "@/components/coworker/CoworkerHeaderControls";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import type {
@@ -921,6 +921,16 @@ export function ThreadShell({
   }, []);
 
   const displayMessages = useMemo(() => projectWebuiThreadMessages(messages), [messages]);
+  // Harness-driven turns ([auto-coding-result], [auto-room], …) mark state changes worth a refresh.
+  const coworkerRefreshKey = useMemo(
+    () =>
+      displayMessages.reduce(
+        (count, message) =>
+          message.role === "user" && message.content.trimStart().startsWith("[auto-") ? count + 1 : count,
+        0,
+      ),
+    [displayMessages],
+  );
   const hasAppMentions = displayMessages.some((message) => message.cliApps?.length || message.mcpPresets?.length);
   useEffect(() => {
     if (hasAppMentions) requestMentionCatalogs();
@@ -1850,7 +1860,12 @@ export function ThreadShell({
     <SessionInfoPopover client={client} sessionKey={historyKey} token={token} title={title} />
   ) : undefined;
   const coworkerInspectorAction = historyKey ? (
-    <CoworkerInspectorPopover sessionKey={historyKey} token={token} />
+    <CoworkerHeaderControls
+      sessionKey={historyKey}
+      token={token}
+      turnActive={turnActive}
+      refreshKey={coworkerRefreshKey}
+    />
   ) : undefined;
   const promptNavigatorAction = historyKey ? (
     <PromptNavigator

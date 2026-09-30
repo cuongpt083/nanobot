@@ -2007,6 +2007,74 @@
     },
     "coding": {
       "resultTitle": "Kết quả Coding Task"
+    },
+    "settings": {
+      "title": "Coworker",
+      "entryHelp": "Mô hình cố vấn, các agent đồng đội và coding agent (Pi, agy).",
+      "tab": { "advisor": "Cố vấn", "team": "Đội ngũ", "coding": "Lập trình" },
+      "save": "Lưu",
+      "revert": "Bỏ thay đổi",
+      "saved": "Đã lưu. Áp dụng cho các lượt mới, không cần khởi động lại.",
+      "loading": "Đang tải…",
+      "retry": "Thử lại",
+      "loadFailed": "Không tải được cài đặt Coworker.",
+      "cancel": "Hủy",
+      "configure": "Cấu hình trong cài đặt Coworker",
+      "advisor": {
+        "preset": "Mô hình cố vấn",
+        "presetHelp": "Mô hình mạnh hơn để agent tham vấn. Nó chỉ đưa lời khuyên, không sửa file hay chạy lệnh.",
+        "disabled": "Tắt",
+        "maxUses": "Số lần tham vấn mỗi hội thoại",
+        "maxTokens": "Giới hạn độ dài lời khuyên",
+        "timeout": "Thời gian chờ tham vấn",
+        "nudge": "Nhắc agent tham vấn",
+        "nudgeHelp": "Sau khi làm nhiều việc hoặc khi một tác vụ code kết thúc, nhắc agent tham vấn một lần."
+      },
+      "team": {
+        "add": "Thêm đồng đội",
+        "remove": "Xóa agent",
+        "empty": "Chưa có đồng đội. Sau khi thêm, gọi họ trong chat bằng @id."
+      },
+      "coding": {
+        "enabled": "Bật coding agent",
+        "harnesses": "Coding agent đã cài",
+        "notFound": "không tìm thấy",
+        "installed": "đã cài",
+        "custom": "lệnh tùy chỉnh",
+        "defaultBackend": "Backend mặc định",
+        "repos": "Kho mã nguồn",
+        "addRepo": "Thêm kho mã nguồn",
+        "unsandboxed": "chạy không có sandbox",
+        "confirmUnsandboxed": "Tôi hiểu, bật lên"
+      }
+    },
+    "participants": {
+      "title": "Đang tham gia",
+      "listTitle": "Thành viên tham gia",
+      "stripLabel": "Các agent đang tham gia phiên này",
+      "empty": "Chưa có agent nào khác tham gia.",
+      "noTask": "Không có tác vụ đang chạy",
+      "lastConsult": "Lần tham vấn gần nhất",
+      "consultOk": "đã đưa lời khuyên",
+      "consultFailed": "thất bại",
+      "tools": "{{count}} lệnh",
+      "rounds": "vòng {{count}}",
+      "uses": "{{used}}/{{max}} lượt tham vấn",
+      "state": {
+        "idle": "Nghỉ",
+        "queued": "Đang chờ",
+        "working": "Đang làm",
+        "waiting": "Đang đợi",
+        "done": "Xong",
+        "error": "Lỗi",
+        "paused": "Tạm dừng"
+      },
+      "kind": {
+        "coordinator": "Điều phối",
+        "advisor": "Cố vấn",
+        "teammate": "Teammate",
+        "coding": "Coding agent"
+      }
     }
   }
 }

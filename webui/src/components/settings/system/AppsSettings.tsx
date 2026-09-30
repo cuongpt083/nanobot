@@ -50,6 +50,7 @@ import { Input } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Textarea } from "@/components/ui/textarea";
 import { SettingsTextEditor } from "@/components/settings/shared/SettingsTextEditor";
+import { CodingAgentsPanel } from "@/components/settings/system/CodingAgentsPanel";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { isGenericRepositoryLogoUrl, logoFallbackUrls } from "@/lib/provider-brand";
 import type {
@@ -61,7 +62,7 @@ import type {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export type AppsKindFilter = "ready" | "cli" | "mcp";
+export type AppsKindFilter = "ready" | "cli" | "mcp" | "coding";
 type AppsCatalogItem =
   | { id: string; kind: "cli"; app: CliAppInfo }
   | { id: string; kind: "mcp"; preset: McpPresetInfo };
@@ -139,6 +140,7 @@ export function AppsCatalogSettings({
   onMcpToolsChange,
   onRestart,
   isRestarting,
+  onOpenCoworkerSettings,
 }: {
   setupName?: string | null;
   onSetupOpened?: () => void;
@@ -184,6 +186,7 @@ export function AppsCatalogSettings({
   onMcpToolsChange: (name: string, enabledTools: string[]) => void;
   onRestart?: () => void;
   isRestarting?: boolean;
+  onOpenCoworkerSettings?: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -191,6 +194,7 @@ export function AppsCatalogSettings({
     { value: "ready", label: tx("settings.apps.filterAll", "Ready") },
     { value: "cli", label: tx("settings.apps.filterCli", "Apps") },
     { value: "mcp", label: tx("settings.apps.filterMcp", "MCP") },
+    { value: "coding", label: tx("settings.apps.filterCoding", "Coding") },
   ];
   const normalizedQuery = query.trim().toLowerCase();
   const items: AppsCatalogItem[] = [
@@ -204,6 +208,7 @@ export function AppsCatalogSettings({
     .filter((item) => {
       if (normalizedQuery) return appsSearchText(item).includes(normalizedQuery);
       if (filter === "ready") return appsReady(item);
+      if (filter === "coding") return false;
       if (filter === "cli") {
         return item.kind === "cli" || item.preset.source === "agent-plugin";
       }
@@ -295,7 +300,9 @@ export function AppsCatalogSettings({
         />
       ) : null}
 
-      <section className="rounded-panel bg-settings-surface px-3 py-3 sm:px-4">
+      {filter === "coding" ? <CodingAgentsPanel onConfigure={onOpenCoworkerSettings} /> : null}
+
+      {filter === "coding" ? null : <section className="rounded-panel bg-settings-surface px-3 py-3 sm:px-4">
         <div className="settings-section-heading border-b border-border/45 pb-2">
           <SettingsSectionTitle>
             {filter === "mcp"
@@ -382,7 +389,7 @@ export function AppsCatalogSettings({
             )}
           </div>
         )}
-      </section>
+      </section>}
 
       {filter === "mcp" ? (
         <McpCustomServerPanel

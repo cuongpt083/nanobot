@@ -9,6 +9,7 @@ and model presets without any extra wiring in the core loop.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,6 +83,36 @@ def forget_live_messages(session_key: str | None) -> None:
 
 def live_messages(session_key: str | None) -> list[dict[str, Any]] | None:
     return _live_messages.get(session_key) if session_key else None
+
+
+_running_turns: dict[str, float] = {}
+
+
+def mark_turn_running(session_key: str | None) -> None:
+    """Record that the session's coordinator agent is mid-turn (for the participants view)."""
+    if session_key:
+        _running_turns.setdefault(session_key, time.time())
+
+
+def mark_turn_finished(session_key: str | None) -> None:
+    if session_key:
+        _running_turns.pop(session_key, None)
+
+
+RUNNING_TURN_MAX_AGE_S = 6 * 3600  # a flag this old means on_finally never ran; do not show it forever
+
+
+def turn_running_since(session_key: str | None) -> float | None:
+    started = _running_turns.get(session_key) if session_key else None
+    if started is not None and time.time() - started > RUNNING_TURN_MAX_AGE_S:
+        _running_turns.pop(session_key or "", None)
+        return None
+    return started
+
+
+def reset_running_turns() -> None:
+    """Test hook."""
+    _running_turns.clear()
 
 
 def session_state(session: Session) -> dict[str, Any]:

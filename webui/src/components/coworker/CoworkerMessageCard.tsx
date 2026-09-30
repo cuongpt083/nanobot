@@ -15,11 +15,43 @@ import { MarkdownText } from "@/components/MarkdownText";
 
 export type CoworkerCardKind = "advisor" | "room" | "coding";
 
+export interface CoworkerCodingMeta {
+  backend?: string;
+  status?: string;
+  added?: number;
+  removed?: number;
+}
+
 export interface CoworkerCardData {
   kind: CoworkerCardKind;
   target?: string;
   body: string;
+  coding?: CoworkerCodingMeta;
 }
+
+/** Pull backend / status / line counts out of the runner's `[auto-coding-result]` text. */
+export function parseCodingMeta(raw: string): CoworkerCodingMeta {
+  const meta: CoworkerCodingMeta = {};
+  const head = raw.match(/\(([a-z0-9_-]+)\)\s+finished with status:\s*`([a-z_]+)`/i);
+  if (head) {
+    meta.backend = head[1];
+    meta.status = head[2];
+  }
+  const added = raw.match(/(\d+) insertions?\(\+\)/);
+  const removed = raw.match(/(\d+) deletions?\(-\)/);
+  if (added) meta.added = Number(added[1]);
+  if (removed) meta.removed = Number(removed[1]);
+  return meta;
+}
+
+const CODING_STATUS_TONE: Record<string, string> = {
+  succeeded: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  failed_acceptance: "bg-red-500/15 text-red-700 dark:text-red-300",
+  error: "bg-red-500/15 text-red-700 dark:text-red-300",
+  timed_out: "bg-red-500/15 text-red-700 dark:text-red-300",
+  aborted: "bg-muted text-muted-foreground",
+  interrupted: "bg-muted text-muted-foreground",
+};
 
 export function parseCoworkerMessage(text: string): CoworkerCardData | null {
   const trimmed = text.trim();
@@ -54,6 +86,7 @@ export function parseCoworkerMessage(text: string): CoworkerCardData | null {
       kind: "coding",
       target: taskMatch ? taskMatch[1] : undefined,
       body: raw,
+      coding: parseCodingMeta(raw),
     };
   }
 
@@ -83,7 +116,7 @@ export function CoworkerMessageCard({
             </span>
             <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:text-violet-300">
               <Sparkles className="h-3 w-3" />
-              {t("coworker.advisor.automated", { defaultValue: "Checkpoint" })}
+              {t("coworker.advisor.automated", { defaultValue: "Review requested" })}
             </span>
           </div>
           <button
@@ -153,6 +186,27 @@ export function CoworkerMessageCard({
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-mono font-medium text-emerald-700 dark:text-emerald-300">
                 <GitBranch className="h-3 w-3" />
                 {data.target}
+              </span>
+            ) : null}
+            {data.coding?.backend ? (
+              <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                {data.coding.backend}
+              </span>
+            ) : null}
+            {data.coding?.status ? (
+              <span
+                data-testid="coding-status"
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase ${
+                  CODING_STATUS_TONE[data.coding.status] ?? "bg-muted text-muted-foreground"
+                }`}
+              >
+                {data.coding.status.replace(/_/g, " ")}
+              </span>
+            ) : null}
+            {data.coding?.added !== undefined || data.coding?.removed !== undefined ? (
+              <span data-testid="coding-lines" className="font-mono text-[11px]">
+                <span className="text-emerald-600 dark:text-emerald-400">+{data.coding?.added ?? 0}</span>{" "}
+                <span className="text-red-600 dark:text-red-400">−{data.coding?.removed ?? 0}</span>
               </span>
             ) : null}
           </div>

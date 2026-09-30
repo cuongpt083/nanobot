@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Bot,
   Brain,
   Code2,
   Flame,
@@ -25,25 +26,44 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CoworkerParticipantList } from "@/components/coworker/CoworkerParticipants";
 import { useCoworkerStatus } from "@/hooks/useCoworkerStatus";
 import { cn } from "@/lib/utils";
+
+type CoworkerStatusFeed = Pick<
+  ReturnType<typeof useCoworkerStatus>,
+  "status" | "loading" | "liveRemainingSeconds"
+>;
 
 interface CoworkerInspectorPopoverProps {
   sessionKey: string;
   token: string;
+  /** Controlled open state (used by the header strip to open the inspector). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Status shared with the header strip; when given, the popover does not poll on its own. */
+  feed?: CoworkerStatusFeed;
+  /** Participant to emphasise, e.g. the chip that was clicked. */
+  highlightId?: string | null;
 }
 
 export function CoworkerInspectorPopover({
   sessionKey,
   token,
+  open: controlledOpen,
+  onOpenChange,
+  feed,
+  highlightId = null,
 }: CoworkerInspectorPopoverProps) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const { status, loading, liveRemainingSeconds } = useCoworkerStatus(
-    open,
-    token,
-    sessionKey,
-  );
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = controlledOpen ?? innerOpen;
+  const setOpen = (next: boolean) => {
+    setInnerOpen(next);
+    onOpenChange?.(next);
+  };
+  const own = useCoworkerStatus(feed ? false : open, token, sessionKey);
+  const { status, loading, liveRemainingSeconds } = feed ?? own;
 
   const isWarm = status?.caching?.is_warm ?? false;
 
@@ -110,6 +130,20 @@ export function CoworkerInspectorPopover({
 
           {/* Body */}
           <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto overscroll-contain p-3.5 text-xs">
+            {/* 0. Participants: who is taking part in this session right now */}
+            <div className="rounded-lg border border-border/60 bg-card p-3 shadow-xs">
+              <div className="mb-2 flex items-center gap-1.5 font-medium text-foreground">
+                <Bot className="h-3.5 w-3.5 text-primary" />
+                <span>
+                  {t("coworker.participants.listTitle", { defaultValue: "Participants" })}
+                </span>
+              </div>
+              <CoworkerParticipantList
+                participants={status?.participants}
+                highlightId={highlightId}
+              />
+            </div>
+
             {/* 1. Context Cache & Optimizer */}
             <div className="rounded-lg border border-border/60 bg-card p-3 shadow-xs">
               <div className="flex items-center justify-between">

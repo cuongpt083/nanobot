@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -65,6 +66,23 @@ class Delegation:
     by: str
 
 
+@dataclass(frozen=True)
+class ActiveGuest:
+    agent_id: str
+    task: str
+    started_at: float
+
+
+@dataclass(frozen=True)
+class GuestOutcome:
+    agent_id: str
+    state: str  # done | error | timeout
+    finished_at: float
+
+
+RECENT_OUTCOMES = 5
+
+
 @dataclass
 class _Room:
     session_key: str
@@ -74,6 +92,37 @@ class _Room:
     chained: int = 0
     owner_runtime: LLMRuntime | None = None
     task: asyncio.Task[Any] | None = None
+    # Observability for the WebUI participants view (never read by the scheduler itself).
+    active: dict[str, ActiveGuest] = field(default_factory=dict)
+    queued: list[Delegation] = field(default_factory=list)
+    waiting: dict[str, str] = field(default_factory=dict)  # agent id -> agent it waits for
+    recent: list[GuestOutcome] = field(default_factory=list)
+
+    def outcome(self, agent_id: str, state: str) -> None:
+        self.recent.append(GuestOutcome(agent_id=agent_id, state=state, finished_at=time.time()))
+        del self.recent[:-RECENT_OUTCOMES]
+
+
+@dataclass(frozen=True)
+class RoomSnapshot:
+    active: list[ActiveGuest]
+    queued: list[Delegation]
+    waiting: dict[str, str]
+    recent: list[GuestOutcome]
+
+
+def room_snapshot(session_key: str) -> RoomSnapshot:
+    """Point-in-time view of who is working, queued, waiting or recently finished."""
+    room = _rooms.get(room_id_for(session_key))
+    if room is None:
+        return RoomSnapshot([], [], {}, [])
+    queued = [*room.queued, *(d for d in room.pending if d not in room.queued)]
+    return RoomSnapshot(
+        active=list(room.active.values()),
+        queued=queued,
+        waiting=dict(room.waiting),
+        recent=list(room.recent),
+    )
 
 
 _rooms: dict[str, _Room] = {}
@@ -252,53 +301,70 @@ async def _run_room(room: _Room) -> None:
     async def note(text: str) -> None:
         await post_to_chat(channel=room.channel, chat_id=room.chat_id, content=text)
 
-    while True:
-        if not queue:
-            # Delegations recorded while this run was busy (coordinator or teammates).
-            queue, room.pending = room.pending, []
+    try:
+        while True:
             if not queue:
-                break
-        delegation = queue.pop(0)
-        if room.chained >= cfg.room.max_chained_turns:
-            if not budget_note:
-                budget_note = True
-                await note(
-                    f"⏸️ Room paused: chained-turn budget ({cfg.room.max_chained_turns}) exhausted — "
-                    "send a new message to continue."
-                )
-            continue
-        agent = cfg.agent(delegation.agent_id)
-        if agent is None:
-            await note(f"⚠️ Unknown room agent `{delegation.agent_id}` — skipped.")
-            continue
-        room.chained += 1
-        transcript.append(f"{delegation.by} → @{agent.id}", delegation.task)
-        await note(f"⏳ {_label(agent)} is working on: {delegation.task[:200]}")
-        try:
-            reply = await _run_guest(room, agent, delegation)
-        except TimeoutError:
-            await note(f"⚠️ {_label(agent)} did not finish within {cfg.room.guest_timeout_seconds}s — stopped.")
-            continue
-        except Exception as exc:
-            logger.opt(exception=exc).warning("room {}: guest @{} failed", room.session_key, agent.id)
-            await note(f"⚠️ {_label(agent)} failed: {type(exc).__name__}")
-            continue
-        # Delegations the teammate made during its turn join the queue in order.
-        queue.extend(room.pending)
-        room.pending = []
-        if not reply or reply.strip() == REPLY_SKIP:
-            continue
-        wait = _WAIT_FOR.search(reply)
-        if wait and agent.id not in waited:
-            target = wait.group(1).lower()
-            if any(d.agent_id == target for d in queue):
-                waited.add(agent.id)
-                queue.append(delegation)
-                await note(f"⏳ {_label(agent)} waits for @{target} first (data dependency).")
+                # Delegations recorded while this run was busy (coordinator or teammates).
+                queue, room.pending = room.pending, []
+                if not queue:
+                    break
+            delegation = queue.pop(0)
+            room.queued = list(queue)
+            if room.chained >= cfg.room.max_chained_turns:
+                if not budget_note:
+                    budget_note = True
+                    await note(
+                        f"⏸️ Room paused: chained-turn budget ({cfg.room.max_chained_turns}) exhausted — "
+                        "send a new message to continue."
+                    )
                 continue
-        transcript.append(f"@{agent.id}", reply)
-        await note(f"{_label(agent)}:\n{reply}")
-        results.append((agent, reply))
+            agent = cfg.agent(delegation.agent_id)
+            if agent is None:
+                await note(f"⚠️ Unknown room agent `{delegation.agent_id}` — skipped.")
+                continue
+            room.chained += 1
+            transcript.append(f"{delegation.by} → @{agent.id}", delegation.task)
+            await note(f"⏳ {_label(agent)} is working on: {delegation.task[:200]}")
+            room.waiting.pop(agent.id, None)
+            room.active[agent.id] = ActiveGuest(agent.id, delegation.task, time.time())
+            try:
+                reply = await _run_guest(room, agent, delegation)
+            except TimeoutError:
+                room.outcome(agent.id, "timeout")
+                await note(f"⚠️ {_label(agent)} did not finish within {cfg.room.guest_timeout_seconds}s — stopped.")
+                continue
+            except Exception as exc:
+                room.outcome(agent.id, "error")
+                logger.opt(exception=exc).warning("room {}: guest @{} failed", room.session_key, agent.id)
+                await note(f"⚠️ {_label(agent)} failed: {type(exc).__name__}")
+                continue
+            finally:
+                room.active.pop(agent.id, None)
+            # Delegations the teammate made during its turn join the queue in order.
+            queue.extend(room.pending)
+            room.pending = []
+            room.queued = list(queue)
+            if not reply or reply.strip() == REPLY_SKIP:
+                room.outcome(agent.id, "done")
+                continue
+            wait = _WAIT_FOR.search(reply)
+            if wait and agent.id not in waited:
+                target = wait.group(1).lower()
+                if any(d.agent_id == target for d in queue):
+                    waited.add(agent.id)
+                    queue.append(delegation)
+                    room.queued = list(queue)
+                    room.waiting[agent.id] = target
+                    await note(f"⏳ {_label(agent)} waits for @{target} first (data dependency).")
+                    continue
+            room.outcome(agent.id, "done")
+            transcript.append(f"@{agent.id}", reply)
+            await note(f"{_label(agent)}:\n{reply}")
+            results.append((agent, reply))
+    finally:
+        room.queued = []
+        room.active.clear()
+        room.waiting.clear()
 
     if results:
         await _summon_coordinator(room, results)

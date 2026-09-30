@@ -273,6 +273,14 @@ export interface CoworkerCachingStatus {
   original_messages: number;
 }
 
+export interface CoworkerLastConsult {
+  at: number;
+  model: string;
+  focus: string | null;
+  duration_ms: number;
+  ok: boolean;
+}
+
 export interface CoworkerAdvisorStatus {
   enabled: boolean;
   preset: string | null;
@@ -280,6 +288,8 @@ export interface CoworkerAdvisorStatus {
   max_uses: number;
   max_tokens: number;
   breaker_open_seconds: number;
+  /** Absent on servers that predate the participants view. */
+  last_consult?: CoworkerLastConsult | null;
 }
 
 export interface CoworkerRoomStatus {
@@ -302,6 +312,12 @@ export interface CoworkerCodingTask {
   diffstat: string;
   created_at: number;
   updated_at: number;
+  live?: {
+    tool_count?: number;
+    last_tool?: string | null;
+    last_event_at?: number;
+    rounds?: number;
+  };
 }
 
 export interface CoworkerCodingStatus {
@@ -309,11 +325,48 @@ export interface CoworkerCodingStatus {
   tasks: CoworkerCodingTask[];
 }
 
+export type CoworkerParticipantKind = "coordinator" | "advisor" | "teammate" | "coding";
+
+export type CoworkerParticipantState =
+  | "idle"
+  | "queued"
+  | "working"
+  | "waiting"
+  | "done"
+  | "error"
+  | "paused";
+
+export interface CoworkerParticipant {
+  id: string;
+  kind: CoworkerParticipantKind;
+  label: string;
+  /** `preset:<name>`, `backend:<pi|agy>` or `session`. */
+  engine: string;
+  state: CoworkerParticipantState;
+  task: string | null;
+  /** Unix seconds when the current work started. */
+  since: number | null;
+  detail: {
+    uses?: number;
+    max_uses?: number;
+    breaker_open_seconds?: number;
+    last_consult?: CoworkerLastConsult | null;
+    status?: string;
+    tools?: number;
+    last_tool?: string | null;
+    rounds?: number;
+    branch?: string;
+    diffstat?: string;
+  };
+}
+
 export interface CoworkerStatus {
   caching: CoworkerCachingStatus;
   advisor: CoworkerAdvisorStatus;
   room: CoworkerRoomStatus;
   coding: CoworkerCodingStatus;
+  /** Absent on servers that predate the participants view. */
+  participants?: CoworkerParticipant[];
 }
 
 
@@ -1714,3 +1767,107 @@ export type Outbound =
        * generic websocket protocol for other clients. */
       webui?: true;
     };
+
+export interface CoworkerAdvisorConfig {
+  preset: string | null;
+  max_uses: number;
+  max_tokens: number;
+  timeout_seconds: number;
+  review_nudge: boolean;
+  first_consult_gap: number;
+  reconsult_gap: number;
+}
+
+export interface CoworkerRoomAgentConfig {
+  id: string;
+  name: string;
+  emoji: string;
+  bio: string;
+  preset: string | null;
+  backend: "pi" | "agy" | null;
+  instructions: string;
+}
+
+export interface CoworkerRoomConfig {
+  agents: CoworkerRoomAgentConfig[];
+  max_chained_turns: number;
+  guest_timeout_seconds: number;
+}
+
+export interface CoworkerPiBackendConfig {
+  command: string[];
+  agent_dir: string | null;
+  tools: string[] | null;
+  extensions: boolean;
+  trust_project_files: boolean;
+  pass_env: string[];
+  allow_unsandboxed: boolean;
+}
+
+export interface CoworkerAgyBackendConfig {
+  command: string[];
+  agy_sandbox: boolean;
+  mode: "accept-edits" | null;
+  extra_args: string[];
+  pass_env: string[];
+  allow_unsandboxed: boolean;
+}
+
+export interface CoworkerRepoConfig {
+  path: string;
+  acceptance: string | null;
+  base_ref: string;
+  backend: "pi" | "agy" | null;
+}
+
+export interface CoworkerCodingConfig {
+  enabled: boolean;
+  default_backend: "pi" | "agy";
+  pi: CoworkerPiBackendConfig;
+  agy: CoworkerAgyBackendConfig;
+  repos: CoworkerRepoConfig[];
+  worktree_root: string | null;
+  sandbox: "none" | "bwrap";
+  timeout_minutes: number;
+  idle_timeout_minutes: number;
+  max_concurrent_per_session: number;
+  max_concurrent_total: number;
+  fix_rounds: number;
+  progress_every_seconds: number;
+  merge_strategy: "squash" | "no-ff" | "ff-only";
+  delete_branch_after_merge: boolean;
+  keep_failed_worktrees_days: number;
+}
+
+export interface CoworkerEditableConfig {
+  advisor: CoworkerAdvisorConfig;
+  room: CoworkerRoomConfig;
+  coding: CoworkerCodingConfig;
+}
+
+export interface CoworkerBackendDetection {
+  name: "pi" | "agy";
+  command: string[];
+  found: boolean;
+  path: string | null;
+  version: string | null;
+  /** The command is not the stock CLI, so it was located but never executed. */
+  custom: boolean;
+}
+
+export interface CoworkerRepoCheck {
+  path: string;
+  ok: boolean;
+  error: string | null;
+  branch: string | null;
+}
+
+export interface CoworkerSettingsPayload {
+  config: CoworkerEditableConfig;
+  path: string;
+  presets: string[];
+  detection: Partial<Record<"pi" | "agy", CoworkerBackendDetection>>;
+  repos: CoworkerRepoCheck[];
+}
+
+export type CoworkerSettingsUpdate = Partial<CoworkerEditableConfig>;

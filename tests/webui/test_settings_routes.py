@@ -641,3 +641,64 @@ async def test_image_switch_round_trip_clears_restart(tmp_path, monkeypatch, ena
     reverted = await router.dispatch(None, _mutation_request(path, {"enabled": enabled}), path)
     assert json.loads(reverted.body)["requires_restart"] is False
     assert json.loads(reverted.body)["restart_required_sections"] == []
+
+
+@pytest.fixture
+def coworker_file(tmp_path, monkeypatch):
+    from nanobot.coworker.config import (
+        invalidate_coworker_config_cache,
+        set_coworker_config_override,
+    )
+
+    path = tmp_path / "coworker.json"
+    monkeypatch.setenv("NANOBOT_COWORKER_CONFIG", str(path))
+    set_coworker_config_override(None)
+    invalidate_coworker_config_cache()
+    yield path
+    invalidate_coworker_config_cache()
+
+
+@pytest.mark.asyncio
+async def test_coworker_settings_get_returns_config_presets_and_detection(tmp_path, coworker_file) -> None:
+    router = _router(config_path=tmp_path / "config.json")
+    request = SimpleNamespace(path="/api/settings/coworker", headers=Headers())
+
+    response = await router.dispatch(None, request, "/api/settings/coworker")
+
+    assert response is not None and response.status_code == 200
+    payload = json.loads(response.body)
+    assert set(payload["config"]) == {"advisor", "room", "coding"}
+    assert "default" in payload["presets"]
+    assert set(payload["detection"]) == {"pi", "agy"}
+    assert payload["path"] == str(coworker_file)
+
+
+@pytest.mark.asyncio
+async def test_coworker_settings_update_requires_a_mutation_channel_and_auth(tmp_path, coworker_file) -> None:
+    path = "/api/settings/coworker/update"
+    router = _router(config_path=tmp_path / "config.json")
+    plain = SimpleNamespace(path=path, headers=Headers())
+    blocked = await router.dispatch(None, plain, path)
+    assert blocked is not None and blocked.status_code == 405
+
+    denied = await _router(authorized=False, config_path=tmp_path / "config.json").dispatch(
+        None, _mutation_request(path, {"advisor": {"max_uses": 3}}), path
+    )
+    assert denied is not None and denied.status_code == 401
+    assert not coworker_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_coworker_settings_update_persists_and_reports_validation_errors(tmp_path, coworker_file) -> None:
+    path = "/api/settings/coworker/update"
+    router = _router(config_path=tmp_path / "config.json")
+
+    ok = await router.dispatch(None, _mutation_request(path, {"advisor": {"max_uses": 3, "preset": "off"}}), path)
+    assert ok is not None and ok.status_code == 200
+    assert json.loads(ok.body)["config"]["advisor"]["max_uses"] == 3
+    assert json.loads(coworker_file.read_text(encoding="utf-8"))["advisor"]["maxUses"] == 3
+
+    bad = await router.dispatch(None, _mutation_request(path, {"advisor": {"preset": "missing"}}), path)
+    assert bad is not None and bad.status_code == 400
+    assert "unknown model preset" in json.loads(bad.body)["error"]
+    assert json.loads(coworker_file.read_text(encoding="utf-8"))["advisor"]["maxUses"] == 3

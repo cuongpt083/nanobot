@@ -1,166 +1,191 @@
-# Đề Xuất Kiến Trúc: Tác Tử Kép (Dual-Brain Architecture) & Tích Hợp Coding Agent Vào WebUI
+# Đề Xuất: Advisor-Assisted Coding Agent & WebUI cho Team Agent
 
-- **Tác giả:** Đội ngũ phát triển nanobot / AICoworker
 - **Ngày lập:** 30/09/2026
-- **Trạng thái:** Bản thảo đề xuất (Draft Proposal - Chờ duyệt)
+- **Trạng thái:** Draft v2 (viết lại; thay thế bản "Dual-Brain" 3 tầng)
 - **Tài liệu liên quan:** `docs/coworker/README.md`, `docs/coworker/plans/coding-agent.md`
+- **Mã nguồn tham chiếu:** `nanobot/coworker/advisor/`, `nanobot/coworker/hook.py`, `nanobot/coworker/room/scheduler.py`, `nanobot/coworker/status.py`, `webui/src/components/coworker/`; gốc AICoworker: `electron/openclaw-bundled/tools/advisor.cjs`, `directives/advisor.cjs`.
 
 ---
 
-## 1. Tóm Tắt Đề Xuất (Executive Summary)
+## 1. Tóm tắt
 
-Đề xuất này giải quyết hai bài toán then chốt nhằm nâng cấp trải nghiệm lập trình tự động trên **nanobot**:
-1. **Kiến trúc Tác tử kép (Dual-Brain Multi-Agent Architecture):** Kết hợp tối ưu sức mạnh suy luận chiến lược của **Senior Advisor** (các mô hình siêu mạnh như `OpenAI o3-mini`, `Claude 3.7 Sonnet Thinking`) với năng lực thực thi mã nguồn chuyên sâu của **Coding Worker Harnesses** (`Pi` với Claude Code, `agy` với Antigravity CLI/Gemini).
-2. **Tích hợp WebUI toàn diện (`#/apps` & Chat Stream):** Đưa các Coding Agent vào màn hình Quản lý Ứng dụng/Tiến trình con `http://127.0.0.1:8765/#/apps`, hỗ trợ phát hiện nhị phân, giao diện cấu hình trực quan và tương tác tự nhiên qua cú pháp mention `@pi` / `@agy`.
+Bản nháp trước coi Advisor là "não chiến lược" đứng trên cùng: Coordinator bắt buộc hỏi Advisor trước (lập spec, danh sách file, test) và sau (review diff) mỗi task code. Cách đó **đi ngược thiết kế Advisor đang chạy** (port từ AICoworker) và bị bỏ.
 
----
+Đề xuất này làm hai việc:
 
-## 2. Bối Cảnh & Vấn Đề Hiện Tại (Motivation & Problem Statement)
-
-### 2.1. Nghịch lý chi phí và năng lực của mô hình đơn lẻ (Single-Model Dilemma)
-- Nếu dùng **model siêu mạnh (o3, Claude 3.7 Thinking)** cho toàn bộ quy trình: Rất tốn kém chi phí token khi model phải làm các thao tác vi mô lặp đi lặp lại như đọc file lớn, gõ boilerplate code, chạy linter, debug lỗi cú pháp cơ bản.
-- Nếu dùng **model rẻ hoặc Worker CLI chạy độc lập**: Thiếu tầm nhìn kiến trúc tổng thể, dễ tạo ra code ngây thơ, bỏ sót các ca biên (edge-cases) hoặc phá vỡ cấu trúc phần mềm hiện hữu.
-
-### 2.2. Vấn đề truyền ngữ cảnh (Context Dilution / Isolation)
-- Khi gọi trực tiếp CLI từ terminal (`pi`, `agy`), công cụ không nắm được toàn bộ lịch sử trao đổi, các quyết định thiết kế đã thảo luận giữa người dùng và nanobot.
-- Nếu đẩy toàn bộ 50.000+ tokens lịch sử chat vào CLI, prompt sẽ bị loãng, chi phí tăng vọt và giảm độ chính xác của agent.
-
-### 2.3. Thiếu khả năng quản lý và cấu hình trên WebUI
-- Màn hình `#/apps` hiện tại mới chỉ hiển thị các CLI Apps đơn giản (`gimp`, `drawio`, `linear`) và MCP Servers.
-- Người dùng chưa có giao diện trên WebUI để xem trạng thái nhị phân của `pi`/`agy`, cũng như chưa có form trực quan để cấu hình kho mã nguồn (`repositories`), lệnh kiểm thử (`acceptance command`) và chiến lược merge.
+1. **Giữ nguyên mô hình Advisor hiện tại** (executor chủ động hỏi, advisor chỉ review, không làm thay) và chỉ vá những chỗ nó chưa khớp với `coding_agent`: executor chưa có cách đọc diff thật, và hook nudge đang tắt đúng ở lượt nhận kết quả code.
+2. **Chốt phần WebUI**: trang cấu hình Coworker (Advisor / Team / Coding) và một bảng **Participants** cho biết agent nào đang tham gia phiên hiện tại, đang làm gì, ở trạng thái nào.
 
 ---
 
-## 3. Kiến Trúc "Dual-Brain" (Não Chiến Lược + Tay Thực Thi)
+## 2. Advisor hoạt động thế nào (nền tảng, không đổi)
 
-Hệ thống được tổ chức thành 3 tầng phân cấp rõ ràng:
+| Đặc điểm | Hiện thực |
+|---|---|
+| Ai quyết định gọi | **Executor** (default agent) gọi tool `advisor(focus?)`; luật thời điểm nằm ở directive (`ADVISOR`) |
+| Advisor làm gì | Chỉ trả văn bản, không tool, không hành động; prompt cấm tự làm deliverable |
+| Advisor thấy gì | Toàn bộ system prompt + transcript của executor (tool result bị cắt còn ~4k ký tự) |
+| Chống advice chung chung | `insufficient_context`: chưa có bằng chứng thì lần gọi đầu bị từ chối miễn phí |
+| Thời điểm | Orient → consult → plan → execute; khi kẹt; trước khi đổi hướng; mỗi milestone; một lần trước khi báo xong; lần ghi file đầu tiên phải sau một consult thành công |
+| Guard | `max_uses`, timeout cứng, circuit breaker (2 lỗi → nghỉ 30 phút), token cap |
+| Hook | `_maybe_nudge_advisor` chỉ *nhắc* executor tự gọi, không gọi thay |
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                      TẦNG 1: NÃO CHIẾN LƯỢC (STRATEGIC BRAIN)           │
-│         Senior Advisor (OpenAI o3-mini / Claude 3.7 Sonnet Thinking)   │
-│  - Phân tích yêu cầu, thiết kế kiến trúc và danh sách ca biên         │
-│  - Soạn thảo tiêu chuẩn kiểm thử chấp nhận (Acceptance Criteria)      │
-│  - Thẩm định, Code Review chuyên sâu trước khi cho phép Merge         │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ (Strategic Guidance & Gatekeeping)
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                  TẦNG 2: BỘ ĐIỀU PHỐI (COORDINATOR & RUNNER)            │
-│                     nanobot Core & Coworker Engine                     │
-│  - Lọc ngữ cảnh thông minh (Context Distillation) từ lịch sử chat      │
-│  - Đóng gói Task Brief tự chứa (Self-contained Brief)                  │
-│  - Khởi tạo & dọn dẹp Git Worktree cách ly trên nhánh riêng           │
-│  - Giám sát tiến trình, vòng lặp tự sửa lỗi (Fix Rounds) & WebUI Event │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ (Isolated Execution & IPC)
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                      TẦNG 3: TAY THỰC THI (EXECUTION HANDS)             │
-│               Coding Worker Harnesses (Pi / Antigravity agy)           │
-│  - Chạy tiến trình con (Subprocess) độc lập trong Git Worktree         │
-│  - Thực thi vi mô: Đọc/Sửa file, chạy lệnh Shell, chạy Test           │
-│  - Tận dụng gói thuê bao không giới hạn (Claude Pro/Max, Gemini CLI)  │
-└────────────────────────────────────────────────────────────────────────┘
-```
+Nguyên tắc rút ra: **Advisor chỉ tốt bằng những gì executor đã nhìn thấy.** Mọi thiết kế tích hợp phải đưa bằng chứng vào transcript của executor, không được đi vòng qua nó.
 
 ---
 
-## 4. Quy Trình Hoạt Động Chi Tiết (End-to-End Workflow)
+## 3. Luồng đề xuất khi có Coding Agent
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as Người dùng (WebUI / Chat)
-    participant Coordinator as nanobot (Coordinator)
-    participant Advisor as 🧠 Senior Advisor (o3 / Sonnet 3.7)
-    participant Runner as ⚙️ Coding Runner (Worktree Engine)
-    participant Worker as 💻 Pi / agy (Worker Harness)
+    actor U as Người dùng
+    participant E as Executor (default agent)
+    participant A as Advisor (tool, chỉ review)
+    participant W as Worker Pi / agy (worktree)
 
-    User->>Coordinator: Yêu cầu: "@pi refactor module auth và bổ sung MFA"
-    
-    rect rgb(245, 240, 255)
-    Note over Coordinator,Advisor: GIAI ĐOẠN 1: PRE-FLIGHT (Chiến lược & Kế hoạch)
-    Coordinator->>Advisor: Yêu cầu lập kế hoạch kiến trúc & rủi ro cho task
-    Advisor-->>Coordinator: Spec kiến trúc, danh sách file cần sửa, bộ test mẫu & rủi ro
+    U->>E: "refactor module auth, thêm MFA"
+    E->>E: ORIENT: đọc code, grep, xem test hiện có
+    E->>A: advisor(focus="kế hoạch + phần nên giao cho worker")
+    A-->>E: Phản biện kế hoạch, rủi ro, việc cần làm tiếp (~300 từ)
+    E->>W: coding_agent(start, brief tự chứa, acceptance)
+    W->>W: Sửa code, chạy test (Executor kết thúc lượt, không poll)
+    W-->>E: [auto-coding-result] (diffstat, acceptance)
+    E->>E: coding_agent(diff, id) → đọc diff thật
+    E->>A: advisor(focus="review diff này trước khi đề nghị merge")
+    A-->>E: Phê duyệt hoặc chỉ ra lỗ hổng
+    alt Advisor báo lỗi thật
+        E->>W: coding_agent(steer) hoặc /code resume
+    else Ổn
+        E->>U: Báo cáo + "/code merge ct-..."
     end
-
-    rect rgb(240, 248, 255)
-    Note over Coordinator,Runner: GIAI ĐOẠN 2: CHUẨN BỊ MÔI TRƯỜNG CÁCH LY
-    Coordinator->>Coordinator: Tổng hợp lịch sử hội thoại + Hướng dẫn của Advisor thành Task Brief
-    Coordinator->>Runner: Khởi tạo Task (ct-...)
-    Runner->>Runner: Tạo Git Worktree cách ly (nhánh coworker/ct-...)
-    end
-
-    rect rgb(240, 255, 240)
-    Note over Runner,Worker: GIAI ĐOẠN 3: THỰC THI VI MÔ & TEST LOOP
-    Runner->>Worker: Khởi chạy Pi (RPC) hoặc agy (Headless JSONL) với Brief
-    Worker->>Worker: Đọc file, viết mã, chạy acceptance test nội bộ
-    Worker-->>Runner: Báo cáo kết thúc (diffstat, commit hashes, test outputs)
-    end
-
-    rect rgb(255, 250, 240)
-    Note over Coordinator,Advisor: GIAI ĐOẠN 4: POST-FLIGHT (Thẩm định & Nghiệm thu)
-    Runner-->>Coordinator: Cung cấp kết quả thực thi
-    Coordinator->>Advisor: Yêu cầu Code Review toàn bộ git diff và test logs
-    Advisor-->>Coordinator: Đánh giá: Phê duyệt (Pass) hoặc Cảnh báo lỗ hổng logic
-    end
-
-    Coordinator->>User: Hiển thị Thẻ Kết Quả (diffstat, test log) + Đánh giá của Advisor
-    Note over User: Người dùng xem xét và bấm Merge hoặc gõ /code merge
 ```
 
----
+Khác bản cũ: không có pre-flight/post-flight cưỡng bức, Advisor không lập spec hay test. Executor tự viết brief (đây là bước "context distillation" duy nhất), tự quyết định hỏi Advisor lúc nào.
 
-## 5. Thiết Kế Tích Hợp Vào WebUI
-
-### 5.1. Màn hình `http://127.0.0.1:8765/#/apps`
-Bổ sung một phân loại mới bên cạnh `Ready`, `CLI Apps`, `MCP Servers`:
-- **Tab Filter:** `Coding Agents` (hoặc hiển thị trực tiếp với badge `Coding Harness`).
-- **Thẻ Card cho Pi:**
-  - Tiêu đề: **Pi Coding Harness (Anthropic Claude Code RPC)**.
-  - Trạng thái nhị phân: 🟢 *Installed (`/usr/local/bin/pi` - v0.84.2)* hoặc ⚪ *Not found*.
-  - Huy hiệu tính năng: `Git Worktree`, `RPC Extension Auto-Cancel`, `Live Steering`.
-  - Nút **Cấu hình**: Mở modal thiết lập danh sách Repo, Acceptance command mặc định.
-- **Thẻ Card cho agy:**
-  - Tiêu đề: **Antigravity CLI (Google DeepMind agy)**.
-  - Trạng thái nhị phân: 🟢 *Installed (`agy` - v1.2.13)* hoặc ⚪ *Not found*.
-  - Huy hiệu tính năng: `Headless JSONL Stream`, `Sandbox Isolation`, `Delta Tokens`.
-  - Nút **Cấu hình**: Mở modal thiết lập cờ bổ sung (`extra_args`), sandbox mode.
-
-### 5.2. Khung Chat (Composer & In-Chat Cards)
-- **Tương tác Mention:** Hỗ trợ gõ `@pi` hoặc `@agy` ngay trong ô nhập liệu (tự động hiện autocomplete trong mention palette).
-- **Thẻ tin nhắn chuyên biệt (`CoworkerMessageCard`):**
-  - **Thẻ Cố vấn (Advisor Review):** Khung tím sang trọng, icon 🧠, hiển thị định hướng kiến trúc trước khi code và đánh giá chất lượng sau khi code.
-  - **Thẻ Kết quả Coding (Coding Result):** Khung xanh ngọc, icon 💻, hiển thị Task ID, nhánh Git, bảng diffstat (`+45 -12`), log kiểm thử có thể bấm mở rộng/thu gọn.
+Worker không bao giờ thấy Advisor; lời khuyên đến Worker chỉ qua brief và `steer` của executor. Advisor cũng không thấy transcript nội bộ của Worker, nên review dựa trên **diff + kết quả acceptance mà executor đã đọc**. Đây là giới hạn được chấp nhận.
 
 ---
 
-## 6. Kế Hoạch Triển Khai Kỹ Thuật (Phân Kỳ Dự Kiến)
+## 4. Thay đổi backend (nhỏ)
 
-### Giai đoạn 1: REST API Cấu hình Coworker Backend
-- Xây dựng endpoint `GET /api/coworker/config` và `POST /api/coworker/config` trong `nanobot/webui/`.
-- Kết nối đọc/ghi trực tiếp vào file `~/.nanobot/coworker.json` (bảo đảm an toàn dữ liệu, hot-reload tự động).
+| # | Vấn đề hiện tại | Thay đổi |
+|---|---|---|
+| B1 | `coding_agent` không có cách đọc diff: `result` chỉ trả summary + diffstat + acceptance; diff đầy đủ chỉ qua slash command `/code diff` (dành cho người dùng). Advisor không thể review thứ executor chưa từng thấy. | Thêm `action="diff"` (read-only), trả diff cắt theo ngân sách (ví dụ 20k ký tự, ưu tiên file quan trọng, có ghi chú phần bị cắt). |
+| B2 | `_maybe_nudge_advisor` thoát ngay khi `self._kind is not None`, tức là **không bao giờ nhắc** ở lượt `[auto-coding-result]`, đúng lúc cần review nhất. | Cho phép nhắc khi kind là `coding_result` (và `room_review`): nếu advisor bật, còn budget, và lượt đó chưa gọi advisor thì nhắc gọi với focus review diff. Vẫn chỉ là nhắc. |
+| B3 | Directive `CODING` mới nói "ask the advisor" chung chung. | Ghi rõ: trước khi giao việc (sau orient), khi worker fail acceptance lần 2, và trước khi đề nghị merge. |
+| B4 | Kết quả `coding_agent` có tính là bằng chứng không? | Đã đúng: không nằm trong `NON_EVIDENCE_TOOLS`. Thêm test khóa hành vi này. |
 
-### Giai đoạn 2: Tích hợp Giao diện `#/apps`
-- Bổ sung nhóm `Coding Agents` vào component `webui/src/components/settings/system/AppsSettings.tsx`.
-- Thêm modal cấu hình kho mã nguồn (Repositories, Base branch, Acceptance test).
-- Thêm kiểm tra phát hiện binary hệ thống (`which pi`, `which agy`) trả về qua API.
+Không đổi: prompt Advisor, `run_consult`, breaker, budget, cấu hình `advisor.*`.
 
-### Giai đoạn 3: Tự động hóa Hook "Pre-Flight & Post-Flight" của Advisor
-- Trong `nanobot/coworker/hook.py`:
-  - Khi phát hiện lệnh `@pi` / `@agy` hoặc tool `coding_agent`: Tự động tham vấn Advisor nếu bài toán vượt ngưỡng độ phức tạp.
-  - Khi nhận `[auto-coding-result]`: Tự động gọi Advisor review diff trước khi thông báo cho người dùng.
+Loại bỏ so với bản cũ: pre-flight/post-flight tự động, ngưỡng "độ phức tạp", Advisor sinh acceptance criteria, tên model hardcode (Advisor chọn qua `preset`), con số tiết kiệm "70–85%" (chưa đo; xem §8).
 
 ---
 
-## 7. Lợi Ích Mang Lại (Key Benefits & ROI)
+## 5. WebUI: quyết định chốt
 
-1. **Tiết kiệm chi phí vượt trội (70% - 85%):**
-   - Không lãng phí token đắt đỏ của các model suy luận thượng tầng cho việc lặp code vi mô.
-   - Tận dụng tối đa các gói thuê bao phẳng (Flat-rate Subscriptions) của Claude Pro/Max (qua Pi) hoặc Gemini (qua agy).
-2. **Chất lượng phần mềm đạt chuẩn doanh nghiệp:**
-   - Code sinh ra được kiểm soát bởi hai tầng bảo vệ: Kiểm thử tự động (Acceptance Test) + Phê duyệt logic của Senior Advisor.
-3. **Trải nghiệm người dùng mượt mà:**
-   - Quản lý tập trung mọi công cụ từ CLI, MCP đến Coding Agent tại một màn hình duy nhất `#/apps`.
-   - Dễ dàng thao tác bằng cả giao diện đồ họa (UI) lẫn lệnh chat (`@pi`, `/code`).
+### 5.1. Hiện trạng
+
+Đã có: `CoworkerInspectorPopover` (Cache / Advisor / Room / Coding), `CoworkerMessageCard`, hook `useCoworkerStatus` (poll 4s **chỉ khi popover mở**), endpoint `GET /api/sessions/{key}/coworker`.
+
+Thiếu:
+- Không có UI nào sửa `~/.nanobot/coworker.json` (chỉ sửa tay).
+- "Available Agents" chỉ là danh sách cấu hình tĩnh, không nói agent nào **đang** làm gì.
+- Tiến độ task (số tool, tool cuối, thời gian) chỉ nằm trong biến cục bộ của `runner.py` rồi gửi thành tin nhắn chat; API status không thấy.
+- Thẻ "Advisor" đang hiển thị nội dung nudge `[auto-advisor-review]` (lời nhắc cho executor), không phải lời khuyên thật của Advisor.
+- `status.py` chọn task bằng `t.session_key == key or len(tasks_list) < 5`, nên có thể lẫn task của phiên khác.
+
+### 5.2. Cấu hình
+
+**Quyết định:** một trang mới **Settings → Capabilities → Coworker** làm nơi sửa cấu hình duy nhất, gồm 3 tab. `#/apps` chỉ thêm bộ lọc `Coding` hiển thị thẻ Pi / agy (trạng thái binary, phiên bản) kèm nút "Configure" dẫn sang tab Coding. Không nhân đôi form ở hai nơi.
+
+| Tab | Trường cấu hình | Ghi chú |
+|---|---|---|
+| **Advisor** | `preset` (dropdown từ danh sách preset + Off), `max_uses`, `max_tokens`, `timeout_seconds`, `review_nudge`; gập "Nâng cao": `first_consult_gap`, `reconsult_gap` | Hiển thị breaker hiện tại; nút test consult tùy chọn (phase sau) |
+| **Team** | CRUD `room.agents` (`id`, `name`, `emoji`, `bio`, `preset`, `backend`, `instructions`), `max_chained_turns`, `guest_timeout_seconds` | `id` validate theo regex hiện có; `backend` chỉ chọn được backend đã phát hiện |
+| **Coding** | `enabled`, `default_backend`, `sandbox`, timeouts, `max_concurrent_*`, `fix_rounds`, `merge_strategy`, `delete_branch_after_merge`; theo backend: `command`, `extra_args`, `agy_sandbox`, `mode`, `pass_env`, `allow_unsandboxed`; `repos[]` (`path`, `acceptance`, `base_ref`, `backend`) | Repo được kiểm tra là git repo hợp lệ trước khi lưu; `allow_unsandboxed` có cảnh báo rõ |
+
+Không có trong UI (theo quyết định 30/09 của `coding-agent.md`): model / provider / effort / API key của Pi và agy, vì mỗi harness được đăng nhập và cấu hình bên ngoài nanobot. Nhóm `context.*` (cache, trim, keepalive) ngoài phạm vi đề xuất này.
+
+**API** (theo mẫu `/api/settings/*/update` hiện có, thay cho `/api/coworker/config` của bản cũ):
+- `GET /api/settings/coworker` → cấu hình hiện tại + `detection` (`pi`/`agy`: đường dẫn, phiên bản, có sẵn hay không) + danh sách preset + kết quả kiểm tra từng repo.
+- `POST /api/settings/coworker/update` → validate bằng `CoworkerConfig`, ghi nguyên tử vào `coworker.json` (loader đã hot-reload theo mtime); trả lỗi theo từng trường.
+
+Nhu cầu đổi advisor theo từng phiên (thay cho lệnh `/advisor <preset>`): một dropdown trong Inspector, gọi `POST /api/sessions/{key}/coworker/advisor`. Đặt ở phase 3.
+
+### 5.3. Hiển thị agent đang tham gia
+
+**Quyết định:** thêm khái niệm **participant** vào status API và hai bề mặt UI.
+
+Status API mở rộng thêm `participants[]`:
+
+```jsonc
+{
+  "id": "coder-pi",
+  "kind": "coordinator | advisor | teammate | coding",
+  "label": "🤖 Coder Pi",
+  "engine": "preset:sonnet | backend:pi",
+  "state": "idle | queued | working | waiting | done | error | paused",
+  "task": "refactor auth (ct-2026...)",
+  "since": 1790000000,
+  "detail": { "tools": 12, "last_tool": "run_command: pytest", "uses": "3/10", "last_focus": "review diff" }
+}
+```
+
+| Kind | Nguồn dữ liệu | Việc backend cần thêm |
+|---|---|---|
+| coordinator | Hook `before_run` / `after_run` | Ghi cờ "đang chạy lượt" theo session |
+| advisor | `advisor_state` + registry consult đang bay | `run_consult` đăng ký/hủy đăng ký consult (state `working` khi đang gọi); lưu `last_consult {at, focus, duration_ms, ok}` vào slot session; breaker → `paused` |
+| teammate | `_Room` trong `scheduler.py` | `_run_room` hiện dùng biến cục bộ; thêm `_Room.active` (agent, task, started_at) và hàng đợi `pending` → `queued`; teammate đợi `WAIT_FOR` → `waiting` |
+| coding | `TaskRegistry` + runner | Ghi `live {tool_count, last_tool, elapsed}` vào bản ghi task trong bộ nhớ (không ghi đĩa mỗi event); lọc đúng theo `session_key` |
+
+**Bề mặt 1: Participants strip** trong `ThreadHeader`: các chip nhỏ (emoji/icon + tên + chấm trạng thái nhấp nháy khi `working`), chỉ hiện khi có ít nhất một participant khác `idle` hoặc phòng đang `armed`. Bấm chip mở Inspector tại đúng mục.
+
+**Bề mặt 2: Inspector** đổi phần "Room & Teammates" và "Coding Tasks" thành danh sách participant có trạng thái, thời gian, tiến độ (tool cuối, số tool); phần Advisor thêm lần consult gần nhất (focus, mô hình, thời gian) bên cạnh `uses/max`.
+
+**Cập nhật dữ liệu:** dùng lại endpoint hiện có. Poll 3 giây khi có participant không `idle` hoặc lượt đang chạy, dừng khi tất cả `idle`; refetch ngay khi nhận tin nhắn `[auto-*]`. Đẩy qua WebSocket là bước sau, chỉ làm nếu poll không đủ.
+
+### 5.4. Thẻ trong luồng chat
+
+- **Advisor:** hiển thị lời khuyên thật (kết quả tool `advisor`: model, `advice n/max`, nội dung) thay cho nudge; nudge chuyển thành một dòng hệ thống nhỏ.
+- **Teammate:** tin nhắn của teammate mang metadata `{coworker: {kind, agent}}` để WebUI gán avatar/tên thay vì đoán từ chuỗi `"{label}:\n..."`.
+- **Coding:** thẻ kết quả giữ nguyên, thêm badge backend, trạng thái, diffstat dạng số (+/−), nút `Merge` / `Discard` gọi `/code merge|discard` (trước đây chỉ có lệnh chat).
+- Tiến độ task cập nhật tại chỗ trên một thẻ thay vì thêm một dòng chat mỗi phút.
+
+Cần xác minh trước khi làm: `OutboundMessage.metadata` có đi tới WebUI không, và tool result của `advisor` được WebUI nhận ở dạng nào.
+
+---
+
+## 6. Phân kỳ
+
+| Phase | Nội dung | Điều kiện xong |
+|---|---|---|
+| **1. Backend vá** | B1–B4; `participants[]` trong `status.py`; `_Room.active`, registry consult, `live` của task; sửa lọc `session_key` | `pytest tests/coworker` xanh; test mới cho diff, nudge ở lượt `coding_result`, `participants` |
+| **2. Participants UI** | Strip + Inspector mới + poll thích ứng + thẻ Advisor/Teammate/Coding | `bun run test` xanh; chip đổi trạng thái đúng khi chạy room và task giả |
+| **3. Cấu hình UI** | Trang Coworker (3 tab), `GET/POST /api/settings/coworker`, phát hiện binary, thẻ `Coding` trong `#/apps`, dropdown advisor theo phiên | Sửa được `coworker.json` hoàn toàn từ UI, lỗi validate hiện đúng trường |
+
+Phase 1 trước vì Phase 2 phụ thuộc dữ liệu của nó; Phase 3 độc lập, có thể song song.
+
+---
+
+## 7. Rủi ro
+
+- **Phát hiện binary** chạy `which` + `--version` trên máy chủ gateway: chỉ chạy khi mở trang cấu hình, có timeout, không chạy lệnh tùy ý từ UI.
+- **`command` / `extra_args` do người dùng nhập** đi vào subprocess: giữ denylist hiện có (`--model`, `--effort`, `-p`, …), UI không cho nhập `pass_env` chứa tên biến khóa API của nanobot.
+- **`allow_unsandboxed`** chỉ bật được kèm xác nhận riêng.
+- **Ghi `coworker.json`**: ghi nguyên tử (temp + rename), giữ quyền file, không xóa các khóa lạ mà UI chưa biết.
+- **Chi phí poll**: 3 giây/lần chỉ khi có hoạt động; endpoint chỉ đọc bộ nhớ và một thư mục task nhỏ.
+
+---
+
+## 8. Đo lường (thay cho con số tiết kiệm cũ)
+
+Bản cũ nêu "tiết kiệm 70–85%" nhưng chưa có phép đo nào. Đề xuất này chỉ cam kết những gì đo được sau Phase 1: số lần consult/phiên, token prompt mỗi consult, tỷ lệ task `succeeded` ở lần đầu, tỷ lệ diff bị Advisor chỉ ra lỗi sau khi acceptance đã qua. Kết luận về chi phí chỉ đưa ra sau khi có số liệu.
+
+---
+
+## 9. Câu hỏi còn mở
+
+1. `OutboundMessage.metadata` có tới được WebUI không (§5.4)?
+2. Nút Merge/Discard trong thẻ: chạy qua lệnh `/code` hiện có hay endpoint riêng (cần kiểm tra điều kiện "checkout sạch" của §9.2 trong `coding-agent.md`)?
+3. Preset của Advisor có cần lọc theo khả năng (cửa sổ context đủ cho `TRANSCRIPT_MAX_CHARS` ≈ 120k token) khi hiện trong dropdown không?

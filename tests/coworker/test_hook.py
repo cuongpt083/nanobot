@@ -136,3 +136,61 @@ async def test_room_run_starts_when_the_coordinator_delegated(env) -> None:
     await _hook().after_run(_run(["room_delegate"]))
     await scheduler._room(KEY).task
     assert env.bus.inbound[-1].content.startswith("[auto-room]")
+
+
+CODING_RESULT_META = {"injected_event": "coworker", "coworker_kind": "coding_result"}
+
+
+def _strong_advisor(env, monkeypatch) -> None:
+    env.configure(CoworkerConfig(advisor=AdvisorConfig(preset="strong")))
+    monkeypatch.setattr("nanobot.coworker.runtime.runtime_for_preset",
+                        lambda preset: SimpleNamespace(model="strong-model"))
+    env.sessions.get_or_create(KEY)
+
+
+@pytest.mark.asyncio
+async def test_coding_result_turn_nudges_a_diff_review(env, monkeypatch) -> None:
+    _strong_advisor(env, monkeypatch)
+    # Only reading the result: no state-changing steps, yet a review is due.
+    await _hook(CODING_RESULT_META).after_run(_run(["coding_agent"]))
+    assert len(env.bus.inbound) == 1
+    nudge = env.bus.inbound[0]
+    assert nudge.content.startswith(ADVISOR_REVIEW_MARKER)
+    assert 'action="diff"' in nudge.content and "advisor(" in nudge.content
+    assert nudge.metadata["coworker_kind"] == "advisor_review"
+
+
+@pytest.mark.asyncio
+async def test_coding_result_turn_does_not_nudge_when_already_consulted(env, monkeypatch) -> None:
+    _strong_advisor(env, monkeypatch)
+    await _hook(CODING_RESULT_META).after_run(_run(["coding_agent", "advisor"]))
+    assert env.bus.inbound == []
+
+
+@pytest.mark.asyncio
+async def test_coding_result_nudge_respects_budget_and_the_review_turn_never_loops(env, monkeypatch) -> None:
+    env.configure(CoworkerConfig(advisor=AdvisorConfig(preset="strong", max_uses=1)))
+    monkeypatch.setattr("nanobot.coworker.runtime.runtime_for_preset",
+                        lambda preset: SimpleNamespace(model="strong-model"))
+    session = env.sessions.get_or_create(KEY)
+    advisor_state.count_use(session)  # budget spent
+    await _hook(CODING_RESULT_META).after_run(_run(["coding_agent"]))
+    assert env.bus.inbound == []
+
+    env.configure(CoworkerConfig(advisor=AdvisorConfig(preset="strong")))
+    review = _hook({"injected_event": "coworker", "coworker_kind": "advisor_review"})
+    await review.after_run(_run(["coding_agent"]))
+    assert env.bus.inbound == []
+
+
+@pytest.mark.asyncio
+async def test_coordinator_turn_is_tracked_while_running(env) -> None:
+    from nanobot.coworker.runtime import turn_running_since
+
+    env.sessions.get_or_create(KEY)
+    hook = _hook()
+    assert turn_running_since(KEY) is None
+    await hook.before_run(_run([]))
+    assert turn_running_since(KEY) is not None
+    await hook.on_finally(_run([]))
+    assert turn_running_since(KEY) is None
