@@ -8,6 +8,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.agent.extensions import extension_hook_factories
 from nanobot.agent.hook import (
     AgentHook,
     AgentTurnHookContext,
@@ -67,7 +68,7 @@ def build_agent_turn_hook(spec: AgentTurnHookSpec) -> AgentHook:
     )
     hook_chain: list[AgentHook] = [progress_hook]
 
-    for factory in spec.registered_hook_factories:
+    for factory in [*spec.registered_hook_factories, *extension_hook_factories()]:
         try:
             created_hook = factory(turn_context)
         except Exception:

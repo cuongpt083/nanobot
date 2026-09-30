@@ -1100,3 +1100,6 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.prefix("/pairing ", cmd_pairing)
     router.exact(USER_SHELL_COMMAND, cmd_user_shell)
     router.prefix(f"{USER_SHELL_COMMAND} ", cmd_user_shell)
+    from nanobot.agent.extensions import register_extension_commands  # lazy: avoids an import cycle
+
+    register_extension_commands(router)

@@ -151,6 +151,21 @@ class AgentHook:
     def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
         return content
 
+    def transform_request(
+        self,
+        context: AgentHookContext,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        *,
+        stateful: bool,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
+        """Reshape one outgoing model payload without touching the transcript.
+
+        ``stateful`` is True when the provider continues a server-side
+        conversation, so dropping earlier messages would be meaningless.
+        """
+        return messages, tools
+
 
 AgentTurnHookFactory = Callable[[AgentTurnHookContext], AgentHook | None]
 
@@ -272,6 +287,24 @@ class CompositeHook(AgentHook):
         for h in self._hooks:
             content = h.finalize_content(context, content)
         return content
+
+    def transform_request(
+        self,
+        context: AgentHookContext,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        *,
+        stateful: bool,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
+        # Pipeline with isolation: a failing transform keeps the previous payload.
+        for h in self._hooks:
+            try:
+                messages, tools = h.transform_request(context, messages, tools, stateful=stateful)
+            except Exception:
+                logger.opt(exception=tool_log_content_allowed()).error(
+                    "AgentHook.transform_request error in {}", type(h).__name__,
+                )
+        return messages, tools
 
 
 class SDKCaptureHook(AgentHook):
