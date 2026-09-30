@@ -1966,5 +1966,40 @@
       "usePath": "Dùng đường dẫn",
       "absolutePathRequired": "Nhập đường dẫn thư mục tuyệt đối trên máy này."
     }
+  },
+
+  "coworker": {
+    "inspector": {
+      "title": "Thanh tra AICoworker",
+      "tooltip": "Thanh tra AICoworker (Caching, Advisor, Room)",
+      "heading": "Hệ thống AICoworker",
+      "subheading": "Theo dõi thời gian thực Prompt Caching, lượt gọi Advisor, Room và Coding tasks",
+      "cacheTitle": "Prompt Cache & Tối ưu",
+      "warm": "Nóng (Warm)",
+      "cold": "Nguội (Cold)",
+      "ttl": "Thời gian sống (TTL)",
+      "trimmed": "Lượt trim tin nhắn",
+      "wasted": "Tool thừa đã loại bỏ",
+      "prefix": "Khóa System Prompt",
+      "advisorTitle": "Cố vấn cấp cao (Advisor)",
+      "disabled": "Đã tắt",
+      "consultBudget": "Ngân sách lượt gọi",
+      "circuitBreaker": "Ngắt mạch an toàn",
+      "roomTitle": "Phòng làm việc (Room)",
+      "armed": "Đang trực",
+      "idle": "Nghỉ",
+      "availableAgents": "Danh sách Teammate",
+      "codingTitle": "Tác vụ Lập trình (Coding Agent)"
+    },
+    "advisor": {
+      "reviewTitle": "Cố vấn cấp cao - Đánh giá chiến lược",
+      "automated": "Điểm kiểm tra"
+    },
+    "room": {
+      "handoffTitle": "Chuyển giao cho Teammate"
+    },
+    "coding": {
+      "resultTitle": "Kết quả Coding Task"
+    }
   }
 }

@@ -16,6 +16,7 @@ import { PromptNavigator } from "@/components/thread/PromptNavigator";
 import { ModelFallbackNotice } from "@/components/thread/ModelFallbackNotice";
 import { RecoveryNotice } from "@/components/thread/RecoveryNotice";
 import { SessionInfoPopover } from "@/components/thread/SessionInfoPopover";
+import { CoworkerInspectorPopover } from "@/components/coworker/CoworkerInspectorPopover";
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import type {
   ComposerContextUsage,
@@ -1825,6 +1826,9 @@ export function ThreadShell({
   const sessionInfoAction = historyKey ? (
     <SessionInfoPopover client={client} sessionKey={historyKey} token={token} title={title} />
   ) : undefined;
+  const coworkerInspectorAction = historyKey ? (
+    <CoworkerInspectorPopover sessionKey={historyKey} token={token} />
+  ) : undefined;
   const promptNavigatorAction = historyKey ? (
     <PromptNavigator
       messages={displayMessages}
@@ -1847,7 +1851,9 @@ export function ThreadShell({
       minimal={!session && !loading}
       promptNavigatorAction={promptNavigatorAction}
       sessionInfoAction={sessionInfoAction}
+      coworkerInspectorAction={coworkerInspectorAction}
       temporaryChatEnabled={temporaryChatEnabled}
+
       temporaryChatDisabled={booting || turnActive}
       onTemporaryChatEnabledChange={
         showTemporaryChatControl ? onTemporaryChatEnabledChange : undefined

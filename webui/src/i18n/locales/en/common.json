@@ -2166,5 +2166,40 @@
       "usePath": "Use Path",
       "absolutePathRequired": "Enter an absolute folder path on this machine."
     }
+  },
+  "coworker": {
+    "inspector": {
+      "title": "AICoworker Inspector",
+      "tooltip": "AICoworker Inspector (Cache, Advisor, Room)",
+      "heading": "AICoworker System",
+      "subheading": "Real-time context caching, advisor reviews, room & coding tasks",
+      "cacheTitle": "Prompt Cache & Trim",
+      "warm": "Warm",
+      "cold": "Cold (Idle)",
+      "ttl": "Cache TTL",
+      "trimmed": "Trimmed Turns",
+      "wasted": "Dead Weight Dropped",
+      "prefix": "Prefix Freeze",
+      "advisorTitle": "Senior Advisor",
+      "disabled": "Disabled",
+      "consultBudget": "Consult Budget",
+      "circuitBreaker": "Circuit Breaker",
+      "roomTitle": "Room & Teammates",
+      "armed": "Armed",
+      "idle": "Idle",
+      "availableAgents": "Available Agents",
+      "codingTitle": "Coding Tasks"
+    },
+    "advisor": {
+      "reviewTitle": "Senior Advisor Review",
+      "automated": "Checkpoint"
+    },
+    "room": {
+      "handoffTitle": "Room Teammate Handoff"
+    },
+    "coding": {
+      "resultTitle": "Coding Task Result"
+    }
   }
 }
+
