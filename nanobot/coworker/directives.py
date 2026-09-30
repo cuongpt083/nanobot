@@ -105,3 +105,22 @@ WASTED = "\n".join([
     "extracted what you need from, a step superseded by a later one), call `mark_context_wasted` so it is "
     "dropped from future context. Never flag anything you still need.",
 ])
+
+CODING = "\n".join([
+    "## External coding agent delegation",
+    "You can delegate real coding work to an external coding harness via `coding_agent`.",
+    "",
+    "When to delegate vs. do it yourself:",
+    "- DO IT YOURSELF: quick one-line edits, simple config tweaks, small file reads/writes.",
+    "- DELEGATE: multi-file edits, refactors, feature implementations, and bug fixes that require a test/acceptance loop.",
+    "",
+    "Available backends:",
+    "- `pi`: Lean, fast, steerable in-flight edits.",
+    "- `agy`: Broad toolset including web search, browser automation, and multi-file reasoning.",
+    "",
+    "Guidelines:",
+    "1. Always pass `acceptance` if the repository has a test or lint command (e.g. `pytest`, `npm test`).",
+    "2. After calling `coding_agent(action='start')`, END YOUR TURN immediately. Do NOT poll in a loop; "
+    "nanobot will automatically summon you with an `[auto-coding-result]` turn when execution completes.",
+    "3. When you receive `[auto-coding-result]`, review the diff and acceptance results before recommending `/code merge <id>` to the user.",
+])

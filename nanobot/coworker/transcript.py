@@ -11,6 +11,7 @@ AUTO_MARKERS = (
     "[auto-advisor-review]",
     "[auto-room]",
     "[auto-workflow:",
+    "[auto-coding-result]",
 )
 
 

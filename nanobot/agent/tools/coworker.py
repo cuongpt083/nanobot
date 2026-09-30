@@ -5,6 +5,7 @@ pkgutil scan register them without touching upstream loader code.
 """
 
 from nanobot.coworker.advisor.tool import AdvisorTool
+from nanobot.coworker.coding.tools import CodingAgentTool
 from nanobot.coworker.context.tools import MarkContextWastedTool
 from nanobot.coworker.room.tools import AgentsListTool, RoomDelegateTool, RoomStateTool
 from nanobot.coworker.workflows.tools import WorkflowDistillTool, WorkflowRunTool
@@ -12,6 +13,7 @@ from nanobot.coworker.workflows.tools import WorkflowDistillTool, WorkflowRunToo
 __all__ = [
     "AdvisorTool",
     "AgentsListTool",
+    "CodingAgentTool",
     "MarkContextWastedTool",
     "RoomDelegateTool",
     "RoomStateTool",

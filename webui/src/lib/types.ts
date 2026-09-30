@@ -258,6 +258,65 @@ export interface SessionDeleteResult {
   automations?: SessionAutomationJob[];
 }
 
+export interface CoworkerCachingStatus {
+  enabled: boolean;
+  is_warm: boolean;
+  idle_seconds: number | null;
+  ttl_seconds: number;
+  remaining_seconds: number;
+  trimmed_messages: number;
+  wasted_tools: number;
+  dropped_junk: number;
+  rewritten_messages: number;
+  system_frozen: boolean;
+  sent_messages: number;
+  original_messages: number;
+}
+
+export interface CoworkerAdvisorStatus {
+  enabled: boolean;
+  preset: string | null;
+  uses: number;
+  max_uses: number;
+  max_tokens: number;
+  breaker_open_seconds: number;
+}
+
+export interface CoworkerRoomStatus {
+  enabled: boolean;
+  armed: boolean;
+  agents: string[];
+  state_entries: Array<{
+    key: string;
+    by?: string;
+    preview: string;
+  }>;
+}
+
+export interface CoworkerCodingTask {
+  id: string;
+  backend: string;
+  status: string;
+  brief: string;
+  branch: string;
+  diffstat: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CoworkerCodingStatus {
+  enabled: boolean;
+  tasks: CoworkerCodingTask[];
+}
+
+export interface CoworkerStatus {
+  caching: CoworkerCachingStatus;
+  advisor: CoworkerAdvisorStatus;
+  room: CoworkerRoomStatus;
+  coding: CoworkerCodingStatus;
+}
+
+
 export interface SkillSummary {
   name: string;
   description: string;
