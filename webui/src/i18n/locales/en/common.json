@@ -2423,7 +2423,17 @@
       "body": "This folder is not a git repository, so the coding agent will change its files in place. A snapshot is taken first so the changes can be undone.",
       "warning": "The coding tool is not limited by this chat's workspace restriction and can change or delete files in this folder.",
       "deny": "Not now",
-      "allow": "Allow editing in place"
+      "allow": "Allow editing in place",
+      "init": "Initialize git instead…",
+      "initTitle": "Create a git repository?",
+      "initBody": "The first commit will contain {{count}} file(s), about {{size}} MB. Nothing is changed until you confirm.",
+      "initIgnore": "A new .gitignore will be created",
+      "initKeepIgnore": "Your existing .gitignore is kept.",
+      "initSecrets": "Left out (looks like secrets):",
+      "initLarge": "Left out (over 20 MB):",
+      "initEmbedded": "Left out (separate git repositories):",
+      "initBack": "Back",
+      "initConfirm": "Create repository and commit"
     }
   }
 }

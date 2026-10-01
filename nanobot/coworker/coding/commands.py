@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.coworker.coding.brief import render_rules
+from nanobot.coworker.coding.init_repo import InitError, format_plan, plan_init, run_init
 from nanobot.coworker.coding.project import (
     ProjectError,
+    clear_init_preview,
+    clear_pending_direct,
     direct_allowed,
     grant_direct,
+    init_preview,
+    path_key,
     revoke_direct,
     session_project_path,
+    set_init_preview,
 )
 from nanobot.coworker.coding.runner import CodingRunner
 from nanobot.coworker.coding.tasks import CodingTask
@@ -64,6 +71,42 @@ def _cmd_direct(ctx: CommandContext, action: str) -> OutboundMessage:
     return _reply(ctx, "Usage: /code direct allow | revoke | status")
 
 
+async def _cmd_init(ctx: CommandContext, action: str) -> OutboundMessage:
+    """`/code init [confirm|cancel]`: git-initialise this chat's project after showing what is committed."""
+    try:
+        project = session_project_path(ctx.session)
+    except ProjectError as exc:
+        return _reply(ctx, str(exc))
+    if project is None or ctx.session is None:
+        return _reply(ctx, "No project directory is selected for this chat. Pick one in the WebUI first.")
+    session = ctx.session
+    try:
+        if action == "cancel":
+            clear_init_preview(session)
+            return _reply(ctx, "Cancelled. Nothing was changed.")
+        if action == "confirm":
+            shown = init_preview(session)
+            if shown is None or path_key(str(shown.get("path", ""))) != path_key(project):
+                return _reply(ctx, "Run `/code init` first and review the file list.")
+            commit, count = await asyncio.to_thread(run_init, project, str(shown.get("digest", "")))
+            clear_init_preview(session)
+            clear_pending_direct(session, project)
+            return _reply(
+                ctx,
+                f"✅ Created a git repository in `{project}` with {count} file(s) (commit `{commit}`). "
+                "The coding agent now works in an isolated worktree and you can merge or discard its changes.",
+            )
+        if action != "preview":
+            return _reply(ctx, "Usage: /code init | confirm | cancel")
+        plan = await asyncio.to_thread(plan_init, project)
+        set_init_preview(session, plan.preview())
+        return _reply(ctx, format_plan(plan))
+    except InitError as exc:
+        if action == "confirm":
+            clear_init_preview(session)  # the reviewed list is stale or invalid
+        return _reply(ctx, f"❌ {exc}")
+
+
 async def _discard_direct(
     ctx: CommandContext, runner: CodingRunner, t: CodingTask, *, force: bool
 ) -> OutboundMessage:
@@ -92,6 +135,9 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
 
     if subcmd == "direct":
         return _cmd_direct(ctx, parts[1].lower() if len(parts) > 1 else "status")
+
+    if subcmd == "init":
+        return await _cmd_init(ctx, parts[1].lower() if len(parts) > 1 else "preview")
 
     if subcmd == "list":
         tasks = runner.registry.list_tasks()
@@ -280,5 +326,5 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
     return _reply(
         ctx,
         "Usage: /code list | status <id> | diff <id> | steer <id> <msg> | abort <id> | merge <id> "
-        "| discard <id> [force] | resume <id> <msg> | direct allow|revoke|status",
+        "| discard <id> [force] | resume <id> <msg> | direct allow|revoke|status | init [confirm|cancel]",
     )

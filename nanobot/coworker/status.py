@@ -11,6 +11,7 @@ from nanobot.coworker.advisor.consult import active_consult, breaker_open_second
 from nanobot.coworker.coding.project import (
     ProjectError,
     direct_allowed,
+    init_preview,
     pending_direct,
     session_project_path,
 )
@@ -99,6 +100,7 @@ def _coding_project(session: Session, non_git: str) -> dict[str, Any]:
         "non_git": non_git,
         "direct_allowed": bool(path is not None and direct_allowed(session, path)),
         "pending_direct": pending_direct(session),
+        "init_preview": init_preview(session),
     }
 
 

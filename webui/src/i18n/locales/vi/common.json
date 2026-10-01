@@ -1987,7 +1987,17 @@
       "body": "Thư mục này không phải git repository nên coding agent sẽ sửa trực tiếp các file trong đó. Hệ thống chụp snapshot trước để có thể hoàn tác.",
       "warning": "Công cụ coding không bị giới hạn bởi chế độ truy cập workspace của cuộc trò chuyện này và có thể sửa hoặc xoá file trong thư mục.",
       "deny": "Để sau",
-      "allow": "Cho phép sửa trực tiếp"
+      "allow": "Cho phép sửa trực tiếp",
+      "init": "Khởi tạo git thay thế…",
+      "initTitle": "Tạo git repository?",
+      "initBody": "Commit đầu tiên sẽ gồm {{count}} file, khoảng {{size}} MB. Chưa có gì thay đổi cho tới khi bạn xác nhận.",
+      "initIgnore": "Sẽ tạo file .gitignore mới",
+      "initKeepIgnore": "Giữ nguyên .gitignore hiện có.",
+      "initSecrets": "Không đưa vào (có vẻ là bí mật):",
+      "initLarge": "Không đưa vào (trên 20 MB):",
+      "initEmbedded": "Không đưa vào (là git repository riêng):",
+      "initBack": "Quay lại",
+      "initConfirm": "Tạo repository và commit"
     },
     "inspector": {
       "title": "Thanh tra AICoworker",

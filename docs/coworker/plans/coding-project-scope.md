@@ -130,7 +130,9 @@ Cỡ: **S** ≤ nửa ngày, **M** ~1 ngày, **L** 2–3 ngày.
 - Hộp xác nhận "Cho phép sửa trực tiếp thư mục này (không phải git)" gọi `setCoworkerCoding`.
 - i18n `coworker.coding.*` (en + vi đầy đủ). Test vitest cho thẻ và hộp xác nhận.
 
-### T-P6 `/code init` — S (phụ thuộc T-P1)
+### T-P6 `/code init` — S (phụ thuộc T-P1) — **đã xong**
+- Làm xong: `coding/init_repo.py` — `plan_init` liệt kê file sẽ commit bằng một git-dir tạm trỏ vào thư mục (không đụng thư mục người dùng), `run_init` tính lại kế hoạch, **từ chối nếu `digest` khác bản đã xem**, rồi `git init -b main` (hoặc dùng repo rỗng sẵn có), tạo `.gitignore` đề xuất (nếu đã có `.gitignore` thì giữ nguyên và ghi quy tắc thêm vào `.git/info/exclude`), kiểm tra staged khớp danh sách, commit đầu (dùng danh tính `nanobot` nếu máy chưa cấu hình git); lỗi giữa chừng thì xoá `.git`/`.gitignore` mình vừa tạo. Bỏ qua bí mật (`.env`, `*.pem`, `*.key`…), cache/build, file > 20 MB và repo lồng; từ chối repo cha, repo đã có commit, quá 10 000 file hoặc 1 GB. `/code init [confirm|cancel]`; section `coding` có `init: preview|confirm|cancel`; `status.coding.project.init_preview`; hộp xác nhận có nút "Initialize git instead…" và màn hình xem lại danh sách file/`.gitignore`/phần bị loại trước khi tạo. Sau khi init, thư mục là repo git nên task chạy bằng worktree, không cần đồng ý. Test: `test_init_repo.py` (repo git thật), `coworker-direct-confirm.test.tsx`.
+- Lỗi gặp khi làm: `shutil.rmtree` không xoá được `.git` vừa tạo trên Windows (file object của git là read-only) nên rollback để sót `.git`; đã xử lý bằng `onexc`/`onerror` bỏ cờ read-only.
 - `/code init` liệt kê file sẽ commit và bản `.gitignore` đề xuất; `/code init confirm` mới thực hiện `git init`, ghi
   `.gitignore`, commit đầu. Không bao giờ chạy ngầm.
 - Chỉ cho thư mục `non_git` (không nằm trong repo cha) và là scope của phiên; không dùng được cho đường dẫn tuỳ ý.

@@ -117,6 +117,31 @@ def set_pending_direct(session: Any, path: str | Path) -> None:
     cast("dict[str, Any]", coding)["pending_direct"] = str(Path(path).expanduser().resolve())
 
 
+def _coding_state(session: Any) -> dict[str, Any]:
+    state = session_state(session)
+    coding = state.get("coding")
+    if not isinstance(coding, dict):
+        coding = {}
+        state["coding"] = coding
+    return cast("dict[str, Any]", coding)
+
+
+def set_init_preview(session: Any, preview: dict[str, Any]) -> None:
+    """Keep the git-init preview the user is reviewing (confirmation must match its digest)."""
+    _coding_state(session)["init_preview"] = preview
+
+
+def init_preview(session: Any | None) -> dict[str, Any] | None:
+    if session is None:
+        return None
+    value = _coding_state(session).get("init_preview")
+    return cast("dict[str, Any]", value) if isinstance(value, dict) else None
+
+
+def clear_init_preview(session: Any) -> None:
+    _coding_state(session).pop("init_preview", None)
+
+
 def pending_direct(session: Any | None) -> str | None:
     if session is None:
         return None

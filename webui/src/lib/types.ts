@@ -427,6 +427,24 @@ export interface CoworkerCodingTask {
   };
 }
 
+/** What `git init` would commit for the chat's project; shown to the user before they confirm. */
+export interface CoworkerInitPreview {
+  path: string;
+  /** Ties the confirmation to exactly this list. */
+  digest: string;
+  file_count: number;
+  /** At most the first 200 files. */
+  files: string[];
+  total_mb: number;
+  /** Contents of a `.gitignore` that will be created, or null when the folder already has one. */
+  gitignore: string | null;
+  extra_excludes: string[];
+  skipped_sensitive: string[];
+  skipped_large: string[];
+  skipped_embedded: string[];
+  existing_repo: boolean;
+}
+
 /** The chat's project directory as the coding agent sees it. */
 export interface CoworkerCodingProject {
   path: string | null;
@@ -435,6 +453,8 @@ export interface CoworkerCodingProject {
   direct_allowed: boolean;
   /** A coding task asked to edit this non-git directory in place and is waiting for the user. */
   pending_direct: string | null;
+  /** Set after the user asked to initialise git and is reviewing the file list. */
+  init_preview?: CoworkerInitPreview | null;
 }
 
 export interface CoworkerCodingStatus {
@@ -444,10 +464,9 @@ export interface CoworkerCodingStatus {
   project?: CoworkerCodingProject;
 }
 
-export interface CoworkerCodingSwitch {
-  direct_ok: boolean;
-  path: string;
-}
+export type CoworkerCodingSwitch =
+  | { direct_ok: boolean; path: string }
+  | { init: "preview" | "confirm" | "cancel"; path: string };
 
 export type CoworkerParticipantKind = "coordinator" | "advisor" | "teammate" | "coding";
 

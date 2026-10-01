@@ -5,12 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 from nanobot.coworker.advisor import state as advisor_state
+from nanobot.coworker.coding.init_repo import InitError, plan_init, run_init
 from nanobot.coworker.coding.project import (
     ProjectError,
+    clear_init_preview,
+    clear_pending_direct,
     grant_direct,
+    init_preview,
     path_key,
     revoke_direct,
     session_project_path,
+    set_init_preview,
 )
 from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.context import keepalive, keepalive_state
@@ -132,9 +137,12 @@ def apply_persona(session: Session, payload: dict[str, Any]) -> None:
 def apply_coding(session: Session, payload: dict[str, Any]) -> None:
     """Grant or withdraw consent for the coding agent to edit this chat's non-git project in place."""
     direct_ok = payload.get("direct_ok")
+    init = payload.get("init")
     path = payload.get("path")
-    if not isinstance(direct_ok, bool):
+    if init is None and not isinstance(direct_ok, bool):
         raise SessionApiError("direct_ok must be a boolean", 400)
+    if init is not None and init not in ("preview", "confirm", "cancel"):
+        raise SessionApiError("init must be preview, confirm or cancel", 400)
     if not isinstance(path, str) or not path.strip():
         raise SessionApiError("path must be a non-empty string", 400)
     try:
@@ -144,6 +152,22 @@ def apply_coding(session: Session, payload: dict[str, Any]) -> None:
     # Consent only ever applies to the directory the user picked for this chat.
     if project is None or path_key(path) != path_key(project):
         raise SessionApiError("path must be this chat's project directory", 400)
+    if init is not None:
+        try:
+            if init == "preview":
+                set_init_preview(session, plan_init(project).preview())
+            elif init == "cancel":
+                clear_init_preview(session)
+            else:
+                shown = init_preview(session)
+                if shown is None or path_key(str(shown.get("path", ""))) != path_key(project):
+                    raise InitError("Review the files first, then confirm.")
+                run_init(project, str(shown.get("digest", "")))
+                clear_init_preview(session)
+                clear_pending_direct(session, project)
+        except InitError as exc:
+            raise SessionApiError(str(exc), 400) from exc
+        return
     if direct_ok:
         grant_direct(session, project)
     else:
