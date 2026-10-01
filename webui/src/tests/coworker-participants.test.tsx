@@ -7,6 +7,7 @@ import {
   CoworkerParticipantsStrip,
   formatElapsed,
   visibleParticipants,
+  withAdvisorReviewing,
 } from "@/components/coworker/CoworkerParticipants";
 import { parseCodingMeta, parseCoworkerMessage } from "@/components/coworker/CoworkerMessageCard";
 import * as api from "@/lib/api";
@@ -159,6 +160,46 @@ describe("CoworkerParticipantList", () => {
     expect(screen.getByText("round 2")).toBeInTheDocument();
     expect(screen.getByText("3/10 consults")).toBeInTheDocument();
     expect(screen.getByText(/review the diff/)).toBeInTheDocument();
+  });
+});
+
+describe("advisor reviewing state", () => {
+  const coordinator = participant({ id: "coordinator", kind: "coordinator", state: "working", since: 1000 });
+  const advisor = participant({ id: "advisor", kind: "advisor", label: "Advisor", state: "idle", since: null });
+
+  it("marks the advisor reviewing while this turn's nudge is fresh", () => {
+    const out = withAdvisorReviewing([coordinator, advisor], { at: 1005, kind: "first" });
+    expect(out?.find((p) => p.id === "advisor")?.state).toBe("reviewing");
+  });
+
+  it("ignores a stale nudge from an earlier turn", () => {
+    const out = withAdvisorReviewing([coordinator, advisor], { at: 999, kind: "first" });
+    expect(out?.find((p) => p.id === "advisor")?.state).toBe("idle");
+  });
+
+  it("does nothing without a running coordinator or nudge", () => {
+    const idle = participant({ id: "coordinator", kind: "coordinator", state: "idle", since: null });
+    expect(withAdvisorReviewing([idle, advisor], { at: 1005, kind: "first" })?.find((p) => p.id === "advisor")?.state)
+      .toBe("idle");
+    expect(withAdvisorReviewing([coordinator, advisor], null)).toEqual([coordinator, advisor]);
+  });
+
+  it("does not override an advisor already working on a consult", () => {
+    const working = participant({ id: "advisor", kind: "advisor", state: "working" });
+    const out = withAdvisorReviewing([coordinator, working], { at: 1005, kind: "first" });
+    expect(out?.find((p) => p.id === "advisor")?.state).toBe("working");
+  });
+
+  it("renders the reviewing chip and badge", () => {
+    const first = render(
+      <CoworkerParticipantsStrip participants={[coordinator, advisor]} reviewNudge={{ at: 1005, kind: "first" }} />,
+    );
+    expect(screen.getByRole("button", { name: /Advisor/ })).toHaveAttribute("data-state", "reviewing");
+    first.unmount();
+    render(
+      <CoworkerParticipantList participants={[coordinator, advisor]} reviewNudge={{ at: 1005, kind: "first" }} />,
+    );
+    expect(screen.getByText("reviewing")).toBeInTheDocument();
   });
 });
 

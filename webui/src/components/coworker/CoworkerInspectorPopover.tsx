@@ -151,6 +151,7 @@ export function CoworkerInspectorPopover({
               <CoworkerParticipantList
                 participants={status?.participants}
                 highlightId={highlightId}
+                reviewNudge={status?.advisor?.review_nudge}
               />
             </div>
 

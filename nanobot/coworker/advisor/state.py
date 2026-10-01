@@ -39,6 +39,7 @@ def _slot(session: Any) -> dict[str, Any]:
         slot.pop("uses", None)
         slot.pop("early_refused", None)
         slot.pop("history", None)
+        slot.pop("user_request", None)
     slot["seen_len"] = size
     return slot
 
@@ -118,6 +119,19 @@ def mark_early_refusal(session: Any) -> None:
     _slot(session)["early_refused"] = True
 
 
+def mark_user_request(session: Any) -> None:
+    """The user explicitly asked for the advisor this turn: skip the thin-context refusal."""
+    _slot(session)["user_request"] = True
+
+
+def clear_user_request(session: Any) -> None:
+    _slot(session).pop("user_request", None)
+
+
+def user_requested(session: Any) -> bool:
+    return _slot(session).get("user_request") is True
+
+
 FOCUS_MAX_CHARS = 200
 
 
@@ -166,6 +180,15 @@ def record_exchange(
 def history(session: Any) -> list[dict[str, Any]]:
     raw: list[Any] = as_list(_slot(session).get("history")) or []
     return [d for d in (as_dict(x) for x in raw) if d is not None]
+
+
+def record_review_nudge(session: Any, *, kind: str, now: float) -> None:
+    """Remember that the harness just prodded the executor to consult (drives the UI chip)."""
+    _slot(session)["review_nudge"] = {"at": now, "kind": kind}
+
+
+def review_nudge(session: Any) -> dict[str, Any] | None:
+    return as_dict(_slot(session).get("review_nudge"))
 
 
 def last_consult(session: Any) -> dict[str, Any] | None:

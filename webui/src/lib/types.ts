@@ -338,6 +338,8 @@ export interface CoworkerAdvisorStatus {
   /** Global default preset from coworker.json, used when the switch is turned on without a choice. */
   default_preset?: string | null;
   history?: CoworkerAdvisorExchange[];
+  /** Set when the harness prodded the executor to consult during the current run. */
+  review_nudge?: { at: number; kind: string } | null;
 }
 
 export interface CoworkerRoomStatus {
@@ -379,6 +381,7 @@ export type CoworkerParticipantState =
   | "idle"
   | "queued"
   | "working"
+  | "reviewing"
   | "waiting"
   | "done"
   | "error"

@@ -27,6 +27,7 @@ const STATE_DOT: Record<CoworkerParticipantState, string> = {
   idle: "bg-muted-foreground/40",
   queued: "bg-sky-500",
   working: "bg-emerald-500",
+  reviewing: "bg-violet-500",
   waiting: "bg-amber-500",
   done: "bg-emerald-600",
   error: "bg-red-500",
@@ -37,6 +38,7 @@ const STATE_BADGE: Record<CoworkerParticipantState, string> = {
   idle: "bg-muted text-muted-foreground",
   queued: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
   working: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  reviewing: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
   waiting: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   done: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   error: "bg-red-500/10 text-red-600 dark:text-red-400",
@@ -48,6 +50,27 @@ export function visibleParticipants(
   participants: CoworkerParticipant[] | undefined,
 ): CoworkerParticipant[] {
   return (participants ?? []).filter((p) => p.state !== "idle");
+}
+
+/**
+ * Mark the advisor as actively reviewing while this turn's review nudge is still fresh.
+ *
+ * The backend only records a nudge while a turn is running, so ``review_nudge.at >=
+ * turn start`` (the coordinator's ``since``) means the executor was just prodded in the
+ * current turn. Once the turn ends the coordinator is idle and the chip disappears.
+ */
+export function withAdvisorReviewing(
+  participants: CoworkerParticipant[] | undefined,
+  reviewNudge: { at: number; kind: string } | null | undefined,
+): CoworkerParticipant[] | undefined {
+  if (!participants || !reviewNudge) return participants;
+  const turnStart = participants.find((p) => p.kind === "coordinator")?.since ?? null;
+  if (turnStart === null || reviewNudge.at < turnStart) return participants;
+  return participants.map((p) =>
+    p.kind === "advisor" && p.state !== "working" && p.state !== "reviewing"
+      ? { ...p, state: "reviewing" as const, since: reviewNudge.at }
+      : p,
+  );
 }
 
 export function formatElapsed(sinceSeconds: number | null, nowMs: number = Date.now()): string {
@@ -79,12 +102,15 @@ function StateDot({ state }: { state: CoworkerParticipantState }) {
 export function CoworkerParticipantsStrip({
   participants,
   onSelect,
+  reviewNudge,
 }: {
   participants: CoworkerParticipant[] | undefined;
   onSelect?: (participant: CoworkerParticipant) => void;
+  /** Current-turn advisor review nudge, so the advisor chip shows as reviewing. */
+  reviewNudge?: { at: number; kind: string } | null;
 }) {
   const { t } = useTranslation();
-  const shown = visibleParticipants(participants);
+  const shown = visibleParticipants(withAdvisorReviewing(participants, reviewNudge));
   if (shown.length === 0) return null;
   return (
     <ul
@@ -147,12 +173,15 @@ function participantMeta(
 export function CoworkerParticipantList({
   participants,
   highlightId,
+  reviewNudge,
 }: {
   participants: CoworkerParticipant[] | undefined;
   highlightId?: string | null;
+  /** Current-turn advisor review nudge, so the advisor row shows as reviewing. */
+  reviewNudge?: { at: number; kind: string } | null;
 }) {
   const { t } = useTranslation();
-  const all = participants ?? [];
+  const all = withAdvisorReviewing(participants, reviewNudge) ?? [];
   if (all.length === 0) {
     return (
       <p className="text-[11px] text-muted-foreground">

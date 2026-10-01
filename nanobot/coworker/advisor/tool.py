@@ -83,7 +83,9 @@ class AdvisorTool(CoworkerTool):
             max_tokens=eff.max_tokens,
             timeout_s=load_coworker_config().advisor.timeout_seconds,
             # Brainstorming has no "orient first" phase: the conversation itself is the context.
-            allow_thin=brainstorm or eff.early_refused or eff.uses > 0,
+            allow_thin=(
+                brainstorm or eff.early_refused or eff.uses > 0 or advisor_state.user_requested(session)
+            ),
             session_key=request.session_key,
             brainstorm=brainstorm,
         )
@@ -120,6 +122,7 @@ class AdvisorTool(CoworkerTool):
                 ),
             )
         uses = advisor_state.count_use(session)
+        advisor_state.clear_user_request(session)
         advisor_state.record_exchange(
             session,
             model=result.model or eff.preset,

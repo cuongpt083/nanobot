@@ -47,6 +47,7 @@ export function CoworkerHeaderControls({
     <>
       <CoworkerParticipantsStrip
         participants={feed.status?.participants}
+        reviewNudge={feed.status?.advisor?.review_nudge}
         onSelect={(participant) => {
           setHighlightId(participant.id);
           setOpen(true);

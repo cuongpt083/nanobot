@@ -23,13 +23,9 @@ from nanobot.agent.hook import (
 )
 from nanobot.agent.tools.context import current_request_context
 from nanobot.coworker import directives
+from nanobot.coworker.advisor import policy
 from nanobot.coworker.advisor import state as advisor_state
 from nanobot.coworker.advisor.consult import breaker_open_seconds
-from nanobot.coworker.advisor.policy import (
-    ADVISOR_REVIEW_MARKER,
-    KIND_ADVISOR_REVIEW,
-    is_work_tool,
-)
 from nanobot.coworker.advisor.tool import ADVISOR_TOOL
 from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
@@ -46,6 +42,7 @@ from nanobot.coworker.runtime import (
     mark_turn_running,
     post_to_chat,
     remember_live_messages,
+    runtime_for_preset,
     services,
     turn_kind,
 )
@@ -55,9 +52,17 @@ from nanobot.coworker.workflows.registry import list_workflows
 from nanobot.coworker.workflows.tools import WORKFLOW_TOOLS
 
 KIND_CODING_RESULT = "coding_result"
-# Injected turns that still deserve an advisor nudge (the executor just received work to vet).
-_NUDGE_KINDS = frozenset({KIND_CODING_RESULT})
 _workflow_index_cache: tuple[float, bool] = (0.0, False)
+
+
+def _max_tool_iterations() -> int:
+    """The configured per-turn iteration ceiling (D11: leave room for a review turn)."""
+    from nanobot.config.loader import load_config
+
+    try:
+        return int(load_config().agents.defaults.max_tool_iterations)
+    except Exception:
+        return 200
 
 
 def _has_workflows() -> bool:
@@ -148,6 +153,8 @@ class CoworkerHook(AgentHook):
         self._key = turn.session_key
         self._kind = turn_kind(turn.metadata)
         self._genuine_text: str | None = None
+        self._iter_ctx: AgentHookContext | None = None
+        self._nudged = False
 
     # ---------- lifecycle ----------
 
@@ -172,12 +179,18 @@ class CoworkerHook(AgentHook):
         session = get_session(self._key)
         if session is None or not self._key:
             return
+        # A user who wrote @advisor wants the consult now; skip the thin-context refusal for it.
+        if ADVISOR_MENTION in scheduler.mention_ids(text):
+            advisor_state.mark_user_request(session)
+        else:
+            advisor_state.clear_user_request(session)
         scheduler.reset_chain_budget(self._key)
         if not scheduler.is_armed(session) and scheduler.mentioned_agents(text):
             scheduler.set_armed(session, True)
             logger.info("coworker: room armed for {} by @mention", self._key)
 
     async def before_iteration(self, context: AgentHookContext) -> None:
+        self._iter_ctx = context
         remember_live_messages(self._key, context.messages)
 
     async def after_iteration(self, context: AgentHookContext) -> None:
@@ -280,14 +293,12 @@ class CoworkerHook(AgentHook):
         session = get_session(key)
         if session is None:
             return
-        cfg = load_coworker_config()
         if await self._drive_workflow(key, session, context, svc.workspace):
             return
         if room_armed_for(session) and scheduler.maybe_start_room_run(
             key, channel=self._turn.channel, chat_id=self._turn.chat_id
         ):
             return
-        await self._maybe_nudge_advisor(key, session, context, cfg)
 
     async def _drive_workflow(
         self, key: str, session: Any, context: AgentRunHookContext, workspace: Path
@@ -321,71 +332,58 @@ class CoworkerHook(AgentHook):
         )
         return True
 
-    async def _maybe_nudge_advisor(
-        self, key: str, session: Any, context: AgentRunHookContext, cfg: CoworkerConfig
-    ) -> None:
+    def continuation(self) -> str | None:
+        """In-run advisor review nudge (D1).
+
+        Returned to the runner, which appends it inside the *same* run only when no user
+        message is waiting, so a real user turn always wins. Latched once per run.
+        """
+        if self._nudged or not self._key:
+            return None
+        cfg = load_coworker_config()
         if not cfg.advisor.review_nudge:
-            return
-        result_turn = self._kind in _NUDGE_KINDS
+            return None
+        result_turn = self._kind == KIND_CODING_RESULT
         if self._kind is not None and not result_turn:
-            return
+            return None
         if not result_turn and self._genuine_text is None:
-            return
-        if context.stop_reason not in ("completed", None):
-            return
+            return None
+        if is_automated_turn(self._turn.metadata, self._key):
+            return None
+        context = self._iter_ctx
+        if context is not None and context.iteration >= _max_tool_iterations() - 2:
+            return None  # D11: leave room for the review turn under the iteration ceiling
+        session = get_session(self._key)
+        if session is None:
+            return None
         eff = advisor_state.effective(session)
         if eff is None or eff.uses >= eff.max_uses:
-            return
+            return None
         if eff.mode == advisor_state.MODE_BRAINSTORM:
-            return  # the review nudge is about vetting work; brainstorming has none to vet
-        consulted = False
-        gap = 0
-        for name in context.tools_used:
-            if name == ADVISOR_TOOL:
-                consulted, gap = True, 0
-            elif is_work_tool(name):
-                gap += 1
-        if result_turn:
-            # The executor just received a finished coding task: a review is due unless it already asked.
-            if consulted:
-                return
-        else:
-            threshold = cfg.advisor.reconsult_gap if consulted else cfg.advisor.first_consult_gap
-            if gap < threshold:
-                return
+            return None  # the review nudge is about vetting work; brainstorming has none to vet
         try:
-            from nanobot.coworker.runtime import runtime_for_preset
-
             model_key = runtime_for_preset(eff.preset).model
         except Exception:
-            return
+            return None
         if breaker_open_seconds(model_key) > 0:
             logger.warning("coworker: advisor review nudge skipped, circuit open for {}", model_key)
-            return
-        if result_turn:
-            text = (
-                f"{ADVISOR_REVIEW_MARKER} A coding task finished and you have not consulted the advisor on it. "
-                "Read the real changes first (coding_agent action=\"diff\" with the task id), then call "
-                "advisor(focus=\"review this diff and the acceptance result before I recommend a merge\"). "
-                "If it flags a real problem, steer or resume the task; otherwise report to the user."
-            )
-        else:
-            text = (
-                f"{ADVISOR_REVIEW_MARKER} You have done a lot of work ({gap} steps) since your last advisor consult. "
-                if consulted
-                else f"{ADVISOR_REVIEW_MARKER} You did substantive work this run without consulting the advisor. "
-            ) + (
-                "Call advisor() NOW for a review — it sees your full transcript including everything you just did. "
-                "If it flags a real problem, fix it before finishing; otherwise briefly confirm completion."
-            )
-        logger.info("coworker: advisor review nudge for {} (gap={}, consulted={})", self._key, gap, consulted)
-        await inject_turn(
-            session_key=key,
-            channel=self._turn.channel,
-            chat_id=self._turn.chat_id,
-            content=text,
-            kind=KIND_ADVISOR_REVIEW,
+            return None
+        scan = policy.scan_run(context.messages if context is not None else [])
+        decision = policy.decide_review_nudge(
+            scan,
+            first_gap=cfg.advisor.first_consult_gap,
+            reconsult_gap=cfg.advisor.reconsult_gap,
+            coding_result=result_turn,
         )
+        if decision is None:
+            return None
+        self._nudged = True
+        advisor_state.record_review_nudge(session, kind=decision.kind, now=time.time())
+        logger.info(
+            "coworker: in-run advisor review nudge for {} (kind={}, gap={})",
+            self._key, decision.kind, decision.gap,
+        )
+        return policy.review_nudge_text(decision)
 
 
 def create_coworker_hook(turn: AgentTurnHookContext) -> AgentHook | None:

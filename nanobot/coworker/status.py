@@ -187,6 +187,7 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "mode": advisor_state.current_mode(session),
             "default_preset": cfg.advisor.preset,
             "history": advisor_state.history(session),
+            "review_nudge": advisor_state.review_nudge(session),
         }
     else:
         advisor_status = {
@@ -200,6 +201,7 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "mode": adv_eff.mode,
             "default_preset": cfg.advisor.preset,
             "history": advisor_state.history(session),
+            "review_nudge": advisor_state.review_nudge(session),
         }
 
     # 3. Room & Teammates

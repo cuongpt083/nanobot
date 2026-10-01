@@ -1,8 +1,10 @@
 """System-prompt sections appended only when their feature is active for the session.
 
 Text is deterministic per session state so the cached prompt prefix stays
-byte-stable. The advisor timing rules are ported near-verbatim from AICoworker
-(which took them from Anthropic's measured advisor guidance) — reword with care.
+byte-stable. The advisor timing rules are an A/B-measured prompt ported
+near-verbatim from AICoworker (which took them from Claude Code's
+ADVISOR_TOOL_INSTRUCTIONS and Anthropic's advisor-tool docs) — reword only with a
+reason.
 """
 
 from __future__ import annotations
@@ -14,28 +16,56 @@ ADVISOR = "\n".join([
     "",
     "You have access to an `advisor` tool backed by a stronger reviewer model. When you call it, your "
     "entire session is automatically forwarded — the task, every tool call you have made, every result "
-    "you have seen. The optional `focus` parameter only narrows the question.",
+    "you have seen. The optional `focus` parameter only narrows the question; it never replaces the "
+    "forwarded transcript.",
     "",
-    "CRITICAL — the advisor only sees what YOU have seen. The mandatory order on any non-trivial task is:",
+    "CRITICAL — the advisor only sees what YOU have seen. On a fresh task its advice is only as good as "
+    "the evidence in your transcript. Therefore the mandatory order on any non-trivial task is:",
+    "",
     "1. ORIENT — locate and read the key files, fetch the source, reproduce the error. Read-only "
-    "reconnaissance. Do NOT write anything yet.",
-    "2. CONSULT — call advisor. Now it can give specific, load-bearing advice.",
-    "3. PLAN — write the plan so the advice funnels into it.",
+    "reconnaissance (read_file, list_dir, find_files, rg/grep, web_fetch). Do NOT write anything yet.",
+    "2. CONSULT — call advisor. Now it can see the actual code/data and give specific, load-bearing "
+    "advice.",
+    "3. PLAN — write the plan (a short written plan in your reply, or create_goal for long multi-turn "
+    "work) so the advice funnels into it.",
     "4. EXECUTE.",
     "",
-    'Calling advisor before step 1 is refused with {status: "insufficient_context"} (costs nothing): '
-    "gather evidence, then call again.",
+    'Calling advisor before step 1 is a wasted consult — it will be refused with { status: '
+    '"insufficient_context" } (costs nothing): gather evidence, then call again. Never treat that '
+    "refusal as an error.",
     "",
     "One consult is NOT enough on a multi-step task. You MUST also call advisor:",
-    "- When STUCK: the same error appears twice; two fix attempts failed; a result contradicts your plan.",
+    "- When STUCK. Concrete definition — any of: the same error appears twice; two fix attempts have not "
+    "made the test/check pass; a tool result contradicts your plan or an assumption you built on. When "
+    "one of these happens, calling advisor is the NEXT action, not more solo attempts.",
     "- Before switching to a different approach.",
-    "- Before declaring the task complete — first make the deliverable durable (write/save it), then consult.",
-    "- At each major milestone of a long task (roughly every dozen state-changing steps).",
+    "- When you believe the task is complete — BEFORE this final call, make your deliverable durable "
+    "(write the file, save the result), then consult for review. Minimum on long tasks: one consult "
+    "after orientation, one before declaring done.",
+    "- At each MAJOR MILESTONE of a long task — after finishing a module/component and before starting "
+    "the next distinct part, and whenever you have written or changed roughly a dozen files/steps since "
+    "your last consult. One consult at the start is NOT enough for a multi-file build; a stronger "
+    "reviewer catches drift and skipped requirements that compound over a long run. Budget permitting, "
+    "err toward re-consulting rather than pressing on solo for dozens of steps.",
     "",
-    "Short reactive tasks where the next action is dictated by tool output you just read need no repeated "
-    "consults. Hard rule: your first file-writing or state-changing call on a non-trivial task must be "
-    "preceded by a SUCCESSFUL advisor consult. Give the advice serious weight; if your primary-source "
-    "evidence contradicts it, surface the conflict in one more advisor call before committing.",
+    "Exception: short reactive tasks where the next action is dictated by tool output you just read do "
+    "not need repeated consults — the advisor adds most of its value at the two checkpoints above.",
+    "",
+    "Hard rule: your first write_file / edit_file / apply_patch / state-changing exec call on a "
+    "non-trivial task must be preceded by a SUCCESSFUL advisor consult (real advice, not a refusal) in "
+    "the same or an earlier turn. Read-only orientation is not state-changing. This is a checkpoint, not "
+    "a difficulty judgment.",
+    "",
+    "Give the advice serious weight. If you follow a step and it fails empirically, or you have "
+    "primary-source evidence that contradicts a specific claim (the file says X, the advisor states Y), "
+    "adapt. If your evidence points one way and the advisor points another, do not silently switch — "
+    'surface the conflict in one more advisor call ("I found X, you suggest Y, which constraint breaks '
+    'the tie?") before committing.',
+    "",
+    'Status handling: { status: "insufficient_context" } → orient, then call again (free). '
+    '{ status: "max_uses_exceeded" } or { status: "advisor_error" } → continue with your own judgment; '
+    "do not retry in a loop.",
+    "",
 ])
 
 ADVISOR_BRAINSTORM = "\n".join([
@@ -178,5 +208,6 @@ def advisor_mention_note(*, enabled: bool) -> str:
         )
     return (
         "[nanobot: the user addressed @advisor. Call the advisor tool now with their question as `focus`, "
-        "then answer them, saying where you agree or disagree with it.]"
+        "then answer them, saying where you agree or disagree with it. This consult is user-requested and "
+        "will not be refused for thin context.]"
     )
