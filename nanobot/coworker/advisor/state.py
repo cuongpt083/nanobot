@@ -40,6 +40,7 @@ def _slot(session: Any) -> dict[str, Any]:
         slot.pop("early_refused", None)
         slot.pop("history", None)
         slot.pop("user_request", None)
+        slot.pop("stuck_ids", None)
     slot["seen_len"] = size
     return slot
 
@@ -199,3 +200,17 @@ def review_nudge(session: Any) -> dict[str, Any] | None:
 
 def last_consult(session: Any) -> dict[str, Any] | None:
     return as_dict(_slot(session).get("last_consult"))
+
+
+def add_stuck_id(session: Any, call_id: str) -> None:
+    slot = _slot(session)
+    raw = as_list(slot.get("stuck_ids")) or []
+    ids = [str(x) for x in raw]
+    if call_id not in ids:
+        ids.append(call_id)
+    slot["stuck_ids"] = ids[-50:]
+
+
+def stuck_ids(session: Any) -> frozenset[str]:
+    raw = as_list(_slot(session).get("stuck_ids")) or []
+    return frozenset(str(x) for x in raw)

@@ -27,6 +27,7 @@ from nanobot.coworker import directives
 from nanobot.coworker.advisor import policy
 from nanobot.coworker.advisor import state as advisor_state
 from nanobot.coworker.advisor.consult import breaker_open_seconds
+from nanobot.coworker.advisor.stuck import StuckTracker, failure_signature
 from nanobot.coworker.advisor.tool import ADVISOR_TOOL
 from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
@@ -52,7 +53,7 @@ from nanobot.coworker.transcript import as_dict, as_list, content_text, is_auto_
 from nanobot.coworker.workflows import drive
 from nanobot.coworker.workflows.registry import list_workflows
 from nanobot.coworker.workflows.tools import WORKFLOW_TOOLS
-from nanobot.providers.base import ProviderCallContext
+from nanobot.providers.base import ProviderCallContext, ToolCallRequest
 
 KIND_CODING_RESULT = "coding_result"
 _workflow_index_cache: tuple[float, bool] = (0.0, False)
@@ -144,6 +145,42 @@ def _annotate_mentions(
     return out if out is not None else messages
 
 
+_STUCK_HINT = "same failure as an earlier attempt"
+
+
+def _annotate_stuck(
+    messages: list[dict[str, Any]], stuck: frozenset[str]
+) -> list[dict[str, Any]]:
+    if not stuck:
+        return messages
+    out: list[dict[str, Any]] | None = None
+    note = (
+        "[nanobot: same failure as an earlier attempt — "
+        'call advisor(focus="<what failed and what you tried>") before another fix attempt.]'
+    )
+    for i, message in enumerate(messages):
+        if message.get("role") != "tool":
+            continue
+        call_id = str(message.get("tool_call_id") or "")
+        if call_id not in stuck:
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            if _STUCK_HINT in content:
+                continue
+            annotated = {**message, "content": f"{content}\n\n{note}"}
+        elif isinstance(content, list):
+            if any(_STUCK_HINT in str(b.get("text", "")) for b in content if isinstance(b, dict)):
+                continue
+            annotated = {**message, "content": [*content, {"type": "text", "text": note}]}
+        else:
+            continue
+        if out is None:
+            out = list(messages)
+        out[i] = annotated
+    return out if out is not None else messages
+
+
 def _tool_name(definition: dict[str, Any]) -> str:
     fn = as_dict(definition.get("function"))
     return str(fn.get("name")) if fn is not None else str(definition.get("name") or "")
@@ -159,6 +196,7 @@ class CoworkerHook(AgentHook):
         self._iter_ctx: AgentHookContext | None = None
         self._nudged = False
         self._last_runtime: Any | None = None
+        self._stuck = StuckTracker()
 
     # ---------- lifecycle ----------
 
@@ -196,6 +234,52 @@ class CoworkerHook(AgentHook):
     async def before_iteration(self, context: AgentHookContext) -> None:
         self._iter_ctx = context
         remember_live_messages(self._key, context.messages)
+
+    def _record_tool_result(self, tool_call: ToolCallRequest, params: Any, result: Any) -> None:
+        if tool_call.name == "advisor":
+            self._stuck.reset()
+            return
+        if not self._key:
+            return
+        session = get_session(self._key)
+        if session is None:
+            return
+        eff = advisor_state.effective(session)
+        if (
+            eff is None
+            or eff.mode != advisor_state.MODE_CODING
+            or eff.uses >= eff.max_uses
+            or not load_coworker_config().advisor.stuck_detection
+        ):
+            return
+        args = (
+            params
+            if isinstance(params, dict)
+            else (tool_call.arguments if isinstance(tool_call.arguments, dict) else {})
+        )
+        sig = failure_signature(tool_call.name, args, result)
+        if self._stuck.record(sig):
+            advisor_state.add_stuck_id(session, tool_call.id)
+
+    async def after_execute_tool(
+        self,
+        context: AgentHookContext,
+        tool_call: ToolCallRequest,
+        tool: Any,
+        params: Any,
+        result: Any,
+    ) -> None:
+        self._record_tool_result(tool_call, params, result)
+
+    async def on_execute_tool_error(
+        self,
+        context: AgentHookContext,
+        tool_call: ToolCallRequest,
+        tool: Any,
+        params: Any,
+        error: Any,
+    ) -> None:
+        self._record_tool_result(tool_call, params, error)
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         metrics.record(self._key, context.usage)
@@ -306,6 +390,8 @@ class CoworkerHook(AgentHook):
             sections.append(directives.CODING)
         messages = _append_system(messages, sections)
         messages = _annotate_mentions(messages, cfg, advisor_on=advisor_on)
+        if advisor_on:
+            messages = _annotate_stuck(messages, advisor_state.stuck_ids(session))
 
         hidden: set[str] = set()
         if not advisor_on:
