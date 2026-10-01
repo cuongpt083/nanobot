@@ -297,6 +297,19 @@ export interface CoworkerCachingStatus {
   usage?: CoworkerCacheUsage;
   /** Keep-warm prompt-cache status per session. */
   keepalive?: CoworkerKeepaliveStatus;
+  /** Context auto-optimize status with cold-cache latching. */
+  optimize?: CoworkerOptimizeStatus;
+}
+
+export interface CoworkerOptimizeStatus {
+  enabled: boolean;
+  latched: boolean;
+  pending: boolean;
+  source: "session" | "global";
+  dropped: number;
+  rewritten: number;
+  trimmed: number;
+  saved_messages: number;
 }
 
 export interface CoworkerKeepaliveStatus {

@@ -14,7 +14,8 @@ from nanobot.coworker.context import keepalive, metrics, optimizer
 from nanobot.coworker.room.scheduler import room_snapshot
 from nanobot.coworker.room.store import RoomStateStore, room_id_for
 from nanobot.coworker.room.tools import room_armed_for
-from nanobot.coworker.runtime import services, turn_running_since
+from nanobot.coworker.runtime import services, session_state, turn_running_since
+from nanobot.coworker.transcript import as_dict
 from nanobot.session.manager import Session
 
 # Participant states: idle | queued | working | waiting | done | error | paused
@@ -165,8 +166,22 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
         is_warm = idle_s is not None and idle_s < ttl_s
         remaining_s = max(0, round(ttl_s - idle_s)) if is_warm and idle_s is not None else 0
 
+    latch, pending, opt_source = optimizer.resolve_latched(
+        session,
+        cold=not is_warm,
+        cfg_optimize=cfg.context.optimize,
+        cfg_trim=cfg.context.trim.enabled,
+    )
+    raw_ctx = session_state(session).get("context")
+    ctx_state = as_dict(raw_ctx) or {}
+    req_opt = ctx_state.get("optimize")
+    target_opt = bool(req_opt if req_opt is not None else cfg.context.optimize)
+    original_msgs = int(opt_desc.get("original_messages", 0))
+    sent_msgs = int(opt_desc.get("sent_messages", 0))
+    saved_msgs = max(0, original_msgs - sent_msgs)
+
     caching_status: dict[str, Any] = {
-        "enabled": bool(cfg.context.optimize or cfg.context.trim.enabled or kw_status.get("enabled")),
+        "enabled": bool(target_opt or cfg.context.trim.enabled or kw_status.get("enabled")),
         "is_warm": is_warm,
         "idle_seconds": idle_s,
         "ttl_seconds": ttl_s,
@@ -176,11 +191,21 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
         "dropped_junk": int(opt_desc.get("dropped", 0)),
         "rewritten_messages": int(opt_desc.get("rewritten", 0)),
         "system_frozen": bool(opt_desc.get("system_frozen", False)),
-        "sent_messages": int(opt_desc.get("sent_messages", 0)),
-        "original_messages": int(opt_desc.get("original_messages", 0)),
+        "sent_messages": sent_msgs,
+        "original_messages": original_msgs,
         # What the provider reported back (hit rate, read/write tokens), as opposed to what we sent.
         "usage": metrics.snapshot(key),
         "keepalive": kw_status,
+        "optimize": {
+            "enabled": target_opt,
+            "latched": latch.optimize,
+            "pending": pending,
+            "source": opt_source,
+            "dropped": int(opt_desc.get("dropped", 0)),
+            "rewritten": int(opt_desc.get("rewritten", 0)),
+            "trimmed": int(opt_desc.get("trimmed_messages", 0)),
+            "saved_messages": saved_msgs,
+        },
     }
 
     # 2. Advisor

@@ -36,6 +36,9 @@ export function CoworkerAutoOptimizeSection({
     }
   };
 
+  const opt = caching.optimize;
+  const isChecked = opt ? opt.enabled : caching.enabled;
+
   return (
     <div className="space-y-2 pt-2 border-t">
       <div className="flex items-center justify-between">
@@ -44,12 +47,30 @@ export function CoworkerAutoOptimizeSection({
           <span>{t("coworker.autoOptimize.title", { defaultValue: "Auto-optimize context" })}</span>
         </div>
         <ToggleButton
-          checked={caching.enabled}
+          checked={isChecked}
           disabled={busy}
           label={t("coworker.autoOptimize.toggle", { defaultValue: "Auto-optimize context" })}
           onChange={(val) => void apply(val)}
         />
       </div>
+
+      {opt?.pending ? (
+        <div className="text-[11px] text-amber-600 dark:text-amber-400">
+          {t("coworker.autoOptimize.pending", {
+            defaultValue: "⏳ Sẽ áp dụng khi cache nguội",
+          })}
+        </div>
+      ) : null}
+
+      {opt && opt.saved_messages > 0 ? (
+        <div className="text-[11px] text-muted-foreground">
+          {t("coworker.autoOptimize.savedMessages", {
+            count: opt.saved_messages,
+            defaultValue: "Đã rút gọn {{count}} tin nhắn",
+          })}
+        </div>
+      ) : null}
+
       {error && <div className="text-[11px] text-destructive">{error}</div>}
       <p className="text-[11px] text-muted-foreground">
         {t("coworker.autoOptimize.description", {

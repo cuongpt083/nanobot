@@ -2257,7 +2257,9 @@
       "autoOptimize": {
         "title": "Auto-optimize context",
         "toggle": "Auto-optimize context",
-        "description": "Trims redundant history and drops dead tool calls while keeping prompt cache stable."
+        "description": "Trims redundant history and drops dead tool calls while keeping prompt cache stable.",
+        "pending": "⏳ Will apply when cache cools down",
+        "savedMessages": "Trimmed {{count}} messages"
       },
     "advisor": {
       "reviewTitle": "Senior Advisor Review",

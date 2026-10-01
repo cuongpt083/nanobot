@@ -33,6 +33,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.coworker.runtime import session_state
 from nanobot.coworker.transcript import as_dict, content_text, tool_call_arguments, tool_calls
 
 TRIVIAL_ACKS = frozenset({"", "HEARTBEAT_OK", "NO_REPLY", "REPLY_SKIP"})
@@ -79,6 +80,53 @@ class OptimizePolicy:
     freeze_max_hold_s: float
     ttl_s: float
     wasted_ids: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class ContextLatch:
+    optimize: bool
+    trim: bool
+
+
+def resolve_latched(
+    session: Any,
+    *,
+    cold: bool,
+    cfg_optimize: bool,
+    cfg_trim: bool,
+) -> tuple[ContextLatch, bool, str]:
+    """Resolve and update latched optimize/trim settings for this session.
+
+    Returns (latch, pending, source) where source is 'session' or 'global'.
+    While cold, the latch adopts requested settings. While warm, the existing
+    latch is held so prompt-cache prefix does not bust.
+    """
+    state = session_state(session)
+    slot = as_dict(state.get("context"))
+    if slot is None:
+        slot = {}
+        state["context"] = slot
+
+    req_opt = slot.get("optimize")
+    req_trim = slot.get("trim")
+
+    target_opt = bool(req_opt if req_opt is not None else cfg_optimize)
+    target_trim = bool(req_trim if req_trim is not None else cfg_trim)
+    source = "session" if (req_opt is not None or req_trim is not None) else "global"
+
+    latched_raw = as_dict(slot.get("latched"))
+    if latched_raw is None or cold:
+        latch = ContextLatch(optimize=target_opt, trim=target_trim)
+        slot["latched"] = {"optimize": latch.optimize, "trim": latch.trim}
+        pending = False
+    else:
+        latch = ContextLatch(
+            optimize=bool(latched_raw.get("optimize", target_opt)),
+            trim=bool(latched_raw.get("trim", target_trim)),
+        )
+        pending = (latch.optimize != target_opt) or (latch.trim != target_trim)
+
+    return latch, pending, source
 
 
 _states: dict[str, SessionCacheState] = {}
@@ -341,6 +389,7 @@ def describe(session_key: str) -> dict[str, Any]:
 
 
 __all__ = [
+    "ContextLatch",
     "OptimizePolicy",
     "cache_ttl_seconds",
     "classify_junk",
@@ -348,6 +397,7 @@ __all__ = [
     "fingerprint",
     "optimize_payload",
     "reset_states",
+    "resolve_latched",
     "rewrite_message",
     "state_for",
     "touch",

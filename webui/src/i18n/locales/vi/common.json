@@ -2058,7 +2058,9 @@
       "autoOptimize": {
         "title": "Tự động tối ưu ngữ cảnh",
         "toggle": "Tự động tối ưu ngữ cảnh",
-        "description": "Tự động rút gọn lịch sử thừa và loại bỏ kết quả tool hỏng trong khi giữ prompt cache ổn định."
+        "description": "Tự động rút gọn lịch sử thừa và loại bỏ kết quả tool hỏng trong khi giữ prompt cache ổn định.",
+        "pending": "⏳ Sẽ áp dụng khi cache nguội",
+        "savedMessages": "Đã rút gọn {{count}} tin nhắn"
       },
     "advisor": {
       "reviewTitle": "Cố vấn cấp cao - Đánh giá chiến lược",

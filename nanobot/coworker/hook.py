@@ -248,19 +248,30 @@ class CoworkerHook(AgentHook):
             )
         ttl = policy.ttl_s if policy else optimizer.cache_ttl_seconds(ctx_cfg.cache_ttl_seconds)
 
+        now_ts = time.time()
+        opt_state = optimizer.state_for(self._key)
+        cold = opt_state.last_send == 0.0 or (now_ts - opt_state.last_send > ttl)
+        latch, _, _ = optimizer.resolve_latched(
+            session,
+            cold=cold,
+            cfg_optimize=ctx_cfg.optimize,
+            cfg_trim=ctx_cfg.trim.enabled,
+        )
+
         if not stateful:
             messages = optimizer.optimize_payload(
                 self._key,
                 messages,
                 optimizer.OptimizePolicy(
-                    trim_enabled=ctx_cfg.trim.enabled,
+                    trim_enabled=latch.trim,
                     max_turns=ctx_cfg.trim.max_turns,
-                    optimize=ctx_cfg.optimize,
+                    optimize=latch.optimize,
                     freeze_system=ctx_cfg.freeze_system_prompt,
                     freeze_max_hold_s=ctx_cfg.freeze_max_hold_minutes * 60,
                     ttl_s=ttl,
-                    wasted_ids=wasted_ids(session) if ctx_cfg.optimize else frozenset(),
+                    wasted_ids=wasted_ids(session) if latch.optimize else frozenset(),
                 ),
+                now=now_ts,
             )
 
         advisor_eff = advisor_state.effective(session)
@@ -276,7 +287,7 @@ class CoworkerHook(AgentHook):
             sections += [directives.room_owner(cfg.room.agents), directives.ROOM_STATE]
         if workflows_on and _has_workflows():
             sections.append(directives.WORKFLOWS)
-        if ctx_cfg.optimize:
+        if latch.optimize:
             sections.append(directives.WASTED)
         if coding_on:
             sections.append(directives.CODING)
@@ -290,7 +301,7 @@ class CoworkerHook(AgentHook):
             hidden |= ROOM_TOOLS
         if not workflows_on:
             hidden |= WORKFLOW_TOOLS
-        if not ctx_cfg.optimize:
+        if not latch.optimize:
             hidden.add(WASTED_TOOL)
         if not coding_on:
             hidden.add(CODING_TOOL)

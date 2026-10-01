@@ -153,4 +153,36 @@ describe("CoworkerCachePill", () => {
 
     expect(spy).toHaveBeenCalledWith(dummyClient, "s1", { enabled: false });
   });
+
+  it("renders auto-optimize section with pending indicator and saved messages count", () => {
+    const future = Date.now() / 1000 + 200;
+    const baseStatus = makeStatus(makeKeepalive({ expires_at: future }));
+    baseStatus.caching.optimize = {
+      enabled: true,
+      latched: false,
+      pending: true,
+      source: "session",
+      dropped: 2,
+      rewritten: 1,
+      trimmed: 4,
+      saved_messages: 5,
+    };
+
+    render(
+      <CoworkerCachePill
+        client={dummyClient}
+        sessionKey="s1"
+        token="tok"
+        status={baseStatus}
+        onStatus={vi.fn()}
+      />
+    );
+
+    // Open popover
+    fireEvent.click(screen.getByRole("button"));
+
+    // Check pending notice and saved messages
+    expect(screen.getByText(/Will apply when cache cools down|Sẽ áp dụng khi cache nguội/i)).toBeInTheDocument();
+    expect(screen.getByText(/Trimmed 5 messages|Đã rút gọn 5 tin nhắn/i)).toBeInTheDocument();
+  });
 });
