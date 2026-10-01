@@ -8,6 +8,8 @@ import type {
   ChatSummary,
   CliAppsPayload,
   CoworkerAdvisorSwitch,
+  CoworkerContextSwitch,
+  CoworkerKeepaliveSwitch,
   CoworkerSettingsPayload,
   CoworkerSettingsUpdate,
   CoworkerStatus,
@@ -529,6 +531,22 @@ export async function setCoworkerAdvisor(
   change: CoworkerAdvisorSwitch,
 ): Promise<CoworkerStatus> {
   return mutation<CoworkerStatus>(transport, "session.coworker.advisor", { key, ...change });
+}
+
+export async function setCoworkerKeepalive(
+  transport: WebUIMutationTransport,
+  key: string,
+  change: CoworkerKeepaliveSwitch,
+): Promise<CoworkerStatus> {
+  return mutation<CoworkerStatus>(transport, "session.coworker.keepalive", { key, ...change });
+}
+
+export async function setCoworkerContext(
+  transport: WebUIMutationTransport,
+  key: string,
+  change: CoworkerContextSwitch,
+): Promise<CoworkerStatus> {
+  return mutation<CoworkerStatus>(transport, "session.coworker.context", { key, ...change });
 }
 
 export async function fetchCoworkerSettings(

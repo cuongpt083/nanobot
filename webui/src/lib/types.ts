@@ -295,6 +295,46 @@ export interface CoworkerCachingStatus {
   original_messages: number;
   /** Absent on servers that predate cache metrics. */
   usage?: CoworkerCacheUsage;
+  /** Keep-warm prompt-cache status per session. */
+  keepalive?: CoworkerKeepaliveStatus;
+}
+
+export interface CoworkerKeepaliveStatus {
+  known: boolean;
+  enabled: boolean;
+  source: "session" | "global";
+  strategy: "ping" | "ttl1h";
+  effective_strategy: "ping" | "ttl1h";
+  window_min: number;
+  provider: string;
+  model: string;
+  guaranteed: boolean;
+  real_turn_at: number | null;
+  last_touch_at: number | null;
+  ttl_s: number;
+  expires_at: number | null;
+  ttl1h_supported: boolean;
+  ttl1h_armed: boolean;
+  pings: number;
+  ping_cap: number;
+  can_ping: boolean;
+  next_ping_at: number | null;
+  est_tokens_per_ping: number;
+  spent: Record<string, number>;
+  parked: boolean;
+  last_error: string;
+  run_active: boolean;
+}
+
+export interface CoworkerKeepaliveSwitch {
+  enabled?: boolean | null;
+  strategy?: "ping" | "ttl1h";
+  window_min?: number;
+}
+
+export interface CoworkerContextSwitch {
+  optimize?: boolean | null;
+  trim?: boolean | null;
 }
 
 export interface CoworkerLastConsult {
@@ -323,6 +363,7 @@ export interface CoworkerAdvisorSwitch {
   enabled?: boolean;
   preset?: string;
   mode?: CoworkerAdvisorMode;
+  reset_uses?: boolean;
 }
 
 export interface CoworkerAdvisorStatus {

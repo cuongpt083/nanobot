@@ -2025,6 +2025,11 @@
         "noFocus": "Đã xem xét toàn bộ phiên"
       },
       "cache": {
+        "title": "Prompt Cache",
+        "running": "Ấm (đang chạy)",
+        "cold": "Nguội",
+        "tooltipWarm": "Prompt cache đang ấm",
+        "tooltipCold": "Prompt cache đã nguội",
         "none": "Phiên này chưa có yêu cầu nào tới mô hình.",
         "unreported": "Nhà cung cấp này không báo cáo mức dùng prompt cache nên chưa biết tỷ lệ trúng.",
         "hitRate": "Tỷ lệ trúng cache (phiên)",
@@ -2032,6 +2037,24 @@
         "write": "Mới ghi cache",
         "input": "Tổng input",
         "last": "Yêu cầu gần nhất: {{rate}} từ cache ({{read}} / {{input}} token)"
+      },
+      "keepWarm": {
+        "title": "Giữ ấm prompt cache",
+        "tooltip": "Đọc lại prompt cache ngay trước khi hết hạn để gia hạn TTL với giá đọc cache rẻ hơn (~0.1× giá ghi).",
+        "modeLabel": "Chế độ giữ ấm",
+        "modeGlobal": "Theo cài đặt chung",
+        "modeOn": "Bật",
+        "modeOff": "Tắt",
+        "strategy": "Chiến lược",
+        "strategyPing": "Ping định kỳ (~5 phút)",
+        "strategyTtl1h": "Giữ 1 giờ (ttl1h)",
+        "window": "Cửa sổ giữ ấm",
+        "parked": "Tạm dừng ping sau lỗi"
+      },
+      "autoOptimize": {
+        "title": "Tự động tối ưu ngữ cảnh",
+        "toggle": "Tự động tối ưu ngữ cảnh",
+        "description": "Tự động rút gọn lịch sử thừa và loại bỏ kết quả tool hỏng trong khi giữ prompt cache ổn định."
       },
     "advisor": {
       "reviewTitle": "Cố vấn cấp cao - Đánh giá chiến lược",

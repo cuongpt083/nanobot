@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { CoworkerAdvisorControl } from "@/components/coworker/CoworkerAdvisorControl";
+import { CoworkerCachePill } from "@/components/coworker/CoworkerCachePill";
 import { CoworkerInspectorPopover } from "@/components/coworker/CoworkerInspectorPopover";
 import { CoworkerParticipantsStrip } from "@/components/coworker/CoworkerParticipants";
 import { useCoworkerStatus } from "@/hooks/useCoworkerStatus";
@@ -54,6 +55,13 @@ export function CoworkerHeaderControls({
         }}
       />
       <CoworkerAdvisorControl
+        client={client}
+        sessionKey={sessionKey}
+        token={token}
+        status={feed.status}
+        onStatus={feed.applyStatus}
+      />
+      <CoworkerCachePill
         client={client}
         sessionKey={sessionKey}
         token={token}

@@ -2224,6 +2224,11 @@
         "noFocus": "Reviewed the whole session"
       },
       "cache": {
+        "title": "Prompt Cache",
+        "running": "Warm (running)",
+        "cold": "Cold",
+        "tooltipWarm": "Prompt cache is warm",
+        "tooltipCold": "Prompt cache is cold",
         "none": "No model requests yet in this session.",
         "unreported": "This provider does not report prompt-cache usage, so hit rate is unknown.",
         "hitRate": "Cache hit rate (session)",
@@ -2231,6 +2236,24 @@
         "write": "Newly cached",
         "input": "Input total",
         "last": "Last request: {{rate}} from cache ({{read}} of {{input}} tokens)"
+      },
+      "keepWarm": {
+        "title": "Keep-warm prompt cache",
+        "tooltip": "Re-reads the prompt cache shortly before it expires to refresh the TTL at cache-read price (~0.1× write).",
+        "modeLabel": "Keep-warm mode",
+        "modeGlobal": "Inherited (Global)",
+        "modeOn": "On",
+        "modeOff": "Off",
+        "strategy": "Strategy",
+        "strategyPing": "Periodic ping (~5 min)",
+        "strategyTtl1h": "Hold 1 hour (ttl1h)",
+        "window": "Keep-warm window",
+        "parked": "Pings paused after error"
+      },
+      "autoOptimize": {
+        "title": "Auto-optimize context",
+        "toggle": "Auto-optimize context",
+        "description": "Trims redundant history and drops dead tool calls while keeping prompt cache stable."
       },
     "advisor": {
       "reviewTitle": "Senior Advisor Review",
