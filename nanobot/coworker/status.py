@@ -11,6 +11,7 @@ from nanobot.coworker.advisor.consult import active_consult, breaker_open_second
 from nanobot.coworker.coding.tasks import CodingTask, shared_registry
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import keepalive, metrics, optimizer
+from nanobot.coworker.persona import resolve_persona
 from nanobot.coworker.room.scheduler import room_snapshot
 from nanobot.coworker.room.store import RoomStateStore, room_id_for
 from nanobot.coworker.room.tools import room_armed_for
@@ -268,12 +269,19 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
 
     # 5. Participants: who is taking part in this session's work right now.
     running_since = turn_running_since(key)
+    persona_agent = resolve_persona(session, cfg)
+    coordinator_label = (
+        f"{persona_agent.emoji} {persona_agent.name or persona_agent.id}".strip()
+        if persona_agent and persona_agent.emoji
+        else (persona_agent.name or persona_agent.id if persona_agent else "Coordinator")
+    )
+    coordinator_engine = f"preset:{persona_agent.preset}" if persona_agent and persona_agent.preset else "session"
     participants: list[dict[str, Any]] = [
         _participant(
             "coordinator",
             "coordinator",
-            "Coordinator",
-            "session",
+            coordinator_label,
+            coordinator_engine,
             "working" if running_since is not None else "idle",
             since=running_since,
         )
@@ -324,6 +332,25 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "enabled": adv_eff is not None,
         })
 
+    persona_info = {
+        "id": persona_agent.id,
+        "name": persona_agent.name or persona_agent.id,
+        "emoji": persona_agent.emoji,
+        "bio": persona_agent.bio,
+        "preset": persona_agent.preset,
+    } if persona_agent is not None else None
+
+    personas_list = [
+        {
+            "id": a.id,
+            "name": a.name or a.id,
+            "emoji": a.emoji,
+            "bio": a.bio,
+            "preset": a.preset,
+        }
+        for a in cfg.room.agents
+    ]
+
     return {
         "caching": caching_status,
         "advisor": advisor_status,
@@ -332,6 +359,8 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "enabled": cfg.coding.enabled,
             "tasks": [_task_summary(t) for t in tasks],
         },
+        "persona": persona_info,
+        "personas": personas_list,
         "participants": participants,
         "mentions": mentions,
         "generated_at": time.time(),

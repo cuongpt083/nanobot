@@ -212,3 +212,16 @@ def advisor_mention_note(*, enabled: bool) -> str:
         "then answer them, saying where you agree or disagree with it. This consult is user-requested and "
         "will not be refused for thin context.]"
     )
+
+
+def persona_section(agent: RoomAgentConfig) -> str:
+    name = f"{agent.name or agent.id}".strip()
+    if agent.emoji:
+        name = f"{name} {agent.emoji}".strip()
+    parts = [f"## Persona: {name}"]
+    if agent.bio:
+        parts.append(f"Role: {agent.bio}")
+    if agent.instructions and agent.instructions.strip():
+        parts.append(agent.instructions.strip())
+    return "\n".join(parts)
+

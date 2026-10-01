@@ -33,6 +33,7 @@ from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import cache_policy, keepalive, keepalive_state, metrics, optimizer
 from nanobot.coworker.context.tools import WASTED_TOOL, wasted_ids
+from nanobot.coworker.persona import resolve_persona
 from nanobot.coworker.room import scheduler
 from nanobot.coworker.room.tools import ROOM_TOOLS, room_armed_for
 from nanobot.coworker.runtime import (
@@ -376,7 +377,10 @@ class CoworkerHook(AgentHook):
         room_on = room_armed_for(session)
         workflows_on = cfg.workflows.enabled
         coding_on = cfg.coding.enabled
+        persona_agent = resolve_persona(session, cfg)
         sections: list[str] = []
+        if persona_agent is not None:
+            sections.append(directives.persona_section(persona_agent))
         if advisor_eff is not None:
             brainstorm = advisor_eff.mode == advisor_state.MODE_BRAINSTORM
             sections.append(directives.ADVISOR_BRAINSTORM if brainstorm else directives.ADVISOR)

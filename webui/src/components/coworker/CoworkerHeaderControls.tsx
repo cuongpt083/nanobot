@@ -4,6 +4,7 @@ import { CoworkerAdvisorControl } from "@/components/coworker/CoworkerAdvisorCon
 import { CoworkerCachePill } from "@/components/coworker/CoworkerCachePill";
 import { CoworkerInspectorPopover } from "@/components/coworker/CoworkerInspectorPopover";
 import { CoworkerParticipantsStrip } from "@/components/coworker/CoworkerParticipants";
+import { CoworkerPersonaControl } from "@/components/coworker/CoworkerPersonaControl";
 import { useCoworkerStatus } from "@/hooks/useCoworkerStatus";
 import type { WebUIMutationTransport } from "@/lib/api";
 import type { CoworkerMention } from "@/lib/types";
@@ -53,6 +54,13 @@ export function CoworkerHeaderControls({
           setHighlightId(participant.id);
           setOpen(true);
         }}
+      />
+      <CoworkerPersonaControl
+        client={client}
+        sessionKey={sessionKey}
+        token={token}
+        status={feed.status}
+        onStatus={feed.applyStatus}
       />
       <CoworkerAdvisorControl
         client={client}

@@ -2355,6 +2355,17 @@
       "statusMaxUsesExceeded": "budget exceeded",
       "statusAdvisorError": "advisor error",
       "statusAdvisorDisabled": "advisor disabled"
+    },
+    "persona": {
+      "title": "Persona",
+      "heading": "Session Persona",
+      "default": "Persona",
+      "defaultCoordinator": "Default Coordinator",
+      "defaultDesc": "Standard session instructions",
+      "tooltip": "Choose session persona",
+      "activeTooltip": "Current persona: {{name}}",
+      "reset": "Reset to default",
+      "cacheWarning": "Changing persona will invalidate the warm prompt cache on the next turn."
     }
   }
 }

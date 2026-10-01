@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from nanobot.coworker.advisor import state as advisor_state
+from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.context import keepalive, keepalive_state
+from nanobot.coworker.persona import set_persona_id
 from nanobot.coworker.runtime import session_state
 from nanobot.session.manager import Session
 
@@ -105,8 +107,24 @@ def apply_context(session: Session, payload: dict[str, Any]) -> None:
         slot["trim"] = trim
 
 
+def apply_persona(session: Session, payload: dict[str, Any]) -> None:
+    """Apply per-session persona."""
+    cfg = load_coworker_config()
+    persona_val = payload.get("persona") or payload.get("id") or payload.get("agent_id")
+    if persona_val is not None and not isinstance(persona_val, str):
+        raise SessionApiError("persona must be a string or null", 400)
+    clean_id = (persona_val or "").strip() if persona_val is not None else None
+    if clean_id and clean_id.lower() in ("none", "default"):
+        clean_id = None
+    try:
+        set_persona_id(session, clean_id, cfg)
+    except ValueError as exc:
+        raise SessionApiError(str(exc), 400) from exc
+
+
 SECTIONS = {
     "advisor": apply_advisor,
     "keepalive": apply_keepalive,
     "context": apply_context,
+    "persona": apply_persona,
 }

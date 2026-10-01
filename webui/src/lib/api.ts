@@ -549,6 +549,14 @@ export async function setCoworkerContext(
   return mutation<CoworkerStatus>(transport, "session.coworker.context", { key, ...change });
 }
 
+export async function setCoworkerPersona(
+  transport: WebUIMutationTransport,
+  key: string,
+  persona: string | null,
+): Promise<CoworkerStatus> {
+  return mutation<CoworkerStatus>(transport, "session.coworker.persona", { key, persona });
+}
+
 export async function fetchCoworkerSettings(
   token: string,
   base: string = "",

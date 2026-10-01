@@ -2189,6 +2189,17 @@
       "statusMaxUsesExceeded": "hết ngân sách",
       "statusAdvisorError": "lỗi advisor",
       "statusAdvisorDisabled": "chưa cấu hình advisor"
+    },
+    "persona": {
+      "title": "Persona",
+      "heading": "Persona cho phiên",
+      "default": "Persona",
+      "defaultCoordinator": "Điều phối mặc định",
+      "defaultDesc": "Chỉ dẫn phiên tiêu chuẩn",
+      "tooltip": "Chọn persona cho phiên này",
+      "activeTooltip": "Persona hiện tại: {{name}}",
+      "reset": "Đặt lại mặc định",
+      "cacheWarning": "Thay đổi persona sẽ làm vỡ cache ấm ở lần gửi kế tiếp."
     }
   }
 }

@@ -475,11 +475,21 @@ export interface CoworkerMention {
   enabled?: boolean;
 }
 
+export interface CoworkerPersonaInfo {
+  id: string;
+  name: string;
+  emoji: string;
+  bio?: string;
+  preset?: string | null;
+}
+
 export interface CoworkerStatus {
   caching: CoworkerCachingStatus;
   advisor: CoworkerAdvisorStatus;
   room: CoworkerRoomStatus;
   coding: CoworkerCodingStatus;
+  persona?: CoworkerPersonaInfo | null;
+  personas?: CoworkerPersonaInfo[];
   /** Absent on servers that predate the participants view. */
   participants?: CoworkerParticipant[];
   mentions?: CoworkerMention[];
