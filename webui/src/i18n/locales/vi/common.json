@@ -2077,7 +2077,10 @@
       "handoffTitle": "Chuyển giao cho Teammate"
     },
     "coding": {
-      "resultTitle": "Kết quả Coding Task"
+      "resultTitle": "Kết quả Coding Task",
+      "inPlace": "Tại chỗ",
+      "inPlaceHint": "Sửa trực tiếp: không có nhánh, thay đổi đã được áp dụng",
+      "moreFiles": "… và {{count}} file nữa"
     },
     "settings": {
       "title": "Coworker",
@@ -2133,8 +2136,10 @@
         "installed": "đã cài",
         "custom": "lệnh tùy chỉnh",
         "defaultBackend": "Backend mặc định",
-        "repos": "Kho mã nguồn",
-        "addRepo": "Thêm kho mã nguồn",
+        "repos": "Hồ sơ dự án (tuỳ chọn)",
+        "addRepo": "Thêm hồ sơ",
+        "reposHelp": "Coding agent làm việc trong thư mục dự án bạn chọn cho từng cuộc trò chuyện. Thêm hồ sơ để gán lệnh nghiệm thu, nhánh gốc hoặc backend riêng cho một thư mục.",
+        "folderOk": "Thư mục không dùng git (sửa trực tiếp)",
         "unsandboxed": "chạy không có sandbox",
         "confirmUnsandboxed": "Tôi hiểu, bật lên"
       },

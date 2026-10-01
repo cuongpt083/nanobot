@@ -122,7 +122,9 @@ Cỡ: **S** ≤ nửa ngày, **M** ~1 ngày, **L** 2–3 ngày.
 - `room/scheduler.py:257 _run_guest`: lấy `ProjectTarget` từ session `room.session_key` (D1) thay vì `admit` trần.
 - Test: cập nhật `test_diff_action.py`, `test_shared_registry.py`, test room/commands hiện có; thêm ca `direct`.
 
-### T-P5 WebUI — M (phụ thuộc T-P3, T-P4)
+### T-P5 WebUI — M (phụ thuộc T-P3, T-P4) — **đã xong**
+- Làm xong: mục Repositories thành "Project profiles (optional)" (nhãn, mô tả và nút thêm/xoá đổi theo; mô tả cũ "danh sách rỗng vô hiệu hoá mọi task" đã bỏ); `settings_api.check_repo` nhận cả thư mục không phải git (`kind: git|directory`) nên profile cho thư mục tài liệu lưu được — trước đó bị từ chối "not a git repository"; dòng kiểm tra hiện "Folder without git (edited in place)"; thẻ kết quả coding: badge "In place", số `+added ~modified −deleted`, danh sách file (4 dòng + "… and N more") thay cho `+N −M`; thẻ git giữ nguyên; inspector có badge "In place" cho task `direct`. i18n en + vi. Test: `coworker-coding-direct.test.tsx`, `coworker-inspector-popover.test.tsx`, `coworker-settings.test.tsx`, `test_settings_api.py`.
+- Chưa làm: nút Merge/Discard trên thẻ (vẫn dùng `/code merge|discard`, như ghi chú ở advisor-webui.md).
 - `settings`: mục "Repositories" đổi thành "Project profiles (tuỳ chọn)" kèm dòng giải thích; thêm cài đặt `non_git`.
 - Thẻ coding (`CoworkerMessageCard`): badge `worktree`/`direct`; ở `direct` hiện danh sách file đổi (+/~/−) thay cho diffstat.
 - Hộp xác nhận "Cho phép sửa trực tiếp thư mục này (không phải git)" gọi `setCoworkerCoding`.

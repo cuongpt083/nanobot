@@ -130,14 +130,13 @@ def test_advisor_discussion_gate_and_min_chars_round_trip(cfg_file: Path) -> Non
         update_coworker_settings({"advisor": {"discussion_min_chars": 50}}, PRESETS, detect=False)
 
 
-def test_repos_must_be_absolute_existing_git_repositories(cfg_file: Path, tmp_path: Path) -> None:
+def test_project_profiles_must_be_absolute_existing_directories(cfg_file: Path, tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
     repo = _git_repo(tmp_path / "repo")
     bad = [
         ({"coding": {"repos": [{"path": "relative/dir"}]}}, "must be absolute"),
         ({"coding": {"repos": [{"path": str(tmp_path / "missing")}]}}, "directory not found"),
-        ({"coding": {"repos": [{"path": str(plain)}]}}, "not a git repository"),
         ({"coding": {"repos": [{"path": str(repo)}, {"path": str(repo)}]}}, "duplicate repository"),
     ]
     for values, needle in bad:
@@ -152,8 +151,19 @@ def test_repos_must_be_absolute_existing_git_repositories(cfg_file: Path, tmp_pa
         detect=False,
     )
     assert payload["repos"][0]["ok"] is True and payload["repos"][0]["branch"] == "main"
+    assert payload["repos"][0]["kind"] == "git"
+
     reloaded = load_coworker_config().coding
     assert reloaded.enabled and reloaded.repos[0].acceptance == "pytest -q"
+
+    # A plain folder (documents, slides) is a valid profile; the agent edits it in place.
+    payload = update_coworker_settings(
+        {"coding": {"enabled": True, "repos": [{"path": str(plain), "acceptance": "make check"}]}},
+        PRESETS,
+        detect=False,
+    )
+    assert payload["repos"][0]["ok"] is True and payload["repos"][0]["kind"] == "directory"
+    assert payload["repos"][0]["branch"] is None
 
 
 def test_detection_never_executes_custom_commands(tmp_path: Path) -> None:

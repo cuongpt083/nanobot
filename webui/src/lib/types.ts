@@ -413,6 +413,9 @@ export interface CoworkerCodingTask {
   status: string;
   brief: string;
   branch: string;
+  /** `direct` tasks edit a non-git project in place (no branch). Absent on older servers. */
+  mode?: "worktree" | "direct";
+  changes?: { added?: string[]; modified?: string[]; deleted?: string[] };
   diffstat: string;
   created_at: number;
   updated_at: number;
@@ -2032,6 +2035,8 @@ export interface CoworkerRepoCheck {
   ok: boolean;
   error: string | null;
   branch: string | null;
+  /** `directory` is a plain folder, edited in place by the coding agent. Absent on older servers. */
+  kind?: "git" | "directory" | null;
 }
 
 export interface CoworkerSettingsPayload {

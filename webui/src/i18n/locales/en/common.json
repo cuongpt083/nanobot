@@ -2269,7 +2269,10 @@
       "handoffTitle": "Room Teammate Handoff"
     },
     "coding": {
-      "resultTitle": "Coding Task Result"
+      "resultTitle": "Coding Task Result",
+      "inPlace": "In place",
+      "inPlaceHint": "Edited in place: no branch, changes are already applied",
+      "moreFiles": "… and {{count}} more"
     },
     "settings": {
       "tab": {
@@ -2329,7 +2332,9 @@
       },
       "cancel": "Cancel",
       "coding": {
-        "addRepo": "Add repository",
+        "addRepo": "Add profile",
+        "reposHelp": "The coding agent works in the project folder you pick for each chat. Add a profile to give a folder its own acceptance command, base branch or backend.",
+        "folderOk": "Folder without git (edited in place)",
         "confirmUnsandboxed": "I understand, enable",
         "custom": "custom command",
         "defaultBackend": "Default backend",
@@ -2337,7 +2342,7 @@
         "harnesses": "Installed harnesses",
         "installed": "installed",
         "notFound": "not found",
-        "repos": "Repositories",
+        "repos": "Project profiles (optional)",
         "unsandboxed": "run without an OS sandbox",
         "nonGitSection": "Projects without git",
         "nonGit": "When the project is not a git repository",

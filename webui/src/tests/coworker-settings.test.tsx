@@ -199,6 +199,35 @@ describe("CoworkerSettingsEntry", () => {
     expect(updateSpy.mock.calls[0][1].coding?.pi.allow_unsandboxed).toBe(true);
   });
 
+  it("shows repositories as optional project profiles and accepts plain folders", async () => {
+    const base = payload();
+    vi.spyOn(api, "fetchCoworkerSettings").mockResolvedValue(
+      payload({
+        config: {
+          ...base.config,
+          coding: {
+            ...base.config.coding,
+            repos: [
+              { path: "/work/app", acceptance: "pytest -q", base_ref: "main", backend: null },
+              { path: "/work/slides", acceptance: null, base_ref: "HEAD", backend: null },
+            ],
+          },
+        },
+        repos: [
+          { path: "/work/app", ok: true, error: null, branch: "main", kind: "git" },
+          { path: "/work/slides", ok: true, error: null, branch: null, kind: "directory" },
+        ],
+      }),
+    );
+    await openDialog();
+    fireEvent.click(screen.getByRole("button", { name: /^Coding/ }));
+    expect(await screen.findByText("Project profiles (optional)")).toBeInTheDocument();
+    expect(screen.getByText(/works in the project folder you pick for each chat/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add profile/ })).toBeInTheDocument();
+    expect(screen.getByText(/^Git repository · main$/)).toBeInTheDocument();
+    expect(screen.getByText("Folder without git (edited in place)")).toBeInTheDocument();
+  });
+
   it("edits how projects without git are handled", async () => {
     vi.spyOn(api, "fetchCoworkerSettings").mockResolvedValue(payload());
     const updateSpy = vi.spyOn(api, "updateCoworkerSettings").mockResolvedValue(payload());

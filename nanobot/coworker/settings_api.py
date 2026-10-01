@@ -94,8 +94,12 @@ def detect_backends(cfg: CoworkerConfig) -> dict[str, dict[str, Any]]:
 # ---------- repos ----------
 
 def check_repo(path: str) -> dict[str, Any]:
-    """Validate a configured repository path: absolute, existing, and a git work tree."""
-    info: dict[str, Any] = {"path": path, "ok": False, "error": None, "branch": None}
+    """Validate a configured project path: absolute and an existing directory.
+
+    ``kind`` says whether it is a git work tree or a plain folder (edited in place by the coding
+    agent); both are valid project profiles.
+    """
+    info: dict[str, Any] = {"path": path, "ok": False, "error": None, "branch": None, "kind": None}
     candidate = Path(path).expanduser()
     if not candidate.is_absolute():
         info["error"] = "path must be absolute"
@@ -110,7 +114,7 @@ def check_repo(path: str) -> dict[str, Any]:
             stdin=subprocess.DEVNULL, check=False,
         )
         if top.returncode != 0:
-            info["error"] = "not a git repository"
+            info.update(ok=True, kind="directory")
             return info
         branch = subprocess.run(  # noqa: S603
             ["git", "symbolic-ref", "--short", "-q", "HEAD"],  # works on unborn branches; detached → ""
@@ -118,9 +122,9 @@ def check_repo(path: str) -> dict[str, Any]:
             stdin=subprocess.DEVNULL, check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        info["error"] = "git is not available"
+        info.update(ok=True, kind="directory")  # no usable git: still a folder the user can pick
         return info
-    info.update(ok=True, branch=branch.stdout.strip() or None)
+    info.update(ok=True, kind="git", branch=branch.stdout.strip() or None)
     return info
 
 

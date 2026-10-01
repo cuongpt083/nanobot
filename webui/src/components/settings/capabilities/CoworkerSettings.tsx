@@ -490,19 +490,23 @@ function RepoRow({
     <div className="space-y-2 rounded-xl border border-border/60 p-3" data-repo={repo.path || "new"}>
       <div className="flex items-center gap-2">
         <Input
-          aria-label={tx("coding.repoPath", "Repository path")}
+          aria-label={tx("coding.repoPath", "Project folder path")}
           className="h-9 min-w-0 flex-1 rounded-full font-mono text-[13px]"
           placeholder="/home/me/project"
           value={repo.path}
           onChange={(event) => onChange({ ...repo, path: event.target.value })}
         />
-        <Button type="button" variant="ghost" size="icon" aria-label={tx("coding.removeRepo", "Remove repository")} onClick={onRemove}>
+        <Button type="button" variant="ghost" size="icon" aria-label={tx("coding.removeRepo", "Remove profile")} onClick={onRemove}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
       {check && repo.path === check.path ? (
         <p className={cn("text-[12px]", check.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")}>
-          {check.ok ? `${tx("coding.repoOk", "Git repository")}${check.branch ? ` · ${check.branch}` : ""}` : check.error}
+          {check.ok
+            ? check.kind === "directory"
+              ? tx("coding.folderOk", "Folder without git (edited in place)")
+              : `${tx("coding.repoOk", "Git repository")}${check.branch ? ` · ${check.branch}` : ""}`
+            : check.error}
         </p>
       ) : null}
       <div className="grid gap-2 sm:grid-cols-3">
@@ -638,10 +642,13 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
       </SettingsGroup>
 
       <section>
-        <SettingsSectionTitle>{tx("coding.repos", "Repositories")}</SettingsSectionTitle>
+        <SettingsSectionTitle>{tx("coding.repos", "Project profiles (optional)")}</SettingsSectionTitle>
         <div className="settings-list-inset space-y-2">
           <p className="text-[12px] text-muted-foreground">
-            {tx("coding.reposHelp", "Only these repositories can be edited. An empty list disables every task.")}
+            {tx(
+              "coding.reposHelp",
+              "The coding agent works in the project folder you pick for each chat. Add a profile to give a folder its own acceptance command, base branch or backend.",
+            )}
           </p>
           {coding.repos.map((repo, index) => (
             <RepoRow
@@ -666,7 +673,7 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
             }
           >
             <Plus className="mr-1 h-4 w-4" />
-            {tx("coding.addRepo", "Add repository")}
+            {tx("coding.addRepo", "Add profile")}
           </Button>
         </div>
       </section>

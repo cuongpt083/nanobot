@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   Code2,
+  FolderOpen,
   GitBranch,
   Sparkles,
   Users,
@@ -20,6 +21,12 @@ export interface CoworkerCodingMeta {
   status?: string;
   added?: number;
   removed?: number;
+  /** `direct`: the task edited a non-git project in place (no branch, no diffstat). */
+  mode?: "worktree" | "direct";
+  /** File counts of an in-place task. */
+  changes?: { added: number; modified: number; deleted: number };
+  /** Changed files of an in-place task, as listed in the result text. */
+  files?: { mark: "+" | "~" | "-"; path: string }[];
 }
 
 export interface CoworkerCardData {
@@ -36,6 +43,22 @@ export function parseCodingMeta(raw: string): CoworkerCodingMeta {
   if (head) {
     meta.backend = head[1];
     meta.status = head[2];
+  }
+  if (/edited in place in `/.test(raw)) {
+    meta.mode = "direct";
+    const counts = raw.match(/\*\*Changes\*\*:\s*(\d+) added, (\d+) modified, (\d+) deleted/);
+    if (counts) {
+      meta.changes = { added: Number(counts[1]), modified: Number(counts[2]), deleted: Number(counts[3]) };
+    }
+    const block = raw.match(/\*\*Files\*\*:\s*```\n([\s\S]*?)\n```/);
+    if (block) {
+      meta.files = block[1]
+        .split("\n")
+        .map((line) => line.match(/^([+~-]) (.+)$/))
+        .filter((m): m is RegExpMatchArray => m !== null)
+        .map((m) => ({ mark: m[1] as "+" | "~" | "-", path: m[2] }));
+    }
+    return meta;
   }
   const added = raw.match(/(\d+) insertions?\(\+\)/);
   const removed = raw.match(/(\d+) deletions?\(-\)/);
@@ -203,6 +226,25 @@ export function CoworkerMessageCard({
                 {data.coding.status.replace(/_/g, " ")}
               </span>
             ) : null}
+            {data.coding?.mode === "direct" ? (
+              <span
+                data-testid="coding-mode"
+                title={t("coworker.coding.inPlaceHint", {
+                  defaultValue: "Edited in place: no branch, changes are already applied",
+                })}
+                className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300"
+              >
+                <FolderOpen className="h-3 w-3" />
+                {t("coworker.coding.inPlace", { defaultValue: "In place" })}
+              </span>
+            ) : null}
+            {data.coding?.changes ? (
+              <span data-testid="coding-changes" className="font-mono text-[11px]">
+                <span className="text-emerald-600 dark:text-emerald-400">+{data.coding.changes.added}</span>{" "}
+                <span className="text-amber-600 dark:text-amber-400">~{data.coding.changes.modified}</span>{" "}
+                <span className="text-red-600 dark:text-red-400">−{data.coding.changes.deleted}</span>
+              </span>
+            ) : null}
             {data.coding?.added !== undefined || data.coding?.removed !== undefined ? (
               <span data-testid="coding-lines" className="font-mono text-[11px]">
                 <span className="text-emerald-600 dark:text-emerald-400">+{data.coding?.added ?? 0}</span>{" "}
@@ -227,6 +269,28 @@ export function CoworkerMessageCard({
           <div className="mt-2.5 border-t border-emerald-500/15 pt-2 text-xs leading-relaxed text-foreground/90">
             <MarkdownText onOpenFilePreview={onOpenFilePreview}>{data.body}</MarkdownText>
           </div>
+        ) : data.coding?.files && data.coding.files.length > 0 ? (
+          <ul data-testid="coding-files" className="mt-1.5 space-y-0.5 font-mono text-[11px] text-muted-foreground">
+            {data.coding.files.slice(0, 4).map((file) => (
+              <li key={`${file.mark}${file.path}`} className="truncate">
+                <span
+                  className={
+                    file.mark === "+"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : file.mark === "-"
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-amber-600 dark:text-amber-400"
+                  }
+                >
+                  {file.mark}
+                </span>{" "}
+                {file.path}
+              </li>
+            ))}
+            {data.coding.files.length > 4 ? (
+              <li>{t("coworker.coding.moreFiles", { count: data.coding.files.length - 4, defaultValue: "… and {{count}} more" })}</li>
+            ) : null}
+          </ul>
         ) : (
           <p className="mt-1.5 line-clamp-2 text-xs font-mono text-muted-foreground">
             {data.body}

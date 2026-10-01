@@ -338,7 +338,17 @@ export function CoworkerInspectorPopover({
                       className="rounded-md border border-border/50 bg-muted/20 p-2 text-[11px]"
                     >
                       <div className="flex items-center justify-between gap-1">
-                        <span className="font-mono font-medium text-foreground">{task.id}</span>
+                        <span className="font-mono font-medium text-foreground">
+                          {task.id}
+                          {task.mode === "direct" ? (
+                            <span
+                              data-testid="task-mode"
+                              className="ml-1.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 font-sans text-[10px] font-medium text-amber-700 dark:text-amber-300"
+                            >
+                              {t("coworker.coding.inPlace", { defaultValue: "In place" })}
+                            </span>
+                          ) : null}
+                        </span>
                         <span
                           className={cn(
                             "rounded-full px-1.5 py-0.2 text-[10px] uppercase font-semibold",
