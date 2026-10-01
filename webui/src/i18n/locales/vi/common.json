@@ -2075,7 +2075,7 @@
     "settings": {
       "title": "Coworker",
       "entryHelp": "Mô hình cố vấn, các agent đồng đội và coding agent (Pi, agy).",
-      "tab": { "advisor": "Cố vấn", "team": "Đội ngũ", "coding": "Lập trình" },
+      "tab": { "advisor": "Cố vấn", "team": "Đội ngũ", "coding": "Lập trình", "cache": "Cache" },
       "save": "Lưu",
       "revert": "Bỏ thay đổi",
       "saved": "Đã lưu. Áp dụng cho các lượt mới, không cần khởi động lại.",
@@ -2110,6 +2110,33 @@
         "addRepo": "Thêm kho mã nguồn",
         "unsandboxed": "chạy không có sandbox",
         "confirmUnsandboxed": "Tôi hiểu, bật lên"
+      },
+      "cache": {
+        "keepaliveTitle": "Giữ ấm Prompt Cache",
+        "keepaliveCostNotice": "Các ping giữ ấm đọc lại prompt cache trước khi hết hạn để làm mới TTL với giá đọc cache (~0.1×–0.25× giá ghi).",
+        "keepaliveEnabled": "Bật giữ ấm theo mặc định",
+        "keepaliveEnabledHelp": "Giữ ấm prompt cache cho các cuộc hội thoại gần đây giữa các lượt nhắn.",
+        "strategy": "Chiến lược",
+        "strategyHelp": "Ping định kỳ cho TTL ngắn (~5 phút), hoặc giữ cache 1 giờ ở các nhà cung cấp hỗ trợ.",
+        "strategyPing": "Ping định kỳ (~5 phút)",
+        "strategyTtl1h": "Giữ 1 giờ (Anthropic ttl1h)",
+        "windowMinutes": "Cửa sổ giữ ấm",
+        "windowMinutesHelp": "Dừng ping nếu người dùng không hoạt động lâu hơn khoảng thời gian này.",
+        "maxPings": "Số lần ping tối đa",
+        "maxPingsHelp": "Giới hạn số lần ping mỗi lượt gửi để tránh phát sinh chi phí vô hạn.",
+        "leadSeconds": "Thời gian báo trước",
+        "leadSecondsHelp": "Số giây trước khi hết hạn cache để bắt đầu gửi ping làm mới.",
+        "optimizeTitle": "Tối ưu hoá ngữ cảnh",
+        "optimize": "Tự động tối ưu ngữ cảnh",
+        "optimizeHelp": "Loại bỏ tin nhắn xác nhận vô nghĩa, kết quả tool lỗi, và rút gọn heredoc.",
+        "trimEnabled": "Cắt bớt lịch sử theo khối",
+        "trimEnabledHelp": "Chỉ giữ lại các lượt tin nhắn người dùng gần nhất, cắt theo nguyên khối.",
+        "trimMaxTurns": "Số lượt người dùng tối đa",
+        "freezeSystemPrompt": "Đóng băng system prompt",
+        "freezeSystemPromptHelp": "Tránh các thay đổi nhỏ trong system prompt làm mất hiệu lực prompt cache đang ấm.",
+        "freezeMaxHoldMinutes": "Thời gian giữ đóng băng tối đa",
+        "cacheTtlSeconds": "Ghi đè TTL cache",
+        "cacheTtlSecondsHelp": "Để trống để dùng TTL tự nhiên của nhà cung cấp (~300s)."
       }
     },
     "participants": {

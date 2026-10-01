@@ -4,7 +4,7 @@ Reads and writes ``coworker.json`` (see :mod:`nanobot.coworker.config`). The Web
 stays a thin wrapper: everything that can be tested without a server lives here.
 
 Write rules:
-- Only the ``advisor``, ``room`` and ``coding`` sections are editable; a submitted section replaces
+- Only the ``advisor``, ``room``, ``coding`` and ``context`` sections are editable; a submitted section replaces
   that section wholesale (the form always sends the complete section).
 - The result must validate as :class:`CoworkerConfig`; preset names must exist; every coding repo
   must be an absolute path to a git repository.
@@ -30,7 +30,7 @@ from nanobot.coworker.advisor.state import OFF
 from nanobot.coworker.config import CoworkerConfig, coworker_config_path, load_coworker_config
 from nanobot.coworker.transcript import as_dict
 
-EDITABLE_SECTIONS = ("advisor", "room", "coding")
+EDITABLE_SECTIONS = ("advisor", "room", "coding", "context")
 DETECT_TIMEOUT_S = 3.0
 GIT_TIMEOUT_S = 3.0
 _KNOWN_BACKENDS = ("pi", "agy")

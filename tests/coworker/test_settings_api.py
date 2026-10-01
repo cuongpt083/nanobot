@@ -39,8 +39,9 @@ def _git_repo(path: Path) -> Path:
 
 def test_payload_defaults_list_sections_presets_and_detection(cfg_file: Path) -> None:
     payload = settings_api.coworker_settings_payload(PRESETS)
-    assert set(payload["config"]) == {"advisor", "room", "coding"}
+    assert set(payload["config"]) == {"advisor", "room", "coding", "context"}
     assert payload["config"]["advisor"]["max_uses"] == 10
+    assert payload["config"]["context"]["keepalive"]["window_minutes"] == 30
     assert payload["presets"] == ["default", "fast", "strong"]
     assert set(payload["detection"]) == {"pi", "agy"}
     assert payload["repos"] == [] and payload["path"] == str(cfg_file)
@@ -61,13 +62,13 @@ def test_update_writes_camel_case_and_hot_reloads(cfg_file: Path) -> None:
 
 def test_update_preserves_other_sections_and_unknown_keys(cfg_file: Path) -> None:
     cfg_file.write_text(json.dumps({
-        "context": {"optimize": True},
+        "workflows": {"enabled": True},
         "advisor": {"maxUses": 3, "futureKey": {"a": 1}},
         "topLevelFuture": 1,
     }), encoding="utf-8")
     update_coworker_settings({"advisor": {"preset": "fast"}}, PRESETS, detect=False)
     written = json.loads(cfg_file.read_text(encoding="utf-8"))
-    assert written["context"] == {"optimize": True}
+    assert written["workflows"] == {"enabled": True}
     assert written["topLevelFuture"] == 1
     assert written["advisor"]["futureKey"] == {"a": 1}
     assert written["advisor"]["preset"] == "fast"
@@ -92,7 +93,9 @@ def test_invalid_existing_file_is_never_overwritten(cfg_file: Path) -> None:
         ({"coding": {"agy": {"extra_args": ["--model=x"]}}}, "disallowed flag"),
         ({"coding": {"pi": {"pass_env": ["ANTHROPIC_API_KEY"]}}}, "looks like a credential"),
         ({"coding": {"pi": {"pass_env": ["not a name"]}}}, "not a variable name"),
-        ({"context": {"optimize": True}}, "unknown section"),
+        ({"context": {"keepalive": {"window_minutes": 0}}}, "context"),
+        ({"context": {"cache_ttl_seconds": 10}}, "context"),
+        ({"unknown_sec": {}}, "unknown section"),
         ({}, "nothing to update"),
         ({"advisor": "x"}, "must be an object"),
     ],
@@ -149,3 +152,35 @@ def test_detection_never_executes_custom_commands(tmp_path: Path) -> None:
 
 def test_config_path_follows_the_environment_override(cfg_file: Path) -> None:
     assert coworker_config_path() == cfg_file
+
+
+def test_update_context_section(cfg_file: Path) -> None:
+    payload = update_coworker_settings(
+        {
+            "context": {
+                "optimize": True,
+                "keepalive": {
+                    "enabled": True,
+                    "strategy": "ttl1h",
+                    "window_minutes": 60,
+                    "max_pings": 8,
+                    "lead_seconds": 45,
+                },
+                "cache_ttl_seconds": 3600,
+            }
+        },
+        PRESETS,
+        detect=False,
+    )
+    assert payload["config"]["context"]["optimize"] is True
+    assert payload["config"]["context"]["keepalive"]["strategy"] == "ttl1h"
+    assert payload["config"]["context"]["keepalive"]["window_minutes"] == 60
+    assert payload["config"]["context"]["cache_ttl_seconds"] == 3600
+    written = json.loads(cfg_file.read_text(encoding="utf-8"))
+    assert written["context"]["keepalive"]["windowMinutes"] == 60
+    assert written["context"]["cacheTtlSeconds"] == 3600
+    live = load_coworker_config()
+    assert live.context.optimize is True
+    assert live.context.keepalive.strategy == "ttl1h"
+    assert live.context.keepalive.window_minutes == 60
+    assert live.context.cache_ttl_seconds == 3600

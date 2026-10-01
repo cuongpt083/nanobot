@@ -69,6 +69,20 @@ function payload(overrides: Partial<CoworkerSettingsPayload> = {}): CoworkerSett
         delete_branch_after_merge: true,
         keep_failed_worktrees_days: 3,
       },
+      context: {
+        trim: { enabled: false, max_turns: 10 },
+        optimize: false,
+        freeze_system_prompt: false,
+        freeze_max_hold_minutes: 60,
+        cache_ttl_seconds: null,
+        keepalive: {
+          enabled: true,
+          strategy: "ping",
+          window_minutes: 30,
+          max_pings: 4,
+          lead_seconds: 60,
+        },
+      },
     },
     ...overrides,
   };
@@ -94,7 +108,8 @@ describe("coworker settings helpers", () => {
     expect(dirtySections(draft, saved).size).toBe(0);
     draft.room.agents.push({ id: "a", name: "", emoji: "", bio: "", preset: null, backend: null, instructions: "" });
     draft.advisor.max_uses = 3;
-    expect([...dirtySections(draft, saved)].sort()).toEqual(["advisor", "room"]);
+    draft.context.optimize = true;
+    expect([...dirtySections(draft, saved)].sort()).toEqual(["advisor", "context", "room"]);
     expect(dirtySections(null, saved).size).toBe(0);
   });
 });
@@ -180,6 +195,26 @@ describe("CoworkerSettingsEntry", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     expect(updateSpy.mock.calls[0][1].coding?.pi.allow_unsandboxed).toBe(true);
+  });
+
+  it("switches to the Cache tab and edits keep-warm settings", async () => {
+    vi.spyOn(api, "fetchCoworkerSettings").mockResolvedValue(payload());
+    const updateSpy = vi.spyOn(api, "updateCoworkerSettings").mockResolvedValue(payload());
+    await openDialog();
+    fireEvent.click(screen.getByRole("button", { name: /^Cache/ }));
+    expect(await screen.findByText(/Prompt Cache Keep-Warm|Giữ ấm Prompt Cache/i)).toBeInTheDocument();
+    expect(screen.getByText(/Keep-alive pings replay/i)).toBeInTheDocument();
+
+    // Toggle keep-warm off
+    const toggles = screen.getAllByRole("switch");
+    fireEvent.click(toggles[0]);
+
+    // Save button should be active and save context section
+    const saveBtn = screen.getByRole("button", { name: "Save" });
+    expect(saveBtn).toBeEnabled();
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1].context?.keepalive.enabled).toBe(false);
   });
 });
 

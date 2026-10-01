@@ -1955,10 +1955,33 @@ export interface CoworkerCodingConfig {
   keep_failed_worktrees_days: number;
 }
 
+export interface CoworkerTrimConfig {
+  enabled: boolean;
+  max_turns: number;
+}
+
+export interface CoworkerKeepaliveGlobalConfig {
+  enabled: boolean;
+  strategy: "ping" | "ttl1h";
+  window_minutes: number;
+  max_pings: number;
+  lead_seconds: number;
+}
+
+export interface CoworkerContextConfig {
+  trim: CoworkerTrimConfig;
+  optimize: boolean;
+  freeze_system_prompt: boolean;
+  freeze_max_hold_minutes: number;
+  cache_ttl_seconds: number | null;
+  keepalive: CoworkerKeepaliveGlobalConfig;
+}
+
 export interface CoworkerEditableConfig {
   advisor: CoworkerAdvisorConfig;
   room: CoworkerRoomConfig;
   coding: CoworkerCodingConfig;
+  context: CoworkerContextConfig;
 }
 
 export interface CoworkerBackendDetection {

@@ -2271,6 +2271,41 @@
     "coding": {
       "resultTitle": "Coding Task Result"
     },
+    "settings": {
+      "tab": {
+        "advisor": "Advisor",
+        "team": "Team",
+        "coding": "Coding",
+        "cache": "Cache"
+      },
+      "cache": {
+        "keepaliveTitle": "Prompt Cache Keep-Warm",
+        "keepaliveCostNotice": "Keep-alive pings replay the prompt cache shortly before expiry to refresh TTL at cache-read prices (~0.1×–0.25× write price).",
+        "keepaliveEnabled": "Enable keep-warm by default",
+        "keepaliveEnabledHelp": "Keep recent conversation prompt caches warm across turns.",
+        "strategy": "Strategy",
+        "strategyHelp": "Periodic ping for short TTLs (~5m), or 1-hour cache retention where supported.",
+        "strategyPing": "Periodic ping (~5 min)",
+        "strategyTtl1h": "1-hour retention (Anthropic ttl1h)",
+        "windowMinutes": "Keep-warm window",
+        "windowMinutesHelp": "Stop pinging if the user is idle longer than this window.",
+        "maxPings": "Maximum pings",
+        "maxPingsHelp": "Upper limit on pings per turn to prevent unbounded cost.",
+        "leadSeconds": "Lead time",
+        "leadSecondsHelp": "How many seconds before cache expiration to send the refresh ping.",
+        "optimizeTitle": "Context Optimization",
+        "optimize": "Auto-optimize context",
+        "optimizeHelp": "Drop trivial acknowledgements, dead tool results, and compress heredocs.",
+        "trimEnabled": "Block-aligned history trim",
+        "trimEnabledHelp": "Keep only the most recent user turns, cutting at whole blocks.",
+        "trimMaxTurns": "Max user turns to keep",
+        "freezeSystemPrompt": "Freeze system prompt",
+        "freezeSystemPromptHelp": "Prevent small system prompt changes from invalidating a warm cache.",
+        "freezeMaxHoldMinutes": "Max system freeze hold",
+        "cacheTtlSeconds": "Cache TTL override",
+        "cacheTtlSecondsHelp": "Leave empty to use provider natural TTL (~300s)."
+      }
+    },
     "participants": {
       "title": "Working on this",
       "listTitle": "Participants",

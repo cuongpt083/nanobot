@@ -26,7 +26,7 @@ import type {
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
-export type CoworkerTab = "advisor" | "team" | "coding";
+export type CoworkerTab = "advisor" | "team" | "coding" | "cache";
 type Section = keyof CoworkerEditableConfig;
 
 const SELECT_CLASS =
@@ -57,13 +57,18 @@ export function dirtySections(
 ): Set<Section> {
   const dirty = new Set<Section>();
   if (!draft || !saved) return dirty;
-  (["advisor", "room", "coding"] as const).forEach((section) => {
+  (["advisor", "room", "coding", "context"] as const).forEach((section) => {
     if (JSON.stringify(draft[section]) !== JSON.stringify(saved[section])) dirty.add(section);
   });
   return dirty;
 }
 
-const TAB_SECTION: Record<CoworkerTab, Section> = { advisor: "advisor", team: "room", coding: "coding" };
+const TAB_SECTION: Record<CoworkerTab, Section> = {
+  advisor: "advisor",
+  team: "room",
+  coding: "coding",
+  cache: "context",
+};
 
 export function useCoworkerSettings() {
   const { client, token } = useClient();
@@ -727,6 +732,168 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
   );
 }
 
+function CacheTab({ state }: { state: CoworkerSettingsState }) {
+  const { t } = useTranslation();
+  const { draft, patch } = state;
+  if (!draft) return null;
+  const context = draft.context;
+  const keepalive = context.keepalive;
+  const trim = context.trim;
+  const tx = (key: string, fallback: string) => t(`coworker.settings.${key}`, { defaultValue: fallback });
+
+  const setContext = (next: Partial<typeof context>) =>
+    patch("context", (prev) => ({ ...prev, ...next }));
+  const setKeepalive = (next: Partial<typeof keepalive>) =>
+    patch("context", (prev) => ({ ...prev, keepalive: { ...prev.keepalive, ...next } }));
+  const setTrim = (next: Partial<typeof trim>) =>
+    patch("context", (prev) => ({ ...prev, trim: { ...prev.trim, ...next } }));
+
+  return (
+    <div className="settings-stack">
+      <SettingsSectionTitle>{tx("cache.keepaliveTitle", "Prompt cache keep-warm")}</SettingsSectionTitle>
+      <div className="settings-list-inset">
+        <p className="text-[12px] text-muted-foreground">
+          {tx(
+            "cache.keepaliveCostNotice",
+            "Keep-alive pings replay the prompt cache shortly before expiry to refresh TTL at cache-read prices (~0.1×–0.25× write price).",
+          )}
+        </p>
+      </div>
+      <SettingsGroup>
+        <Field
+          title={tx("cache.keepaliveEnabled", "Enable keep-warm by default")}
+          description={tx("cache.keepaliveEnabledHelp", "Keep recent conversation prompt caches warm across turns.")}
+        >
+          <Toggle
+            label={tx("cache.keepaliveEnabled", "Enable keep-warm by default")}
+            checked={keepalive.enabled}
+            onChange={(enabled) => setKeepalive({ enabled })}
+          />
+        </Field>
+        <Field
+          title={tx("cache.strategy", "Strategy")}
+          description={tx("cache.strategyHelp", "Periodic ping for short TTLs (~5m), or 1-hour cache retention where supported.")}
+        >
+          <select
+            aria-label={tx("cache.strategy", "Strategy")}
+            className={SELECT_CLASS}
+            value={keepalive.strategy}
+            onChange={(e) => setKeepalive({ strategy: e.target.value as "ping" | "ttl1h" })}
+          >
+            <option value="ping">{tx("cache.strategyPing", "Periodic ping (~5 min)")}</option>
+            <option value="ttl1h">{tx("cache.strategyTtl1h", "1-hour retention (Anthropic ttl1h)")}</option>
+          </select>
+        </Field>
+        <Field title={tx("cache.windowMinutes", "Keep-warm window")} description={tx("cache.windowMinutesHelp", "Stop pinging if the user is idle longer than this window.")}>
+          <NumberInput
+            value={keepalive.window_minutes}
+            min={1}
+            max={240}
+            suffix="min"
+            onChange={(window_minutes) => setKeepalive({ window_minutes: window_minutes ?? 30 })}
+          />
+        </Field>
+        <Field title={tx("cache.maxPings", "Maximum pings")} description={tx("cache.maxPingsHelp", "Upper limit on pings per turn to prevent unbounded cost.")}>
+          <NumberInput
+            value={keepalive.max_pings}
+            min={1}
+            max={20}
+            onChange={(max_pings) => setKeepalive({ max_pings: max_pings ?? 4 })}
+          />
+        </Field>
+        <Field title={tx("cache.leadSeconds", "Lead time")} description={tx("cache.leadSecondsHelp", "How many seconds before cache expiration to send the refresh ping.")}>
+          <NumberInput
+            value={keepalive.lead_seconds}
+            min={5}
+            max={600}
+            suffix="s"
+            onChange={(lead_seconds) => setKeepalive({ lead_seconds: lead_seconds ?? 60 })}
+          />
+        </Field>
+      </SettingsGroup>
+
+      <SettingsSectionTitle>{tx("cache.optimizeTitle", "Context Optimization")}</SettingsSectionTitle>
+      <SettingsGroup>
+        <Field
+          title={tx("cache.optimize", "Auto-optimize context")}
+          description={tx("cache.optimizeHelp", "Drop trivial acknowledgements, dead tool results, and compress heredocs.")}
+        >
+          <Toggle
+            label={tx("cache.optimize", "Auto-optimize context")}
+            checked={context.optimize}
+            onChange={(optimize) => setContext({ optimize })}
+          />
+        </Field>
+        <Field
+          title={tx("cache.trimEnabled", "Block-aligned history trim")}
+          description={tx("cache.trimEnabledHelp", "Keep only the most recent user turns, cutting at whole blocks.")}
+        >
+          <Toggle
+            label={tx("cache.trimEnabled", "Block-aligned history trim")}
+            checked={trim.enabled}
+            onChange={(enabled) => setTrim({ enabled })}
+          />
+        </Field>
+        {trim.enabled && (
+          <Field title={tx("cache.trimMaxTurns", "Max user turns to keep")}>
+            <NumberInput
+              value={trim.max_turns}
+              min={2}
+              max={100}
+              onChange={(max_turns) => setTrim({ max_turns: max_turns ?? 10 })}
+            />
+          </Field>
+        )}
+        <Field
+          title={tx("cache.freezeSystemPrompt", "Freeze system prompt")}
+          description={tx("cache.freezeSystemPromptHelp", "Prevent small system prompt changes from invalidating a warm cache.")}
+        >
+          <Toggle
+            label={tx("cache.freezeSystemPrompt", "Freeze system prompt")}
+            checked={context.freeze_system_prompt}
+            onChange={(freeze_system_prompt) => setContext({ freeze_system_prompt })}
+          />
+        </Field>
+        {context.freeze_system_prompt && (
+          <Field title={tx("cache.freezeMaxHoldMinutes", "Max system freeze hold")}>
+            <NumberInput
+              value={context.freeze_max_hold_minutes}
+              min={1}
+              max={1440}
+              suffix="min"
+              onChange={(freeze_max_hold_minutes) =>
+                setContext({ freeze_max_hold_minutes: freeze_max_hold_minutes ?? 60 })
+              }
+            />
+          </Field>
+        )}
+        <Field
+          title={tx("cache.cacheTtlSeconds", "Cache TTL override")}
+          description={tx("cache.cacheTtlSecondsHelp", "Leave empty to use provider natural TTL (~300s).")}
+        >
+          <div className="relative w-full">
+            <Input
+              type="number"
+              min={30}
+              max={86400}
+              placeholder="300"
+              value={context.cache_ttl_seconds ?? ""}
+              onChange={(e) => {
+                const val = e.target.value.trim();
+                setContext({ cache_ttl_seconds: val === "" ? null : Number(val) });
+              }}
+              className="h-9 w-full rounded-full text-[13px] pr-12"
+            />
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex select-none items-center text-[12px] text-muted-foreground">
+              s
+            </span>
+          </div>
+        </Field>
+      </SettingsGroup>
+    </div>
+  );
+}
+
 function CoworkerSettingsBody({ initialTab = "advisor" }: { initialTab?: CoworkerTab }) {
   const { t } = useTranslation();
   const state = useCoworkerSettings();
@@ -767,6 +934,7 @@ function CoworkerSettingsBody({ initialTab = "advisor" }: { initialTab?: Coworke
             { value: "advisor", label: `${tx("tab.advisor", "Advisor")}${dot("advisor")}` },
             { value: "team", label: `${tx("tab.team", "Team")}${dot("room")}` },
             { value: "coding", label: `${tx("tab.coding", "Coding")}${dot("coding")}` },
+            { value: "cache", label: `${tx("tab.cache", "Cache")}${dot("context")}` },
           ]}
           onChange={setTab}
         />
@@ -775,6 +943,7 @@ function CoworkerSettingsBody({ initialTab = "advisor" }: { initialTab?: Coworke
       {tab === "advisor" ? <AdvisorTab state={state} /> : null}
       {tab === "team" ? <TeamTab state={state} /> : null}
       {tab === "coding" ? <CodingTab state={state} /> : null}
+      {tab === "cache" ? <CacheTab state={state} /> : null}
 
       <div className="settings-list-inset flex flex-wrap items-center gap-2 pb-2">
         <Button type="button" size="sm" disabled={!isDirty || state.saving !== null} onClick={() => void state.save(section)}>
