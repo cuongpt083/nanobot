@@ -8,6 +8,13 @@ from typing import TYPE_CHECKING
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.coworker.coding.brief import render_rules
+from nanobot.coworker.coding.project import (
+    ProjectError,
+    direct_allowed,
+    grant_direct,
+    revoke_direct,
+    session_project_path,
+)
 from nanobot.coworker.coding.runner import CodingRunner
 from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.runtime import services, spawn_background
@@ -32,12 +39,39 @@ def _get_runner() -> CodingRunner:
     return CodingRunner(cfg, ws_root)
 
 
+def _cmd_direct(ctx: CommandContext, action: str) -> OutboundMessage:
+    """`/code direct allow|revoke|status`: consent to in-place edits of this chat's non-git project."""
+    try:
+        project = session_project_path(ctx.session)
+    except ProjectError as exc:
+        return _reply(ctx, str(exc))
+    if project is None or ctx.session is None:
+        return _reply(ctx, "No project directory is selected for this chat. Pick one in the WebUI first.")
+    if action == "allow":
+        grant_direct(ctx.session, project)
+        return _reply(
+            ctx,
+            f"✅ The coding agent may edit `{project}` in place (a snapshot is kept so it can be undone).",
+        )
+    if action == "revoke":
+        revoke_direct(ctx.session, project)
+        return _reply(ctx, f"The coding agent may no longer edit `{project}` in place.")
+    if action == "status":
+        state = "allowed" if direct_allowed(ctx.session, project) else "not allowed"
+        policy = load_coworker_config().coding.non_git
+        return _reply(ctx, f"In-place editing of `{project}` is **{state}** (coding.non_git = {policy}).")
+    return _reply(ctx, "Usage: /code direct allow | revoke | status")
+
+
 async def cmd_code(ctx: CommandContext) -> OutboundMessage:
     args = ctx.args.strip()
     parts = args.split(maxsplit=2)
     subcmd = parts[0].lower() if parts else "list"
 
     runner = _get_runner()
+
+    if subcmd == "direct":
+        return _cmd_direct(ctx, parts[1].lower() if len(parts) > 1 else "status")
 
     if subcmd == "list":
         tasks = runner.registry.list_tasks()

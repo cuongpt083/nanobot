@@ -91,6 +91,52 @@ def grant_direct(session: Any, path: str | Path) -> None:
     if key not in allowed:
         allowed.append(key)
     coding["direct_ok"] = allowed
+    clear_pending_direct(session, path)
+
+
+def revoke_direct(session: Any, path: str | Path) -> None:
+    """Withdraw consent for ``path`` and forget a pending request for it."""
+    coding = session_state(session).get("coding")
+    if not isinstance(coding, dict):
+        return
+    coding = cast("dict[str, Any]", coding)
+    existing = coding.get("direct_ok")
+    key = path_key(path)
+    if isinstance(existing, list):
+        coding["direct_ok"] = [item for item in cast("list[Any]", existing) if item != key]
+    clear_pending_direct(session, path)
+
+
+def set_pending_direct(session: Any, path: str | Path) -> None:
+    """Remember that a coding task wanted to edit ``path`` in place, so the UI can ask the user."""
+    state = session_state(session)
+    coding = state.get("coding")
+    if not isinstance(coding, dict):
+        coding = {}
+        state["coding"] = coding
+    cast("dict[str, Any]", coding)["pending_direct"] = str(Path(path).expanduser().resolve())
+
+
+def pending_direct(session: Any | None) -> str | None:
+    if session is None:
+        return None
+    coding = session_state(session).get("coding")
+    if not isinstance(coding, dict):
+        return None
+    value = cast("dict[str, Any]", coding).get("pending_direct")
+    return value if isinstance(value, str) and value else None
+
+
+def clear_pending_direct(session: Any, path: str | Path | None = None) -> None:
+    coding = session_state(session).get("coding")
+    if not isinstance(coding, dict):
+        return
+    coding = cast("dict[str, Any]", coding)
+    current = coding.get("pending_direct")
+    if current is None:
+        return
+    if path is None or path_key(str(current)) == path_key(path):
+        coding.pop("pending_direct", None)
 
 
 def session_project_path(session: Any | None) -> Path | None:

@@ -140,6 +140,9 @@ from nanobot.webui.workspaces import WebUIWorkspaceController
 _SLOW_WEBUI_HTTP_LOG_MS = 1_000
 _WEBUI_MUTATION_PAYLOAD_ATTR = "_nanobot_webui_mutation_payload"
 _WEBUI_MUTATION_REQUEST_ATTR = "_nanobot_webui_mutation_request"
+# Per-session coworker sections; must equal the keys of ``coworker.session_api.SECTIONS`` (tested).
+_COWORKER_SECTIONS = "advisor|keepalive|context|persona|coding"
+_COWORKER_SESSION_ACTIONS = tuple(f"session.coworker.{s}" for s in _COWORKER_SECTIONS.split("|"))
 _NO_STORE_HEADERS = [("Cache-Control", "no-store")]
 
 
@@ -515,7 +518,7 @@ class GatewayHTTPHandler:
     def _is_webui_mutation_path(self, path: str) -> bool:
         if self.settings_routes.is_mutation_path(path):
             return True
-        if re.match(r"^/api/sessions/[^/]+/(delete|coworker/advisor)$", path):
+        if re.match(rf"^/api/sessions/[^/]+/(delete|coworker/({_COWORKER_SECTIONS}))$", path):
             return True
         if re.match(r"^/api/webui/automations/(enable|disable|delete|run|update)$", path):
             return True
@@ -544,7 +547,7 @@ class GatewayHTTPHandler:
             if not isinstance(key, str) or not key.strip():
                 return _http_error(400, "missing session key")
             return f"/api/sessions/{quote(key, safe='')}/delete"
-        if action in ("session.coworker.advisor", "session.coworker.keepalive", "session.coworker.context"):
+        if action in _COWORKER_SESSION_ACTIONS:
             key = payload.get("key")
             if not isinstance(key, str) or not key.strip():
                 return _http_error(400, "missing session key")
@@ -790,7 +793,7 @@ class GatewayHTTPHandler:
         if m:
             return await self._handle_session_coworker_get(request, m.group(1))
 
-        m = re.match(r"^/api/sessions/([^/]+)/coworker/(advisor|keepalive|context)$", got)
+        m = re.match(rf"^/api/sessions/([^/]+)/coworker/({_COWORKER_SECTIONS})$", got)
         if m:
             return await self._handle_session_coworker_section(request, m.group(1), m.group(2))
 

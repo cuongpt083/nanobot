@@ -1982,6 +1982,13 @@
   },
 
   "coworker": {
+    "directConfirm": {
+      "title": "Cho phép coding agent sửa thư mục này?",
+      "body": "Thư mục này không phải git repository nên coding agent sẽ sửa trực tiếp các file trong đó. Hệ thống chụp snapshot trước để có thể hoàn tác.",
+      "warning": "Công cụ coding không bị giới hạn bởi chế độ truy cập workspace của cuộc trò chuyện này và có thể sửa hoặc xoá file trong thư mục.",
+      "deny": "Để sau",
+      "allow": "Cho phép sửa trực tiếp"
+    },
     "inspector": {
       "title": "Thanh tra AICoworker",
       "tooltip": "Thanh tra AICoworker (Caching, Advisor, Room)",
@@ -2112,6 +2119,14 @@
         "empty": "Chưa có đồng đội. Sau khi thêm, gọi họ trong chat bằng @id."
       },
       "coding": {
+        "nonGitSection": "Dự án không dùng git",
+        "nonGit": "Khi dự án không phải git repository",
+        "nonGitHelp": "Tài liệu, slide hoặc repository chưa có commit không dùng được worktree. Luôn chụp snapshot trước để có thể hoàn tác.",
+        "nonGitAsk": "Hỏi",
+        "nonGitDirect": "Sửa trực tiếp",
+        "nonGitRefuse": "Từ chối",
+        "snapshotMax": "Giới hạn dung lượng snapshot",
+        "snapshotMaxHelp": "Vượt mức này chỉ lưu danh sách file: xem được thay đổi nhưng không khôi phục được.",
         "enabled": "Bật coding agent",
         "harnesses": "Coding agent đã cài",
         "notFound": "không tìm thấy",

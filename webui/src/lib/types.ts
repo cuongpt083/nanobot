@@ -424,9 +424,26 @@ export interface CoworkerCodingTask {
   };
 }
 
+/** The chat's project directory as the coding agent sees it. */
+export interface CoworkerCodingProject {
+  path: string | null;
+  non_git: "ask" | "direct" | "refuse";
+  /** The user has agreed to in-place edits of `path` (a non-git project). */
+  direct_allowed: boolean;
+  /** A coding task asked to edit this non-git directory in place and is waiting for the user. */
+  pending_direct: string | null;
+}
+
 export interface CoworkerCodingStatus {
   enabled: boolean;
   tasks: CoworkerCodingTask[];
+  /** Absent on servers that predate project-scoped coding. */
+  project?: CoworkerCodingProject;
+}
+
+export interface CoworkerCodingSwitch {
+  direct_ok: boolean;
+  path: string;
 }
 
 export type CoworkerParticipantKind = "coordinator" | "advisor" | "teammate" | "coding";
@@ -1966,6 +1983,9 @@ export interface CoworkerCodingConfig {
   merge_strategy: "squash" | "no-ff" | "ff-only";
   delete_branch_after_merge: boolean;
   keep_failed_worktrees_days: number;
+  /** What to do when the chat's project is not a git repository (documents, slides…). */
+  non_git: "ask" | "direct" | "refuse";
+  snapshot_max_mb: number;
 }
 
 export interface CoworkerTrimConfig {

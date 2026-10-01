@@ -2338,7 +2338,15 @@
         "installed": "installed",
         "notFound": "not found",
         "repos": "Repositories",
-        "unsandboxed": "run without an OS sandbox"
+        "unsandboxed": "run without an OS sandbox",
+        "nonGitSection": "Projects without git",
+        "nonGit": "When the project is not a git repository",
+        "nonGitHelp": "Documents, slides or a repository without commits cannot use a worktree. A snapshot is always taken first so changes can be undone.",
+        "nonGitAsk": "Ask",
+        "nonGitDirect": "Edit in place",
+        "nonGitRefuse": "Refuse",
+        "snapshotMax": "Snapshot size limit",
+        "snapshotMaxHelp": "Above this size only a list of files is kept: changes can be listed but not restored."
       },
       "configure": "Configure in Coworker settings",
       "entryHelp": "Advisor model, teammate agents and coding harnesses (Pi, agy).",
@@ -2404,6 +2412,13 @@
       "activeTooltip": "Current persona: {{name}}",
       "reset": "Reset to default",
       "cacheWarning": "Changing persona will invalidate the warm prompt cache on the next turn."
+    },
+    "directConfirm": {
+      "title": "Let the coding agent edit this folder?",
+      "body": "This folder is not a git repository, so the coding agent will change its files in place. A snapshot is taken first so the changes can be undone.",
+      "warning": "The coding tool is not limited by this chat's workspace restriction and can change or delete files in this folder.",
+      "deny": "Not now",
+      "allow": "Allow editing in place"
     }
   }
 }

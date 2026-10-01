@@ -672,6 +672,38 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
       </section>
 
       <section>
+        <SettingsSectionTitle>{tx("coding.nonGitSection", "Projects without git")}</SettingsSectionTitle>
+        <SettingsGroup>
+          <Field
+            title={tx("coding.nonGit", "When the project is not a git repository")}
+            description={tx(
+              "coding.nonGitHelp",
+              "Documents, slides or a repository without commits cannot use a worktree. A snapshot is always taken first so changes can be undone.",
+            )}
+          >
+            <SegmentedControl
+              value={coding.non_git}
+              options={[
+                { value: "ask", label: tx("coding.nonGitAsk", "Ask") },
+                { value: "direct", label: tx("coding.nonGitDirect", "Edit in place") },
+                { value: "refuse", label: tx("coding.nonGitRefuse", "Refuse") },
+              ]}
+              onChange={(non_git) => set({ non_git })}
+            />
+          </Field>
+          <Field
+            title={tx("coding.snapshotMax", "Snapshot size limit")}
+            description={tx(
+              "coding.snapshotMaxHelp",
+              "Above this size only a list of files is kept: changes can be listed but not restored.",
+            )}
+          >
+            <NumberInput value={coding.snapshot_max_mb} min={1} max={100000} suffix="MB" onChange={(snapshot_max_mb) => set({ snapshot_max_mb })} />
+          </Field>
+        </SettingsGroup>
+      </section>
+
+      <section>
         <SettingsSectionTitle>{tx("coding.limits", "Limits and merging")}</SettingsSectionTitle>
         <SettingsGroup>
           <Field title={tx("coding.timeout", "Task time limit")}>

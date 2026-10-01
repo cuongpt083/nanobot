@@ -99,7 +99,10 @@ Cỡ: **S** ≤ nửa ngày, **M** ~1 ngày, **L** 2–3 ngày.
   added/modified/deleted; restore chỉ file đã đổi; restore từ chối khi người dùng sửa sau đó; `rmtree` không bao giờ trúng
   `workdir` (kiểm `cleanup`, `prune_expired`, `discard`); khoá D8; backend giả sửa file thật → `task.changes` đúng.
 
-### T-P3 Đồng ý và cấu hình `non_git` — M (phụ thuộc T-P2)
+### T-P3 Đồng ý và cấu hình `non_git` — M (phụ thuộc T-P2) — **đã xong**
+- Làm xong: section `coding` của `session_api` (`{direct_ok, path}`, chỉ nhận đúng thư mục dự án của chat); `/code direct allow|revoke|status`; `status.coding.project` (`path`, `non_git`, `direct_allowed`, `pending_direct`); khi admit bị chặn vì chưa đồng ý, backend ghi `pending_direct` để UI hỏi người dùng (không phải LLM); hộp xác nhận `CoworkerDirectConfirm` trong header (nêu rõ cảnh báo D13); tab Coding có `non_git` và `snapshot_max_mb`; `admit_async` kiểm tra cổng `allow_unsandboxed` sớm và chỉ đường tới Settings thay vì `PermissionError` trần. i18n en + vi. Test: `test_direct_consent.py`, `coworker-direct-confirm.test.tsx`, `coworker-settings.test.tsx`.
+- **Sửa lỗi có sẵn (phát hiện khi làm route):** `ws_http.py` thiếu `persona` trong danh sách action/route, nên chọn persona trên UI trả `404 unknown WebUI mutation action`. Danh sách section nay là một hằng số `_COWORKER_SECTIONS` dùng cho cả đường dẫn mutation, action WS và route, kèm test khẳng định nó bằng `session_api.SECTIONS`.
+- Chưa làm: nút "Khởi tạo git" trên hộp xác nhận (thuộc T-P6); đổi tên mục Repositories thành profile (T-P5).
 - `config.py` `CodingAgentConfig`: `non_git: Literal["ask","direct","refuse"]="ask"`, `snapshot_max_mb: int = Field(200, ge=1)`.
 - `session_api.py`: section `coding` — `{direct_ok: bool, path: str}`; chỉ ghi khi `path` trùng scope hiện tại.
   `ws_http.py`: mở rộng regex mutation thêm `coding` (đổi nhỏ, theo D7 của plan advisor-interaction).

@@ -68,6 +68,8 @@ function payload(overrides: Partial<CoworkerSettingsPayload> = {}): CoworkerSett
         merge_strategy: "squash",
         delete_branch_after_merge: true,
         keep_failed_worktrees_days: 3,
+        non_git: "ask",
+        snapshot_max_mb: 200,
       },
       context: {
         trim: { enabled: false, max_turns: 10 },
@@ -195,6 +197,20 @@ describe("CoworkerSettingsEntry", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     expect(updateSpy.mock.calls[0][1].coding?.pi.allow_unsandboxed).toBe(true);
+  });
+
+  it("edits how projects without git are handled", async () => {
+    vi.spyOn(api, "fetchCoworkerSettings").mockResolvedValue(payload());
+    const updateSpy = vi.spyOn(api, "updateCoworkerSettings").mockResolvedValue(payload());
+    await openDialog();
+    fireEvent.click(screen.getByRole("button", { name: /^Coding/ }));
+    expect(await screen.findByText("Projects without git")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit in place" }));
+    fireEvent.change(screen.getByDisplayValue("200"), { target: { value: "50" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1].coding?.non_git).toBe("direct");
+    expect(updateSpy.mock.calls[0][1].coding?.snapshot_max_mb).toBe(50);
   });
 
   it("switches to the Cache tab and edits keep-warm settings", async () => {

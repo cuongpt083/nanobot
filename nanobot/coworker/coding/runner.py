@@ -30,6 +30,7 @@ from nanobot.coworker.coding.project import (
     ProjectError,
     direct_allowed,
     resolve_project,
+    set_pending_direct,
 )
 from nanobot.coworker.coding.tasks import (
     CodingTask,
@@ -146,14 +147,37 @@ class CodingRunner:
         """``admit`` plus the checks that need git: worktree vs ``direct`` mode, consent, lock."""
         task, backend, repo = self.admit(**kwargs)
         try:
+            self._check_backend_allowed(backend)
             await self._choose_mode(task, repo)
+        except DirectConfirmationError as exc:
+            session = _lookup_session(task.session_key)
+            if session is not None:
+                set_pending_direct(session, exc.path)  # the UI asks the user, not the model
+            self._fail_admission(task, exc)
+            raise
         except Exception as exc:
-            task.status = "error"
-            task.error = str(exc)
-            task.finished_at = time.time()
-            self.registry.save(task)  # releases the concurrency slot taken by admit
+            self._fail_admission(task, exc)
             raise
         return task, backend, repo
+
+    def _fail_admission(self, task: CodingTask, exc: Exception) -> None:
+        task.status = "error"
+        task.error = str(exc)
+        task.finished_at = time.time()
+        self.registry.save(task)  # releases the concurrency slot taken by admit
+
+    def _check_backend_allowed(self, backend: CodingBackend) -> None:
+        """Refuse early (and say how to fix it) when the harness may not run unsandboxed."""
+        check = getattr(backend, "_check_sandbox_admission", None)
+        if check is None:
+            return
+        try:
+            check()
+        except PermissionError as exc:
+            raise ProjectError(
+                f"{exc} To allow it, open Settings > Capabilities > Coworker > Coding and enable "
+                f"'run without an OS sandbox' for {backend.name}, or set coding.sandbox."
+            ) from exc
 
     async def _choose_mode(self, task: CodingTask, repo: RepoConfig) -> None:
         kind = await self.workspace_mgr.project_kind(repo)

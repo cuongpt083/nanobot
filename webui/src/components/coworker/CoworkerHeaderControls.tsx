@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { CoworkerAdvisorControl } from "@/components/coworker/CoworkerAdvisorControl";
 import { CoworkerCachePill } from "@/components/coworker/CoworkerCachePill";
+import { CoworkerDirectConfirm } from "@/components/coworker/CoworkerDirectConfirm";
 import { CoworkerInspectorPopover } from "@/components/coworker/CoworkerInspectorPopover";
 import { CoworkerParticipantsStrip } from "@/components/coworker/CoworkerParticipants";
 import { CoworkerPersonaControl } from "@/components/coworker/CoworkerPersonaControl";
@@ -73,6 +74,12 @@ export function CoworkerHeaderControls({
         client={client}
         sessionKey={sessionKey}
         token={token}
+        status={feed.status}
+        onStatus={feed.applyStatus}
+      />
+      <CoworkerDirectConfirm
+        client={client}
+        sessionKey={sessionKey}
         status={feed.status}
         onStatus={feed.applyStatus}
       />

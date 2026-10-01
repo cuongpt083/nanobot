@@ -5,6 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from nanobot.coworker.advisor import state as advisor_state
+from nanobot.coworker.coding.project import (
+    ProjectError,
+    grant_direct,
+    path_key,
+    revoke_direct,
+    session_project_path,
+)
 from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.context import keepalive, keepalive_state
 from nanobot.coworker.persona import set_persona_id
@@ -122,9 +129,31 @@ def apply_persona(session: Session, payload: dict[str, Any]) -> None:
         raise SessionApiError(str(exc), 400) from exc
 
 
+def apply_coding(session: Session, payload: dict[str, Any]) -> None:
+    """Grant or withdraw consent for the coding agent to edit this chat's non-git project in place."""
+    direct_ok = payload.get("direct_ok")
+    path = payload.get("path")
+    if not isinstance(direct_ok, bool):
+        raise SessionApiError("direct_ok must be a boolean", 400)
+    if not isinstance(path, str) or not path.strip():
+        raise SessionApiError("path must be a non-empty string", 400)
+    try:
+        project = session_project_path(session)
+    except ProjectError as exc:
+        raise SessionApiError(str(exc), 400) from exc
+    # Consent only ever applies to the directory the user picked for this chat.
+    if project is None or path_key(path) != path_key(project):
+        raise SessionApiError("path must be this chat's project directory", 400)
+    if direct_ok:
+        grant_direct(session, project)
+    else:
+        revoke_direct(session, project)
+
+
 SECTIONS = {
     "advisor": apply_advisor,
     "keepalive": apply_keepalive,
     "context": apply_context,
     "persona": apply_persona,
+    "coding": apply_coding,
 }

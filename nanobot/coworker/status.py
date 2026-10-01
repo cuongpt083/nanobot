@@ -8,6 +8,12 @@ from typing import Any
 
 from nanobot.coworker.advisor import state as advisor_state
 from nanobot.coworker.advisor.consult import active_consult, breaker_open_seconds
+from nanobot.coworker.coding.project import (
+    ProjectError,
+    direct_allowed,
+    pending_direct,
+    session_project_path,
+)
 from nanobot.coworker.coding.tasks import CodingTask, shared_registry
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import keepalive, metrics, optimizer
@@ -78,6 +84,20 @@ def _session_tasks(ws_root: Path, key: str) -> list[CodingTask]:
     active = [t for t in mine if t.status in ACTIVE_TASK_STATUSES]
     finished = [t for t in mine if t.status not in ACTIVE_TASK_STATUSES]
     return [*active, *finished][:10]
+
+
+def _coding_project(session: Session, non_git: str) -> dict[str, Any]:
+    """The project directory the coding agent would use, and whether in-place edits are agreed."""
+    try:
+        path = session_project_path(session)
+    except ProjectError:
+        path = None
+    return {
+        "path": str(path) if path is not None else None,
+        "non_git": non_git,
+        "direct_allowed": bool(path is not None and direct_allowed(session, path)),
+        "pending_direct": pending_direct(session),
+    }
 
 
 def _coding_participants(tasks: list[CodingTask]) -> list[dict[str, Any]]:
@@ -358,6 +378,7 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
         "coding": {
             "enabled": cfg.coding.enabled,
             "tasks": [_task_summary(t) for t in tasks],
+            "project": _coding_project(session, cfg.coding.non_git),
         },
         "persona": persona_info,
         "personas": personas_list,
