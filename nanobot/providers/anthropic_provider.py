@@ -18,6 +18,7 @@ from nanobot.providers.base import (
     LLMProvider,
     LLMResponse,
     LLMUsage,
+    ProviderCallContext,
     ToolCallRequest,
     resolve_stream_idle_timeout_s,
     tool_arguments_object_for_replay,
@@ -594,8 +595,11 @@ class AnthropicProvider(LLMProvider):
         system: str | list[dict[str, Any]],
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
+        cache_ttl: str | None = None,
     ) -> tuple[str | list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]] | None]:
-        marker = {"type": "ephemeral"}
+        marker: dict[str, str] = {"type": "ephemeral"}
+        if cache_ttl:
+            marker["ttl"] = cache_ttl
 
         if isinstance(system, str) and system:
             system = [{"type": "text", "text": system, "cache_control": marker}]
@@ -636,6 +640,7 @@ class AnthropicProvider(LLMProvider):
         reasoning_effort: str | None,
         tool_choice: str | dict[str, Any] | None,
         supports_caching: bool = True,
+        cache_ttl: str | None = None,
     ) -> dict[str, Any]:
         model_name = self._strip_prefix(model or self.default_model)
         system, anthropic_msgs = self._convert_messages(self._sanitize_empty_content(messages))
@@ -643,7 +648,7 @@ class AnthropicProvider(LLMProvider):
 
         if supports_caching:
             system, anthropic_msgs, anthropic_tools = self._apply_cache_control(
-                system, anthropic_msgs, anthropic_tools,
+                system, anthropic_msgs, anthropic_tools, cache_ttl=cache_ttl,
             )
 
         max_tokens = max(1, max_tokens)
@@ -792,11 +797,12 @@ class AnthropicProvider(LLMProvider):
         temperature: float = 0.7,
         reasoning_effort: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
+        cache_ttl: str | None = None,
     ) -> LLMResponse:
         await self._ensure_patcher_started()
         kwargs = self._build_kwargs(
             messages, tools, model, max_tokens, temperature,
-            reasoning_effort, tool_choice,
+            reasoning_effort, tool_choice, cache_ttl=cache_ttl,
         )
         try:
             response = cast(Any, await self._client.messages.create(**kwargs))
@@ -816,6 +822,7 @@ class AnthropicProvider(LLMProvider):
                     temperature=temperature,
                     reasoning_effort=reasoning_effort,
                     tool_choice=tool_choice,
+                    cache_ttl=cache_ttl,
                 )
             return self._handle_error(e)
 
@@ -831,11 +838,12 @@ class AnthropicProvider(LLMProvider):
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
         on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
         on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        cache_ttl: str | None = None,
     ) -> LLMResponse:
         await self._ensure_patcher_started()
         kwargs = self._build_kwargs(
             messages, tools, model, max_tokens, temperature,
-            reasoning_effort, tool_choice,
+            reasoning_effort, tool_choice, cache_ttl=cache_ttl,
         )
         idle_timeout_s = resolve_stream_idle_timeout_s()
         kwargs["timeout"] = idle_timeout_s
@@ -917,6 +925,24 @@ class AnthropicProvider(LLMProvider):
             )
         except Exception as e:
             return self._handle_error(e)
+
+    async def chat_with_context(
+        self,
+        *,
+        provider_context: ProviderCallContext,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        cache_ttl = "1h" if provider_context.cache_retention == "long" else kwargs.pop("cache_ttl", None)
+        return await self.chat(cache_ttl=cache_ttl, **kwargs)
+
+    async def chat_stream_with_context(
+        self,
+        *,
+        provider_context: ProviderCallContext,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        cache_ttl = "1h" if provider_context.cache_retention == "long" else kwargs.pop("cache_ttl", None)
+        return await self.chat_stream(cache_ttl=cache_ttl, **kwargs)
 
     def get_default_model(self) -> str:
         return self.default_model

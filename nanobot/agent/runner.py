@@ -903,6 +903,7 @@ class AgentRunner:
             provider_context or ProviderCallContext(),
             response_preset=spec.runtime.model_preset or "",
         )
+        provider_context = hook.adjust_provider_context(context, provider_context)
 
         active_hosted_tools: dict[str, dict[str, Any]] = {}
         native_reasoning_open = False

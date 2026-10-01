@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -197,3 +197,61 @@ def test_status_for_restart_metadata() -> None:
     assert st["model"] == "claude-3-5-sonnet"
     assert st["can_ping"] is False  # Cannot ping because no in-memory capture
     assert st["real_turn_at"] == 1000000.0
+
+
+@pytest.mark.asyncio
+async def test_ttl1h_kickstart_ping_passes_long_retention_and_arms() -> None:
+    mock_provider = SimpleNamespace(
+        provider_name="anthropic",
+        backend="anthropic",
+        chat_with_context=AsyncMock(
+            return_value=LLMResponse(
+                content="pong",
+                usage=LLMUsage.reported(input_tokens=10, output_tokens=1),
+            )
+        ),
+    )
+    cap = _make_cap(provider=mock_provider)
+    assert cap.forced_long is False
+
+    await keepalive._send_ping(cap, kickstart=True, retention="long")
+
+    assert cap.forced_long is True
+    call_ctx = mock_provider.chat_with_context.call_args.kwargs.get("provider_context")
+    assert call_ctx is not None
+    assert call_ctx.cache_retention == "long"
+
+
+@pytest.mark.asyncio
+async def test_coworker_hook_adjust_provider_context_ttl1h(tmp_path) -> None:
+    from nanobot.agent.hook import AgentHookContext, AgentTurnHookContext
+    from nanobot.coworker.hook import CoworkerHook
+    from nanobot.providers.base import ProviderCallContext
+    from nanobot.session.manager import SessionManager
+
+    sm = SessionManager(tmp_path)
+    session = sm.get_or_create("s1")
+    session_state(session)["keepalive"] = {
+        "enabled": True,
+        "strategy": "ttl1h",
+        "window_min": 30,
+        "set_at": time.time(),
+    }
+    sm.save(session)
+
+    with patch("nanobot.coworker.hook.services") as mock_svc, patch("nanobot.coworker.hook.get_session", return_value=session):
+        mock_svc.return_value = SimpleNamespace(sessions=sm, workspace=tmp_path)
+        hook = CoworkerHook(AgentTurnHookContext(session_key="s1"))
+
+        anthropic_provider = SimpleNamespace(provider_name="anthropic", backend="anthropic")
+        hook._last_runtime = SimpleNamespace(provider=anthropic_provider, model="claude-3-5-sonnet")
+
+        ctx = AgentHookContext(iteration=1, messages=[])
+        pc = ProviderCallContext(session_id="s1")
+        adjusted = hook.adjust_provider_context(ctx, pc)
+        assert adjusted.cache_retention == "long"
+
+        # If strategy is "ping", retention is not set
+        session_state(session)["keepalive"]["strategy"] = "ping"
+        pc2 = ProviderCallContext(session_id="s1")
+        assert hook.adjust_provider_context(ctx, pc2).cache_retention is None

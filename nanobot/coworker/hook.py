@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ from nanobot.coworker.transcript import as_dict, as_list, content_text, is_auto_
 from nanobot.coworker.workflows import drive
 from nanobot.coworker.workflows.registry import list_workflows
 from nanobot.coworker.workflows.tools import WORKFLOW_TOOLS
+from nanobot.providers.base import ProviderCallContext
 
 KIND_CODING_RESULT = "coding_result"
 _workflow_index_cache: tuple[float, bool] = (0.0, False)
@@ -156,6 +158,7 @@ class CoworkerHook(AgentHook):
         self._genuine_text: str | None = None
         self._iter_ctx: AgentHookContext | None = None
         self._nudged = False
+        self._last_runtime: Any | None = None
 
     # ---------- lifecycle ----------
 
@@ -202,13 +205,22 @@ class CoworkerHook(AgentHook):
             if session is not None:
                 state = session_state(session)
                 request = current_request_context()
-                runtime = request.runtime if request else None
-                provider_name = getattr(runtime.provider, "provider_name", "") if runtime else ""
+                runtime = request.runtime if request else self._last_runtime
+                provider = runtime.provider if runtime else None
+                provider_name = getattr(provider, "provider_name", "") if provider else ""
                 model = runtime.model if runtime else ""
+                kw_setting = keepalive_state.effective(session)
+                ttl1h_armed = (
+                    kw_setting.enabled
+                    and kw_setting.strategy == "ttl1h"
+                    and cache_policy.supports_ttl1h(provider)
+                )
+                keepalive.mark_real_turn(self._key, ttl1h_armed=ttl1h_armed)
                 state["cache"] = {
                     "last_llm_call_at": time.time(),
                     "provider": provider_name,
                     "model": model,
+                    "ttl1h_armed": ttl1h_armed,
                 }
 
     async def on_finally(self, context: AgentRunHookContext) -> None:
@@ -237,6 +249,7 @@ class CoworkerHook(AgentHook):
         kw_setting = keepalive_state.effective(session)
         request = current_request_context()
         runtime = request.runtime if request else None
+        self._last_runtime = runtime
 
         policy = None
         if runtime is not None:
@@ -320,6 +333,24 @@ class CoworkerHook(AgentHook):
                 lead_s=policy.lead_s if policy else ctx_cfg.keepalive.lead_seconds,
             )
         return messages, tools
+
+    def adjust_provider_context(
+        self,
+        context: AgentHookContext,
+        provider_context: ProviderCallContext,
+    ) -> ProviderCallContext:
+        if not self._key:
+            return provider_context
+        session = get_session(self._key)
+        if session is None:
+            return provider_context
+        kw_setting = keepalive_state.effective(session)
+        request = current_request_context()
+        runtime = request.runtime if request else self._last_runtime
+        provider = runtime.provider if runtime else None
+        if kw_setting.enabled and kw_setting.strategy == "ttl1h" and cache_policy.supports_ttl1h(provider):
+            return replace(provider_context, cache_retention="long")
+        return provider_context
 
     # ---------- after the run ----------
 

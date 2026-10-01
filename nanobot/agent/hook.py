@@ -11,7 +11,7 @@ from loguru import logger
 
 from nanobot.agent.tools.context import tool_log_content_allowed
 from nanobot.events import NO_EVENTS, EventSink
-from nanobot.providers.base import LLMResponse, LLMUsage, ToolCallRequest
+from nanobot.providers.base import LLMResponse, LLMUsage, ProviderCallContext, ToolCallRequest
 
 
 @dataclass(slots=True)
@@ -170,6 +170,14 @@ class AgentHook:
         """
         return messages, tools
 
+    def adjust_provider_context(
+        self,
+        context: AgentHookContext,
+        provider_context: ProviderCallContext,
+    ) -> ProviderCallContext:
+        """Allow hooks to shape provider-owned call options (e.g. cache retention)."""
+        return provider_context
+
 
 AgentTurnHookFactory = Callable[[AgentTurnHookContext], AgentHook | None]
 
@@ -323,6 +331,22 @@ class CompositeHook(AgentHook):
                     "AgentHook.transform_request error in {}", type(h).__name__,
                 )
         return messages, tools
+
+    def adjust_provider_context(
+        self,
+        context: AgentHookContext,
+        provider_context: ProviderCallContext,
+    ) -> ProviderCallContext:
+        # Pipeline with isolation: a failing hook keeps the current provider context.
+        current = provider_context
+        for h in self._hooks:
+            try:
+                current = h.adjust_provider_context(context, current)
+            except Exception:
+                logger.opt(exception=tool_log_content_allowed()).error(
+                    "AgentHook.adjust_provider_context error in {}", type(h).__name__,
+                )
+        return current
 
 
 class SDKCaptureHook(AgentHook):

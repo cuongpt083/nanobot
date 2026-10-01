@@ -98,6 +98,14 @@ def mark_in_flight(session_key: str | None, flag: bool) -> None:
         _captures[session_key].in_flight = flag
 
 
+def mark_real_turn(session_key: str | None, *, ttl1h_armed: bool = False) -> None:
+    """Record that a real turn completed for this session."""
+    if session_key and session_key in _captures:
+        cap = _captures[session_key]
+        if ttl1h_armed:
+            cap.forced_long = True
+
+
 def capture(
     session_key: str,
     *,
@@ -158,11 +166,13 @@ async def _send_ping(
     retention: Literal["short", "long"] = "short",
 ) -> None:
     """Send a single cache-warming ping using the session ID context."""
-    _ = retention
     cap.pinging = True
     try:
         response = await cap.provider.chat_with_context(
-            provider_context=ProviderCallContext(session_id=cap.session_id),
+            provider_context=ProviderCallContext(
+                session_id=cap.session_id,
+                cache_retention=retention,
+            ),
             messages=[*cap.messages, {"role": "user", "content": PING_PROMPT}],
             tools=cap.tools,
             model=cap.model,
@@ -184,6 +194,8 @@ async def _send_ping(
             cap.pings = 1
         else:
             cap.pings += 1
+        if retention == "long":
+            cap.forced_long = True
         cap.failures = 0
         cap.last_error = ""
 
@@ -331,7 +343,7 @@ def status_for(session: Any) -> dict[str, Any]:
             pings = 0
             spent = {}
             last_error = ""
-            ttl1h_armed = False
+            ttl1h_armed = bool(cache_meta.get("ttl1h_armed", False))
             run_active = bool(turn_running_since(key) is not None)
         else:
             known = False

@@ -276,6 +276,7 @@ class ProviderCallContext:
     response_is_fallback: bool = False
     # A pre-request compactor must fit this budget before sending the pending input.
     compaction_input_budget: int | None = None
+    cache_retention: Literal["short", "long"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
