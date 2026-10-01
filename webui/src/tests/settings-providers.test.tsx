@@ -254,6 +254,67 @@ describe("Settings providers", () => {
     expect(await screen.findByText("Signed in as user@example.com")).toBeInTheDocument();
   });
 
+  it("finishes Anthropic (OAuth) sign-in with a done action instead of a dead save", async () => {
+    const base = settingsPayload();
+    const anthropicProvider = {
+      name: "anthropic_oauth",
+      label: "Anthropic (OAuth)",
+      configured: false,
+      auth_type: "oauth" as const,
+      api_key_required: false,
+      api_key_hint: null,
+      api_base: null,
+      default_api_base: "https://api.anthropic.com",
+      model_catalog: "hybrid",
+      oauth_account: null,
+      oauth_expires_at: null,
+      oauth_login_supported: true,
+      proxy: null,
+      advanced_fields: ["extra_headers", "proxy"],
+      extra_headers: null,
+      extra_body: null,
+    };
+    const payload: SettingsPayload = { ...base, providers: [anthropicProvider] };
+    const signedIn: SettingsPayload = {
+      ...payload,
+      providers: [{ ...anthropicProvider, configured: true }],
+    };
+    const authorization = {
+      status: "authorization_required",
+      provider: "anthropic_oauth",
+      flow_id: "flow-anthropic",
+      authorization_url: "https://claude.ai/oauth/authorize?code=true&state=test",
+      expires_in: 600,
+      completion_input: "authorization_code",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(payload);
+      if (url === "/api/settings/cli-apps") {
+        return jsonResponse({ apps: [], installed_count: 0 });
+      }
+      if (url === "/api/settings/mcp-presets") {
+        return jsonResponse({ presets: [], installed_count: 0 });
+      }
+      return jsonResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    requestMutationMock.mockResolvedValueOnce(authorization).mockResolvedValueOnce(signedIn);
+
+    renderSettingsView({ initialSection: "models", initialSettings: payload });
+
+    await chooseProviderToConfigure("Anthropic (OAuth)");
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    const codeInput = await screen.findByRole("textbox", { name: "Authorization code" });
+    fireEvent.change(codeInput, { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Finish sign-in" }));
+
+    expect(await screen.findByText("Signed in as Anthropic (OAuth)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Done" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Save provider" })).not.toBeInTheDocument();
+  });
+
   it("recognizes remote access before starting xAI Grok sign-in", async () => {
     const happyWindow = window as typeof window & {
       happyDOM: { setURL: (url: string) => void };

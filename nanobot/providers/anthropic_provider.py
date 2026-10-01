@@ -100,6 +100,7 @@ class AnthropicProvider(LLMProvider):
         provider_name: str = "anthropic",
         auth_mode: str = "api_key",
         patcher_config: PatcherConfig | None = None,
+        proxy: str | None = None,
     ):
         super().__init__(api_key, api_base, provider_name=provider_name)
         self.default_model = default_model
@@ -107,9 +108,14 @@ class AnthropicProvider(LLMProvider):
         self._auth_mode = auth_mode
         self._patcher_config = patcher_config
         self._patcher_proxy: AnthropicPatcherProxy | None = None
+        self._proxy = proxy or None
+        self._http_client: Any = None
 
         from anthropic import AsyncAnthropic
 
+        uses_patcher = (
+            auth_mode == "oauth" and patcher_config is not None and patcher_config.enabled
+        )
         client_kw: dict[str, Any] = {}
         if auth_mode == "oauth":
             # Subscription OAuth: the SDK refreshes through this callable (and
@@ -123,7 +129,7 @@ class AnthropicProvider(LLMProvider):
                 return AccessToken(token=token.access, expires_at=token.expires // 1000)
 
             client_kw["credentials"] = _oauth_credentials
-            if patcher_config is not None and patcher_config.enabled:
+            if uses_patcher and patcher_config is not None:
                 client_kw["base_url"] = f"http://127.0.0.1:{patcher_config.port}"
         else:
             if api_key:
@@ -139,30 +145,58 @@ class AnthropicProvider(LLMProvider):
             )
         if extra_headers:
             client_kw["default_headers"] = extra_headers
+        # Explicit outbound proxy. When traffic is routed through the local
+        # patcher we skip it here — the patcher's own upstream connection carries
+        # the proxy setting instead, and proxying 127.0.0.1 would fail.
+        if self._proxy and not uses_patcher:
+            import httpx
+
+            self._http_client = httpx.AsyncClient(proxy=self._proxy, trust_env=False)
+            client_kw["http_client"] = self._http_client
         # Keep retries centralized in LLMProvider._run_with_retry to avoid retry amplification.
         client_kw["max_retries"] = 0
         self._client = AsyncAnthropic(**client_kw)
 
     async def _ensure_patcher_started(self) -> None:
-        """Lazily start the local patcher proxy when OAuth + patcher is enabled."""
+        """Ensure the shared patcher proxy is running and point the client at it.
+
+        The proxy is process-wide: every Anthropic provider (primary plus any
+        fallbacks) shares one listener, so they cannot race the same port. The
+        client's base URL is re-synced to the port the proxy actually bound in
+        case it was already running from an earlier configuration.
+        """
 
         if self._auth_mode != "oauth":
             return
         if self._patcher_config is None or not self._patcher_config.enabled:
             return
-        if self._patcher_proxy is None:
-            from nanobot.providers.patcher.proxy import AnthropicPatcherProxy
+        if self._patcher_proxy is not None and self._patcher_proxy.is_running:
+            return
 
-            self._patcher_proxy = AnthropicPatcherProxy(self._patcher_config)
-        if not self._patcher_proxy.is_running:
-            await self._patcher_proxy.start()
+        from nanobot.providers.patcher.proxy import start_anthropic_patcher_proxy
+
+        try:
+            proxy = await start_anthropic_patcher_proxy(self._patcher_config)
+        except Exception as exc:  # noqa: BLE001 — surface an actionable message to the caller
+            raise RuntimeError(f"Anthropic patcher proxy failed to start: {exc}") from exc
+        self._patcher_proxy = proxy
+        self._client.base_url = f"http://127.0.0.1:{proxy.port}"
 
     async def aclose(self) -> None:
-        """Release the patcher proxy if this provider started one."""
+        """Release provider-owned resources.
 
-        if self._patcher_proxy is not None:
-            await self._patcher_proxy.stop()
-            self._patcher_proxy = None
+        The patcher proxy is shared across providers and stopped by the runtime
+        lifecycle, not here; this only drops the reference so a later request
+        re-checks the shared instance.
+        """
+
+        self._patcher_proxy = None
+        if self._http_client is not None:
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                await self._http_client.aclose()
+            self._http_client = None
 
     @staticmethod
     def _normalize_base_url(api_base: str) -> str:

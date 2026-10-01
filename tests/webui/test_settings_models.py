@@ -22,6 +22,23 @@ def _oauth_status(_spec: Any) -> dict[str, Any]:
     }
 
 
+def test_update_provider_allows_extra_headers_for_anthropic_oauth() -> None:
+    config = Config()
+
+    changed, _ = update_provider_settings(
+        config,
+        {
+            "provider": ["anthropic_oauth"],
+            "extraHeaders": ['{"X-Test":"1"}'],
+            "proxy": ["http://127.0.0.1:7890"],
+        },
+    )
+
+    assert changed is True
+    assert config.providers.anthropic_oauth.extra_headers == {"X-Test": "1"}
+    assert config.providers.anthropic_oauth.proxy == "http://127.0.0.1:7890"
+
+
 def test_model_domain_owns_dto_and_config_updates() -> None:
     config = Config()
     config.providers.openrouter.api_key = "sk-before"

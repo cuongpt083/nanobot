@@ -25,10 +25,10 @@ from nanobot.providers.xai_oauth import XAIToken
 
 @pytest.fixture(autouse=True)
 def _clear_oauth_catalogs() -> None:
-    for provider in ("openai_codex", "xai_grok", "github_copilot"):
+    for provider in ("openai_codex", "xai_grok", "github_copilot", "anthropic_oauth"):
         invalidate_oauth_model_catalog(provider)
     yield
-    for provider in ("openai_codex", "xai_grok", "github_copilot"):
+    for provider in ("openai_codex", "xai_grok", "github_copilot", "anthropic_oauth"):
         invalidate_oauth_model_catalog(provider)
 
 
@@ -664,3 +664,142 @@ def test_xai_oauth_other_failures_are_not_reauthentication(status):
 
     failure = _oauth_http_error(httpx.Response(status, json={}), "token refresh")
     assert not isinstance(failure, XAIOAuthReauthRequiredError)
+
+
+def test_anthropic_oauth_catalog_fetches_remote_models(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from nanobot.providers import anthropic_oauth
+    from nanobot.providers.anthropic_oauth import ANTHROPIC_OAUTH_MODELS_URL, AnthropicToken
+
+    original_client = httpx.Client
+    captured: dict[str, object] = {}
+    token = AnthropicToken(
+        access="oauth-access-secret",
+        refresh="refresh-token",
+        expires=int(time.time() * 1000) + 3_600_000,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "claude-sonnet-4-6", "display_name": "Claude Sonnet 4.6"},
+                    {
+                        "id": "claude-next-9",
+                        "display_name": "Claude Next 9",
+                        "context_window": 300_000,
+                    },
+                ],
+                "has_more": False,
+            },
+            request=request,
+        )
+
+    def fake_client(**kwargs: object) -> httpx.Client:
+        captured["kwargs"] = kwargs
+        return original_client(
+            transport=httpx.MockTransport(handler),
+            timeout=kwargs["timeout"],
+            follow_redirects=kwargs["follow_redirects"],
+        )
+
+    monkeypatch.setattr(
+        anthropic_oauth,
+        "get_anthropic_oauth_storage_path",
+        lambda: tmp_path / "anthropic.json",
+    )
+    monkeypatch.setattr(anthropic_oauth, "get_anthropic_oauth_token", lambda **_kw: token)
+    monkeypatch.setattr(anthropic_oauth.httpx, "Client", fake_client)
+
+    catalog = get_oauth_model_catalog("anthropic_oauth")
+
+    assert catalog.source == "remote"
+    assert [model.id for model in catalog.models] == [
+        "anthropic-oauth/claude-sonnet-4-6",
+        "anthropic-oauth/claude-next-9",
+    ]
+    assert catalog.models[0].label == "Claude Sonnet 4.6"
+    assert catalog.models[1].context_window == 300_000
+    request = captured["request"]
+    assert isinstance(request, httpx.Request)
+    assert str(request.url) == ANTHROPIC_OAUTH_MODELS_URL
+    assert request.headers["Authorization"] == f"Bearer {token.access}"
+    assert request.headers["anthropic-version"] == "2023-06-01"
+    assert request.headers["anthropic-beta"] == "oauth-2025-04-20"
+    assert get_oauth_model_catalog("anthropic_oauth").source == "cache"
+
+
+def test_anthropic_oauth_catalog_falls_back_to_builtin_when_signed_out(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from nanobot.providers import anthropic_oauth
+    from nanobot.providers.anthropic_oauth import AnthropicOAuthReauthRequiredError
+
+    def fail(**_kwargs: object) -> object:
+        raise AnthropicOAuthReauthRequiredError("not signed in")
+
+    monkeypatch.setattr(
+        anthropic_oauth,
+        "get_anthropic_oauth_storage_path",
+        lambda: tmp_path / "anthropic.json",
+    )
+    monkeypatch.setattr(anthropic_oauth, "get_anthropic_oauth_token", fail)
+
+    catalog = get_oauth_model_catalog("anthropic_oauth")
+
+    assert catalog.source == "fallback"
+    assert catalog.error_kind == "auth_required"
+    assert [model.id for model in catalog.models] == [
+        "anthropic-oauth/claude-sonnet-4-6",
+        "anthropic-oauth/claude-opus-4-5",
+        "anthropic-oauth/claude-haiku-4-5",
+    ]
+
+
+def test_anthropic_oauth_catalog_treats_endpoint_rejection_as_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A signed-in account whose Models API rejects OAuth still gets models."""
+    from nanobot.providers import anthropic_oauth
+    from nanobot.providers.anthropic_oauth import AnthropicToken
+
+    original_client = httpx.Client
+    token = AnthropicToken(
+        access="oauth-access-secret",
+        refresh="refresh-token",
+        expires=int(time.time() * 1000) + 3_600_000,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"type": "unauthorized"}}, request=request)
+
+    def fake_client(**kwargs: object) -> httpx.Client:
+        return original_client(
+            transport=httpx.MockTransport(handler),
+            timeout=kwargs["timeout"],
+            follow_redirects=kwargs["follow_redirects"],
+        )
+
+    monkeypatch.setattr(
+        anthropic_oauth,
+        "get_anthropic_oauth_storage_path",
+        lambda: tmp_path / "anthropic.json",
+    )
+    monkeypatch.setattr(anthropic_oauth, "get_anthropic_oauth_token", lambda **_kw: token)
+    monkeypatch.setattr(anthropic_oauth.httpx, "Client", fake_client)
+
+    catalog = get_oauth_model_catalog("anthropic_oauth")
+
+    assert catalog.source == "fallback"
+    assert catalog.error_kind == "unavailable"
+    assert [model.id for model in catalog.models] == [
+        "anthropic-oauth/claude-sonnet-4-6",
+        "anthropic-oauth/claude-opus-4-5",
+        "anthropic-oauth/claude-haiku-4-5",
+    ]

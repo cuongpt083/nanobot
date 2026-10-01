@@ -1275,20 +1275,19 @@ def test_provider_proxy_rejects_unsupported_backend():
         {
             "agents": {
                 "defaults": {
-                    "provider": "anthropic",
-                    "model": "anthropic/claude-opus-4-5",
+                    "provider": "github_copilot",
+                    "model": "github-copilot/gpt-5.4-mini",
                 }
             },
             "providers": {
-                "anthropic": {
-                    "apiKey": "sk-test",
+                "github_copilot": {
                     "proxy": "http://127.0.0.1:23458",
                 }
             },
         }
     )
 
-    with pytest.raises(ValueError, match=r"providers\.anthropic\.proxy"):
+    with pytest.raises(ValueError, match=r"providers\.github_copilot\.proxy"):
         make_provider(config)
 
 

@@ -249,6 +249,10 @@ def get_oauth_model_catalog(
         from nanobot.providers.github_copilot_provider import get_github_copilot_model_catalog
 
         return get_github_copilot_model_catalog(proxy)
+    if provider_name == "anthropic_oauth":
+        from nanobot.providers.anthropic_oauth import get_anthropic_oauth_model_catalog
+
+        return get_anthropic_oauth_model_catalog(proxy)
     raise ValueError(f"OAuth model discovery is not available for {provider_name}")
 
 
@@ -270,3 +274,9 @@ def invalidate_oauth_model_catalog(provider_name: str) -> None:
         )
 
         invalidate_github_copilot_model_catalog()
+    elif provider_name == "anthropic_oauth":
+        from nanobot.providers.anthropic_oauth import (
+            invalidate_anthropic_oauth_model_catalog,
+        )
+
+        invalidate_anthropic_oauth_model_catalog()

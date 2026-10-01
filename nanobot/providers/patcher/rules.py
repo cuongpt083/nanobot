@@ -144,6 +144,9 @@ class PatcherConfig:
     claude_code_version: str = DEFAULT_CC_VERSION
     attribution_template: str = DEFAULT_ATTRIBUTION
     add_session_id: bool = True
+    #: Optional outbound HTTP(S) proxy for the upstream connection. ``None``
+    #: honours the process proxy environment variables.
+    proxy: str | None = None
     rules: list[PatcherRule] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -154,6 +157,7 @@ class PatcherConfig:
             "claudeCodeVersion": self.claude_code_version,
             "attributionTemplate": self.attribution_template,
             "addSessionId": self.add_session_id,
+            "proxy": self.proxy,
             "rules": [rule.to_dict() for rule in self.rules],
         }
 

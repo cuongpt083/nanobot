@@ -20,6 +20,23 @@ def test_save_config_round_trips(tmp_path: Path) -> None:
     assert loaded.agents.defaults.model
 
 
+def test_save_config_persists_anthropic_oauth_request_settings(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    config = Config()
+    config.providers.anthropic_oauth.proxy = "http://127.0.0.1:7890"
+    config.providers.anthropic_oauth.extra_headers = {"X-Test": "1"}
+
+    save_config(config, path)
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["providers"]["anthropicOauth"]["proxy"] == "http://127.0.0.1:7890"
+    assert raw["providers"]["anthropicOauth"]["extraHeaders"] == {"X-Test": "1"}
+
+    loaded = load_config(path)
+    assert loaded.providers.anthropic_oauth.proxy == "http://127.0.0.1:7890"
+    assert loaded.providers.anthropic_oauth.extra_headers == {"X-Test": "1"}
+
+
 @pytest.mark.skipif(os.name == "nt", reason="Windows does not expose POSIX file modes")
 def test_save_config_preserves_existing_file_mode(tmp_path: Path) -> None:
     path = tmp_path / "config.json"

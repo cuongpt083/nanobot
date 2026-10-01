@@ -29,6 +29,52 @@ def _config(**overrides: Any) -> PatcherConfig:
     return PatcherConfig(**defaults)
 
 
+def _free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+async def test_start_patcher_proxy_reuses_instance_and_restarts_on_port_change() -> None:
+    from nanobot.providers.patcher.proxy import (
+        start_anthropic_patcher_proxy,
+        stop_anthropic_patcher_proxy,
+    )
+
+    port_a = _free_port()
+    port_b = _free_port()
+    try:
+        first = await start_anthropic_patcher_proxy(_config(port=port_a))
+        again = await start_anthropic_patcher_proxy(_config(port=port_a))
+        # Same process-wide listener, so concurrent providers cannot race the bind.
+        assert first is again
+        assert first.port == port_a
+
+        moved = await start_anthropic_patcher_proxy(_config(port=port_b))
+        assert moved is first
+        assert moved.port == port_b
+    finally:
+        await stop_anthropic_patcher_proxy()
+
+
+async def test_patcher_health_endpoint_reports_ok() -> None:
+    import aiohttp
+
+    from nanobot.providers.patcher.proxy import AnthropicPatcherProxy
+
+    port = _free_port()
+    proxy = AnthropicPatcherProxy(_config(port=port))
+    await proxy.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{proxy.port}/health") as response:
+                assert response.status == 200
+                body = await response.json()
+        assert body["status"] == "ok"
+    finally:
+        await proxy.stop()
+
+
 def test_transform_request_applies_system_rules_and_injects_attribution() -> None:
     config = _config(
         claude_code_version="2.1.280",

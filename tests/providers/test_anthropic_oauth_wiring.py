@@ -87,6 +87,7 @@ async def test_ensure_patcher_started_binds_configured_port() -> None:
         probe.bind(("127.0.0.1", 0))
         port = int(probe.getsockname()[1])
 
+    from nanobot.providers.patcher.proxy import stop_anthropic_patcher_proxy
     from nanobot.providers.patcher.rules import PatcherConfig
 
     provider = AnthropicProvider(
@@ -97,8 +98,82 @@ async def test_ensure_patcher_started_binds_configured_port() -> None:
     assert provider._patcher_proxy is not None
     assert provider._patcher_proxy.is_running
     assert provider._patcher_proxy.port == port
+    assert str(provider._client.base_url).startswith(f"http://127.0.0.1:{port}")
     await provider.aclose()
     assert provider._patcher_proxy is None
+    # The proxy is process-wide; shutting it down is the runtime's job.
+    await stop_anthropic_patcher_proxy()
+
+
+async def test_patcher_proxy_is_shared_across_providers() -> None:
+    import socket
+
+    from nanobot.providers.patcher.proxy import stop_anthropic_patcher_proxy
+    from nanobot.providers.patcher.rules import PatcherConfig
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
+
+    config = PatcherConfig(enabled=True, port=port, rules=[])
+    first = AnthropicProvider(auth_mode="oauth", patcher_config=config)
+    second = AnthropicProvider(auth_mode="oauth", patcher_config=config)
+    try:
+        # Both providers must share one listener instead of racing the port.
+        await first._ensure_patcher_started()
+        await second._ensure_patcher_started()
+        assert first._patcher_proxy is second._patcher_proxy
+        assert first._patcher_proxy is not None
+        assert first._patcher_proxy.port == port
+    finally:
+        await stop_anthropic_patcher_proxy()
+
+
+def test_factory_wires_anthropic_proxy_into_patcher() -> None:
+    config = Config.model_validate(
+        {
+            "providers": {
+                "anthropic": {
+                    "authMode": "oauth",
+                    "proxy": "http://127.0.0.1:7890",
+                    "patcher": {"enabled": True},
+                }
+            },
+            "agents": {
+                "defaults": {
+                    "model": "anthropic/claude-sonnet-4-6",
+                    "provider": "anthropic",
+                }
+            },
+        }
+    )
+    provider = make_provider(config)
+    assert isinstance(provider, AnthropicProvider)
+    assert provider._patcher_config is not None
+    # The patcher's upstream connection carries the proxy setting.
+    assert provider._patcher_config.proxy == "http://127.0.0.1:7890"
+
+
+def test_factory_allows_proxy_for_api_key_anthropic() -> None:
+    config = Config.model_validate(
+        {
+            "providers": {
+                "anthropic": {
+                    "apiKey": "sk-ant-test",
+                    "proxy": "http://127.0.0.1:7890",
+                }
+            },
+            "agents": {
+                "defaults": {
+                    "model": "anthropic/claude-sonnet-4-6",
+                    "provider": "anthropic",
+                }
+            },
+        }
+    )
+    provider = make_provider(config)
+    assert isinstance(provider, AnthropicProvider)
+    assert provider._proxy == "http://127.0.0.1:7890"
 
 
 def test_anthropic_oauth_registry_spec() -> None:

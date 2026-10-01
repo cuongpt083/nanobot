@@ -49,6 +49,30 @@ def _provider_extra_headers(
     return headers or None
 
 
+def _provider_oauth_signature(p: ProviderConfig | None) -> tuple[object, ...]:
+    """Identity of the fields that change how an Anthropic provider is wired.
+
+    ``auth_mode`` and the patcher settings are baked into the client at
+    construction (auth token vs API key, and which local port the client talks
+    to), so a change here must rebuild the provider rather than be ignored.
+    """
+
+    if p is None:
+        return ()
+    patcher = p.patcher
+    return (
+        p.auth_mode,
+        None
+        if patcher is None
+        else (
+            patcher.enabled,
+            patcher.port,
+            patcher.target_base_url,
+            patcher.claude_code_version,
+        ),
+    )
+
+
 def _provider_spec_for_config(
     provider_name: str,
     provider_config: ProviderConfig | None,
@@ -97,10 +121,15 @@ def _resolve_provider_setup(
     if spec and spec.is_transcription_only:
         raise ValueError(f"Provider '{provider_name}' only supports transcription.")
     backend = spec.backend if spec else "openai_compat"
-    if p and p.proxy and backend not in {"openai_compat", "openai_codex", "xai_grok"}:
+    if p and p.proxy and backend not in {
+        "openai_compat",
+        "openai_codex",
+        "xai_grok",
+        "anthropic",
+    }:
         raise ValueError(
             f"providers.{provider_name}.proxy is only supported for "
-            "OpenAI-compatible providers, OpenAI Codex, and xAI Grok."
+            "OpenAI-compatible, Anthropic, OpenAI Codex, and xAI Grok providers."
         )
 
     if backend == "azure_openai":
@@ -216,6 +245,7 @@ def _make_provider_core(
                 claude_code_version=settings.claude_code_version,
                 attribution_template=settings.attribution_template,
                 add_session_id=settings.add_session_id,
+                proxy=p.proxy,
                 rules=builtin_rules(),
             )
         provider = AnthropicProvider(
@@ -226,6 +256,7 @@ def _make_provider_core(
             provider_name=provider_name,
             auth_mode=auth_mode,
             patcher_config=patcher_config,
+            proxy=p.proxy if p else None,
         )
     elif backend == "bedrock":
         from nanobot.providers.bedrock_provider import BedrockProvider
@@ -368,6 +399,7 @@ def provider_signature(
             fallback.context_window_tokens,
             getattr(fp, "proxy", None) if fp else None,
             fp.thinking_style if fp else None,
+            _provider_oauth_signature(fp),
         )
 
     provider_name = config.get_provider_name(resolved.model, preset=resolved)
@@ -389,6 +421,7 @@ def provider_signature(
         resolved.context_window_tokens,
         getattr(p, "proxy", None) if p else None,
         p.thinking_style if p else None,
+        _provider_oauth_signature(p),
         tuple(
             fallback if isinstance(fallback, str) else None
             for fallback in config.agents.defaults.fallback_models

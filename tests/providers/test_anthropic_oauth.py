@@ -213,6 +213,19 @@ def test_login_flow_pending_returns_none() -> None:
         flow.cancel()
 
 
+def test_login_flow_uses_localhost_redirect_for_claude_client() -> None:
+    # The Claude Code OAuth client only allowlists the "localhost" loopback
+    # redirect, so "127.0.0.1" is rejected with "Redirect URI is not supported".
+    flow = oauth.start_anthropic_oauth_login(timeout_s=30)
+    try:
+        assert flow.redirect_uri.startswith("http://localhost:")
+        assert flow.redirect_uri.endswith("/callback")
+        assert "code=true" in flow.authorization_url
+        assert "redirect_uri=http%3A%2F%2Flocalhost%3A" in flow.authorization_url
+    finally:
+        flow.cancel()
+
+
 async def test_proactive_refresher_refreshes_when_due(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

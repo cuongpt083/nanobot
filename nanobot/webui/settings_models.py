@@ -1504,10 +1504,10 @@ def update_provider_settings(
     if spec.is_oauth:
         if spec.name not in _OAUTH_PROXY_PROVIDERS:
             raise WebUISettingsError("unknown provider")
-        unsupported = set(updates) - {"proxy", "extra_body"}
+        unsupported = set(updates) - {"proxy", "extra_body", "extra_headers"}
         if unsupported:
             raise WebUISettingsError(
-                "OAuth provider only supports proxy and extra_body settings"
+                "OAuth provider only supports proxy, extra_body and extra_headers settings"
             )
     else:
         allowed = {

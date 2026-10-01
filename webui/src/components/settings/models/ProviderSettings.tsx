@@ -796,6 +796,7 @@ export function ProvidersSettings({
     const oauthSettingsDirty = isOauthProvider && (
       form.proxy.trim() !== (provider.proxy ?? "").trim()
       || form.extraBody.trim() !== providerJsonValue(provider.extra_body).trim()
+      || form.extraHeaders.trim() !== providerJsonValue(provider.extra_headers).trim()
     );
     const oauthSettingsSaving = saving && oauthSettingsDirty;
     const oauthActionBusy = saving && !oauthSettingsSaving;
@@ -914,34 +915,48 @@ export function ProvidersSettings({
                     form={form}
                     onChange={(value) => onChangeProviderForm(provider.name, value)}
                     footer={
-                      <>
+                      oauthSettingsDirty ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => toggleProvider(provider.name)}
+                            disabled={saving}
+                            className="rounded-full"
+                          >
+                            {t("settings.actions.cancel")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onSaveProvider(provider.name)}
+                            disabled={saving}
+                            className="rounded-full"
+                          >
+                            {oauthSettingsSaving ? (
+                              <Loader2
+                                className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                                aria-hidden
+                              />
+                            ) : null}
+                            {oauthSettingsSaving
+                              ? t("settings.actions.saving")
+                              : tx("settings.providers.saveProvider", "Save provider")}
+                          </Button>
+                        </>
+                      ) : (
                         <Button
                           size="sm"
-                          variant="ghost"
+                          variant="outline"
                           onClick={() => toggleProvider(provider.name)}
                           disabled={saving}
                           className="rounded-full"
                         >
-                          {t("settings.actions.cancel")}
+                          {provider.configured
+                            ? tx("settings.actions.done", "Done")
+                            : t("settings.actions.cancel")}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => onSaveProvider(provider.name)}
-                          disabled={saving || !oauthSettingsDirty}
-                          className="rounded-full"
-                        >
-                          {oauthSettingsSaving ? (
-                            <Loader2
-                              className="mr-1.5 h-3.5 w-3.5 animate-spin"
-                              aria-hidden
-                            />
-                          ) : null}
-                          {oauthSettingsSaving
-                            ? t("settings.actions.saving")
-                            : tx("settings.providers.saveProvider", "Save provider")}
-                        </Button>
-                      </>
+                      )
                     }
                   />
                 ) : null}

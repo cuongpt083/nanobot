@@ -43,10 +43,19 @@ from filelock import FileLock
 from loguru import logger
 
 from nanobot.config.paths import get_data_dir
+from nanobot.providers.oauth_model_catalog import (
+    OAuthCatalogAuthRequiredError,
+    OAuthModelCatalog,
+    OAuthModelCatalogSnapshot,
+)
+from nanobot.providers.registry import ProviderModelSpec
 from nanobot.utils.helpers import _write_text_atomic  # pyright: ignore[reportPrivateUsage]
 
 ANTHROPIC_OAUTH_AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
 ANTHROPIC_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+ANTHROPIC_OAUTH_MODELS_URL = "https://api.anthropic.com/v1/models"
+#: Beta gate that makes the API accept subscription OAuth Bearer credentials.
+ANTHROPIC_OAUTH_BETA = "oauth-2025-04-20"
 ANTHROPIC_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 ANTHROPIC_OAUTH_SCOPES = (
     "user:profile",
@@ -380,6 +389,7 @@ def get_anthropic_oauth_token(
 
 def _build_authorize_url(redirect_uri: str, challenge: str, state: str) -> str:
     params = {
+        "code": "true",
         "response_type": "code",
         "client_id": ANTHROPIC_OAUTH_CLIENT_ID,
         "redirect_uri": redirect_uri,
@@ -595,7 +605,7 @@ def start_anthropic_oauth_login(
     state = secrets.token_urlsafe(32)
     result_queue: queue.Queue[_CallbackResult] = queue.Queue(maxsize=1)
     server = _make_callback_server(state, result_queue)
-    redirect_uri = f"http://127.0.0.1:{server.server_port}/callback"
+    redirect_uri = f"http://localhost:{server.server_port}/callback"
     authorize_url = _build_authorize_url(redirect_uri, challenge, state)
     return AnthropicOAuthLoginFlow(
         authorization_url=authorize_url,
@@ -729,3 +739,127 @@ def start_proactive_refresher(
     )
     refresher.start()
     return refresher
+
+
+# ── Model catalog ──
+
+
+def _anthropic_oauth_fallback_models() -> tuple[ProviderModelSpec, ...]:
+    """Curated catalog used when the online list cannot be reached."""
+
+    from nanobot.providers.registry import find_by_name
+
+    spec = find_by_name("anthropic_oauth")
+    return spec.builtin_models if spec is not None else ()
+
+
+def _parse_anthropic_oauth_models(payload: Any) -> tuple[ProviderModelSpec, ...]:
+    """Normalise Anthropic's ``GET /v1/models`` payload into catalog specs."""
+
+    rows: object = (
+        cast(dict[str, Any], payload).get("data") if isinstance(payload, dict) else payload
+    )
+    if not isinstance(rows, list):
+        return ()
+    fallback_by_id = {m.id.split("/", 1)[-1]: m for m in _anthropic_oauth_fallback_models()}
+    models: list[ProviderModelSpec] = []
+    seen: set[str] = set()
+    for raw in cast(list[object], rows):
+        if not isinstance(raw, dict):
+            continue
+        row = cast(dict[str, Any], raw)
+        raw_id = next(
+            (
+                candidate.strip()
+                for candidate in (row.get("id"), row.get("name"), row.get("model"))
+                if isinstance(candidate, str) and candidate.strip()
+            ),
+            None,
+        )
+        if raw_id is None:
+            continue
+        wire_id = raw_id.split("/", 1)[-1]
+        if wire_id in seen:
+            continue
+        seen.add(wire_id)
+        fallback = fallback_by_id.get(wire_id)
+        raw_label = next(
+            (
+                candidate.strip()
+                for candidate in (row.get("display_name"), row.get("label"), row.get("name"))
+                if isinstance(candidate, str) and candidate.strip()
+            ),
+            None,
+        )
+        if raw_label is None or raw_label == raw_id:
+            raw_label = fallback.label if fallback is not None else wire_id
+        raw_description = row.get("description")
+        description = (
+            raw_description.strip()
+            if isinstance(raw_description, str) and raw_description.strip()
+            else (fallback.description if fallback is not None else "")
+        )
+        raw_context = row.get("context_window")
+        context_window = (
+            int(raw_context)
+            if isinstance(raw_context, (int, float))
+            and not isinstance(raw_context, bool)
+            and raw_context > 0
+            else (fallback.context_window if fallback is not None else None)
+        )
+        models.append(
+            ProviderModelSpec(
+                id=f"anthropic-oauth/{wire_id}",
+                label=raw_label,
+                description=description,
+                context_window=context_window,
+            )
+        )
+    return tuple(models)
+
+
+def _fetch_anthropic_oauth_models(proxy: str | None) -> tuple[ProviderModelSpec, ...]:
+    try:
+        token = get_anthropic_oauth_token(proxy=proxy)
+    except AnthropicOAuthReauthRequiredError:
+        raise OAuthCatalogAuthRequiredError() from None
+    except AnthropicOAuthError as exc:
+        # Signed in but the grant could not be used transiently; show the
+        # builtin catalog instead of demanding a fresh sign-in.
+        raise RuntimeError(str(exc)) from exc
+    client_kwargs: dict[str, Any] = {"timeout": _HTTP_TIMEOUT_S, "follow_redirects": False}
+    if proxy:
+        client_kwargs.update(proxy=proxy, trust_env=False)
+    with httpx.Client(**client_kwargs) as client:
+        response = client.get(
+            ANTHROPIC_OAUTH_MODELS_URL,
+            headers={
+                "Authorization": f"Bearer {token.access}",
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": ANTHROPIC_OAUTH_BETA,
+                "accept": "application/json",
+            },
+        )
+    if response.status_code >= 400:
+        # A stored token exists, so a rejection here means the Models API does
+        # not serve subscription OAuth (it is not a stale login). Report it as
+        # unavailable so the curated catalog still renders.
+        raise RuntimeError(f"Anthropic model list request failed (HTTP {response.status_code})")
+    return _parse_anthropic_oauth_models(response.json())
+
+
+_ANTHROPIC_OAUTH_MODEL_CATALOG = OAuthModelCatalog(
+    fallback_models=_anthropic_oauth_fallback_models(),
+    fetch=_fetch_anthropic_oauth_models,
+)
+
+
+def get_anthropic_oauth_model_catalog(
+    proxy: str | None = None,
+) -> OAuthModelCatalogSnapshot:
+    cache_key = f"{get_anthropic_oauth_storage_path()}\0{proxy or ''}"
+    return _ANTHROPIC_OAUTH_MODEL_CATALOG.get(cache_key=cache_key, proxy=proxy)
+
+
+def invalidate_anthropic_oauth_model_catalog() -> None:
+    _ANTHROPIC_OAUTH_MODEL_CATALOG.invalidate()

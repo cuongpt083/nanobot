@@ -1035,6 +1035,10 @@ def _run_gateway(
                 cron.stop()
                 if refresher is not None:
                     await refresher.stop()
+                from nanobot.providers.patcher.proxy import stop_anthropic_patcher_proxy
+
+                with suppress(Exception):
+                    await stop_anthropic_patcher_proxy()
                 # A gateway exit interrupts ownership of active turns; it is
                 # not the same as the user stopping a turn.  Keep checkpoints
                 # so the next gateway can offer an explicit Continue action.

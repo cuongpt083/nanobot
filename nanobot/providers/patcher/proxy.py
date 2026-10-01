@@ -17,6 +17,7 @@ original resilience decisions:
 
 from __future__ import annotations
 
+import asyncio
 import errno as errno_module
 import json
 import socket
@@ -366,6 +367,9 @@ class AnthropicPatcherProxy:
         self._session: aiohttp.ClientSession | None = None
         self._port = 0
         self._running = False
+        #: Serialises concurrent lazy starts so two providers cannot race the
+        #: same bind (which would fail the second one with EADDRINUSE).
+        self._start_lock: asyncio.Lock | None = None
 
     @property
     def port(self) -> int:
@@ -382,32 +386,55 @@ class AnthropicPatcherProxy:
     async def start(self, port: int | None = None) -> int:
         if self._running:
             return self._port
+        if self._start_lock is None:
+            self._start_lock = asyncio.Lock()
 
-        listen_port = port if port is not None else self.config.port
-        app = web.Application()
-        app.router.add_route("POST", "/{tail:.*}", self._handle)
-        app.router.add_route("GET", "/health", self._handle_health)
+        async with self._start_lock:
+            # Re-check under the lock: a concurrent caller may have won the race.
+            if self._running:
+                return self._port
 
-        self._runner = web.AppRunner(app)
-        await self._runner.setup()
-        self._session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(
-                total=None,
-                connect=UPSTREAM_CONNECT_TIMEOUT_S,
-                sock_read=UPSTREAM_HEADERS_TIMEOUT_S,
+            listen_port = port if port is not None else self.config.port
+            app = web.Application()
+            app.router.add_route("POST", "/{tail:.*}", self._handle)
+            app.router.add_route("GET", "/health", self._handle_health)
+
+            runner = web.AppRunner(app)
+            await runner.setup()
+            session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(
+                    total=None,
+                    connect=UPSTREAM_CONNECT_TIMEOUT_S,
+                    sock_read=UPSTREAM_HEADERS_TIMEOUT_S,
+                )
             )
-        )
-        self._site = web.TCPSite(self._runner, "127.0.0.1", listen_port)
-        await self._site.start()
-        server = self._site._server  # pyright: ignore[reportPrivateUsage] — aiohttp exposes no public accessor
-        sockets = getattr(server, "sockets", None) if server is not None else None
-        if sockets:
-            self._port = int(sockets[0].getsockname()[1])
-        else:
-            self._port = listen_port
-        self._running = True
-        logger.info(f"{LOG_TAG} Listening on 127.0.0.1:{self._port}")
-        return self._port
+            site = web.TCPSite(runner, "127.0.0.1", listen_port)
+            try:
+                await site.start()
+            except OSError as err:
+                # Never leak the runner/session on a failed bind: the next start
+                # (e.g. after the conflicting process exits) must be able to retry.
+                await session.close()
+                await runner.cleanup()
+                if _is_address_in_use(err):
+                    raise RuntimeError(
+                        f"{LOG_TAG} cannot bind 127.0.0.1:{listen_port} — the port is already "
+                        "in use. Stop the other process using it, or set a different "
+                        "providers.<name>.patcher.port."
+                    ) from err
+                raise
+            self._runner = runner
+            self._session = session
+            self._site = site
+            server = site._server  # pyright: ignore[reportPrivateUsage] — aiohttp exposes no public accessor
+            sockets = getattr(server, "sockets", None) if server is not None else None
+            if sockets:
+                self._port = int(sockets[0].getsockname()[1])
+            else:
+                self._port = listen_port
+            self._running = True
+            logger.info(f"{LOG_TAG} Listening on 127.0.0.1:{self._port}")
+            return self._port
 
     async def stop(self) -> None:
         if not self._running:
@@ -479,9 +506,12 @@ class AnthropicPatcherProxy:
     ) -> aiohttp.ClientResponse:
         assert self._session is not None
         last_error: BaseException | None = None
+        proxy = self.config.proxy or None
         for attempt in range(UPSTREAM_CONNECT_MAX_RETRIES + 1):
             try:
-                return await self._session.post(target_url, headers=headers, data=body)
+                return await self._session.post(
+                    target_url, headers=headers, data=body, proxy=proxy
+                )
             except (aiohttp.ClientError, TimeoutError, OSError) as err:
                 last_error = err
                 if attempt < UPSTREAM_CONNECT_MAX_RETRIES and is_retryable_connect_error(err):
@@ -566,6 +596,16 @@ def _target_host(base_url: str) -> str:
         return "upstream"
 
 
+#: EADDRINUSE across platforms: POSIX (48/98), Windows CRT (100) and Winsock (10048).
+_ADDRESS_IN_USE_ERRNOS = frozenset({errno_module.EADDRINUSE, 48, 98, 100, 10048})
+
+
+def _is_address_in_use(err: OSError) -> bool:
+    if err.errno in _ADDRESS_IN_USE_ERRNOS:
+        return True
+    return getattr(err, "winerror", None) == 10048
+
+
 # ── Singleton ──
 
 _instance: AnthropicPatcherProxy | None = None
@@ -581,11 +621,23 @@ def get_patcher_proxy() -> AnthropicPatcherProxy:
 async def start_anthropic_patcher_proxy(
     config: PatcherConfig | None = None,
 ) -> AnthropicPatcherProxy:
+    """Start (or reuse) the process-wide patcher proxy.
+
+    Reusing one instance lets every Anthropic provider in the process share a
+    single listener instead of racing the same port. When *config* asks for a
+    different port than the running listener, restart it so the client keeps
+    pointing at the right address.
+    """
+
     proxy = get_patcher_proxy()
     if config is not None:
         proxy.reload_config(config)
-    if not proxy.is_running:
-        await proxy.start()
+    if proxy.is_running:
+        if config is not None and proxy.port != config.port:
+            await proxy.stop()
+        else:
+            return proxy
+    await proxy.start()
     return proxy
 
 

@@ -1010,7 +1010,9 @@ def test_update_provider_settings_keeps_oauth_credentials_read_only(
     save_config(Config(), config_path)
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
-    with pytest.raises(WebUISettingsError, match="only supports proxy and extra_body settings"):
+    with pytest.raises(
+        WebUISettingsError, match="only supports proxy, extra_body and extra_headers settings"
+    ):
         update_provider_settings({"provider": ["openai_codex"], "apiKey": ["not-allowed"]})
 
 
@@ -2118,6 +2120,39 @@ def test_provider_models_payload_returns_online_openai_codex_models(
         "reasoning_efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
         "supports_backend_search": False,
     }
+
+
+def test_provider_models_payload_returns_anthropic_oauth_builtin_catalog_when_signed_out(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nanobot.providers import anthropic_oauth
+    from nanobot.providers.anthropic_oauth import AnthropicOAuthReauthRequiredError
+    from nanobot.providers.oauth_model_catalog import invalidate_oauth_model_catalog
+
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    def fail(**_kwargs):
+        raise AnthropicOAuthReauthRequiredError("not signed in")
+
+    monkeypatch.setattr(
+        anthropic_oauth, "get_anthropic_oauth_storage_path", lambda: tmp_path / "anthropic.json"
+    )
+    monkeypatch.setattr(anthropic_oauth, "get_anthropic_oauth_token", fail)
+    invalidate_oauth_model_catalog("anthropic_oauth")
+    try:
+        payload = provider_models_payload({"provider": ["anthropic_oauth"]})
+    finally:
+        invalidate_oauth_model_catalog("anthropic_oauth")
+
+    assert payload["status"] == "available"
+    assert payload["catalog_kind"] == "hybrid"
+    assert payload["source"] == "fallback"
+    assert payload["error_kind"] == "auth_required"
+    assert payload["model_count"] == 3
+    assert payload["models"][0]["id"] == "anthropic-oauth/claude-sonnet-4-6"
 
 
 @pytest.mark.parametrize("source", ["stale", "fallback"])
