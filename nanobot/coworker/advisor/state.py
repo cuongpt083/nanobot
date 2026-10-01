@@ -115,6 +115,12 @@ def count_use(session: Any) -> int:
     return slot["uses"]
 
 
+def reset_uses(session: Any) -> None:
+    """Reset the advisor consult budget count for this session."""
+    slot = _slot(session)
+    slot["uses"] = 0
+
+
 def mark_early_refusal(session: Any) -> None:
     _slot(session)["early_refused"] = True
 

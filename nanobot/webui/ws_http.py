@@ -544,11 +544,12 @@ class GatewayHTTPHandler:
             if not isinstance(key, str) or not key.strip():
                 return _http_error(400, "missing session key")
             return f"/api/sessions/{quote(key, safe='')}/delete"
-        if action == "session.coworker.advisor":
+        if action in ("session.coworker.advisor", "session.coworker.keepalive", "session.coworker.context"):
             key = payload.get("key")
             if not isinstance(key, str) or not key.strip():
                 return _http_error(400, "missing session key")
-            return f"/api/sessions/{quote(key, safe='')}/coworker/advisor"
+            sec = action.split(".")[-1]
+            return f"/api/sessions/{quote(key, safe='')}/coworker/{sec}"
         connect_action = _WEBUI_CHANNEL_CONNECT_ACTIONS.get(action)
         if connect_action is not None:
             channel = payload.get("channel")
@@ -789,9 +790,9 @@ class GatewayHTTPHandler:
         if m:
             return await self._handle_session_coworker_get(request, m.group(1))
 
-        m = re.match(r"^/api/sessions/([^/]+)/coworker/advisor$", got)
+        m = re.match(r"^/api/sessions/([^/]+)/coworker/(advisor|keepalive|context)$", got)
         if m:
-            return await self._handle_session_coworker_advisor(request, m.group(1))
+            return await self._handle_session_coworker_section(request, m.group(1), m.group(2))
 
 
         m = re.match(r"^/api/sessions/([^/]+)/file-preview$", got)
@@ -870,7 +871,12 @@ class GatewayHTTPHandler:
         return _http_json_response(coworker_session_status(session))
 
     async def _handle_session_coworker_advisor(self, request: WsRequest, key: str) -> Response:
-        """Manual per-session advisor switch: ``{enabled?, preset?, mode?}``."""
+        return await GatewayHTTPHandler._handle_session_coworker_section(self, request, key, "advisor")
+
+    async def _handle_session_coworker_section(
+        self, request: WsRequest, key: str, section: str
+    ) -> Response:
+        """Manual per-session coworker section switch (advisor, keepalive, context)."""
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         if not getattr(request, _WEBUI_MUTATION_REQUEST_ATTR, False):
@@ -882,34 +888,27 @@ class GatewayHTTPHandler:
             return _http_error(404, "session not found")
         if self.session_manager is None:
             return _http_error(503, "session manager unavailable")
-        payload = _mutation_payload(request) or {}
-        enabled = payload.get("enabled")
-        preset = payload.get("preset")
-        mode = payload.get("mode")
-        if enabled is not None and not isinstance(enabled, bool):
-            return _http_error(400, "enabled must be a boolean")
-        if preset is not None and not isinstance(preset, str):
-            return _http_error(400, "preset must be a string")
-        if mode is not None and not isinstance(mode, str):
-            return _http_error(400, "mode must be a string")
-        from nanobot.coworker.advisor import state as advisor_state
+
+        from nanobot.coworker.session_api import SECTIONS, SessionApiError
         from nanobot.coworker.status import coworker_session_status
 
+        handler = SECTIONS.get(section)
+        if handler is None:
+            return _http_error(404, f"unknown coworker section: {section}")
+
+        payload = _mutation_payload(request) or {}
         manager = self.session_manager
 
         def apply() -> dict[str, Any]:
             session = manager.get_or_create(decoded_key)
-            advisor_state.apply_switch(
-                session,
-                enabled=enabled,
-                preset=(preset or "").strip() or None,
-                mode=mode,
-            )
+            handler(session, payload)
             manager.save(session)
             return coworker_session_status(session)
 
         try:
             status = await asyncio.to_thread(apply)
+        except SessionApiError as exc:
+            return _http_error(exc.status, str(exc))
         except ValueError as exc:
             return _http_error(400, str(exc))
         return _http_json_response(status)
