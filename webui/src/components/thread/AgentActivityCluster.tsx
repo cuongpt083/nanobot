@@ -45,6 +45,11 @@ import {
   describeTraceLine,
   type TraceDescription,
 } from "@/components/thread/activity/trace-activity-model";
+import { AdvisorConsultRow } from "@/components/thread/activity/AdvisorConsultRow";
+import {
+  advisorRunsByTraceLine,
+  parseAdvisorRunTrace,
+} from "@/components/thread/activity/advisor-consult-model";
 import { WebSearchRun } from "@/components/thread/activity/WebSearchRun";
 import { webSearchRunsByTraceLine } from "@/components/thread/activity/web-search-model";
 import {
@@ -680,6 +685,7 @@ function ActivityTraceTimeline({
   const cliRunsByLine = cliRunMapByTraceLine(message);
   const mcpRunsByLine = mcpRunMapByTraceLine(message);
   const webSearchRunsByLine = webSearchRunsByTraceLine(message.toolEvents ?? []);
+  const advisorRunsByLine = advisorRunsByTraceLine(message.toolEvents ?? []);
   const genericStateByLine = genericToolStateByTraceLine(message);
   const renderedRunKeys = new Set<string>();
   const items: ReactNode[] = [];
@@ -700,6 +706,20 @@ function ActivityTraceTimeline({
 
   lines.forEach((line, index) => {
     const traceKey = canonicalToolTrace(line);
+    const advisorRun = advisorRunsByLine.get(traceKey) ?? parseAdvisorRunTrace(line);
+    if (advisorRun) {
+      flushNormalLines(String(index));
+      renderedRunKeys.add(advisorRun.key);
+      items.push(
+        <AdvisorConsultRow
+          key={`${message.id}:advisor:${advisorRun.key}:${index}`}
+          run={advisorRun}
+          turnActive={active}
+        />,
+      );
+      return;
+    }
+
     const webSearchRun = webSearchRunsByLine.get(traceKey);
     if (webSearchRun) {
       flushNormalLines(String(index));
@@ -749,6 +769,16 @@ function ActivityTraceTimeline({
 
   flushNormalLines("tail");
 
+  for (const run of advisorRunsByLine.values()) {
+    if (renderedRunKeys.has(run.key)) continue;
+    items.push(
+      <AdvisorConsultRow
+        key={`${message.id}:advisor:${run.key}:event`}
+        run={run}
+        turnActive={active}
+      />,
+    );
+  }
   for (const run of webSearchRunsByLine.values()) {
     if (renderedRunKeys.has(run.key)) continue;
     items.push(

@@ -2178,6 +2178,17 @@
         "teammate": "Teammate",
         "coding": "Coding agent"
       }
+    },
+    "advisorConsult": {
+      "running": "Đang hỏi advisor",
+      "runningFocus": "Đang hỏi advisor · {{focus}}",
+      "title": "Advisor",
+      "expand": "Xem thêm",
+      "collapse": "Thu gọn",
+      "statusInsufficientContext": "chưa đủ ngữ cảnh",
+      "statusMaxUsesExceeded": "hết ngân sách",
+      "statusAdvisorError": "lỗi advisor",
+      "statusAdvisorDisabled": "chưa cấu hình advisor"
     }
   }
 }

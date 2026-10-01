@@ -2344,6 +2344,17 @@
         "teammate": "Teammate",
         "coding": "Coding agent"
       }
+    },
+    "advisorConsult": {
+      "running": "Consulting advisor",
+      "runningFocus": "Consulting advisor · {{focus}}",
+      "title": "Advisor",
+      "expand": "Show more",
+      "collapse": "Show less",
+      "statusInsufficientContext": "insufficient context",
+      "statusMaxUsesExceeded": "budget exceeded",
+      "statusAdvisorError": "advisor error",
+      "statusAdvisorDisabled": "advisor disabled"
     }
   }
 }
