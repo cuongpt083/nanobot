@@ -63,10 +63,19 @@ class CodingTask:
     # Project directory relative to the git toplevel when the user picked a subdirectory
     # (monorepo); the harness and acceptance command run there, git operations at the root.
     subdir: str = ""
+    # ``direct`` tasks edit a non-git project in place (no branch, no worktree): ``workdir`` is the
+    # project, ``snapshot`` the pre-run copy/manifest used for diff and undo, ``changes`` what changed.
+    mode: Literal["worktree", "direct"] = "worktree"
+    workdir: str = ""
+    snapshot: str = ""
+    changes: dict[str, list[str]] = field(default_factory=dict)
+    finished_at: float = 0.0
 
     @property
     def run_dir(self) -> Path:
-        """Directory the harness runs in: the worktree, or its subdirectory for a subproject."""
+        """Directory the harness runs in: the project (direct), or the worktree / its subdirectory."""
+        if self.mode == "direct":
+            return Path(self.workdir)
         base = Path(self.worktree)
         return base / self.subdir if self.subdir else base
 
@@ -127,6 +136,17 @@ class TaskRegistry:
 
     def list_tasks(self) -> list[CodingTask]:
         return sorted(self._memory_cache.values(), key=lambda t: t.created_at, reverse=True)
+
+    def count_active_direct(self, workdir: str | Path) -> int:
+        """Running ``direct`` tasks in ``workdir`` (they have no isolation, so only one may run)."""
+        key = os.path.normcase(str(Path(workdir).expanduser().resolve()))
+        return sum(
+            1
+            for t in self._memory_cache.values()
+            if t.mode == "direct"
+            and t.status in ("started", "running")
+            and os.path.normcase(str(Path(t.workdir).expanduser().resolve())) == key
+        )
 
     def count_active(self, session_key: str | None = None) -> int:
         return sum(

@@ -162,6 +162,10 @@ class CodingAgentConfig(Base):
     merge_strategy: Literal["squash", "no-ff", "ff-only"] = "squash"
     delete_branch_after_merge: bool = True
     keep_failed_worktrees_days: int = Field(default=3, ge=0)
+    # Projects without git (documents, slides…): ``ask`` needs the user's confirmation per chat and
+    # directory, ``direct`` edits in place straight away, ``refuse`` never runs the harness there.
+    non_git: Literal["ask", "direct", "refuse"] = "ask"
+    snapshot_max_mb: int = Field(default=200, ge=1)
 
 
 class CoworkerConfig(Base):

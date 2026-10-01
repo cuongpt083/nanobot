@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import ToolResult, tool_parameters
+from nanobot.coworker.coding.project import DirectConfirmationError
 from nanobot.coworker.coding.runner import CodingRunner
 from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.runtime import services, spawn_background
@@ -114,7 +115,7 @@ class CodingAgentTool(CoworkerTool):
             chat_id = (req.chat_id if req and req.chat_id else None) or "user"
 
             try:
-                task_obj, backend_obj, repo_cfg = runner.admit(
+                task_obj, backend_obj, repo_cfg = await runner.admit_async(
                     brief=task,
                     session_key=session_key,
                     channel=channel,
@@ -123,6 +124,10 @@ class CodingAgentTool(CoworkerTool):
                     base_ref=base,
                     backend_name=backend,
                     acceptance_cmd=acceptance,
+                )
+            except DirectConfirmationError as e:
+                return self.payload(
+                    "needs_confirmation", error=str(e), path=str(e.path), mode="direct"
                 )
             except Exception as e:
                 return self.payload("error", error=str(e))
@@ -148,6 +153,7 @@ class CodingAgentTool(CoworkerTool):
                 backend=task_obj.backend,
                 branch=task_obj.branch,
                 worktree=task_obj.worktree,
+                mode=task_obj.mode,
                 note=(
                     "Task started in background. END your turn now; you will be automatically "
                     "notified when it completes. Do not poll in a loop."

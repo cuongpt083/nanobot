@@ -667,7 +667,7 @@ async def test_coworker_settings_get_returns_config_presets_and_detection(tmp_pa
 
     assert response is not None and response.status_code == 200
     payload = json.loads(response.body)
-    assert set(payload["config"]) == {"advisor", "room", "coding"}
+    assert set(payload["config"]) == {"advisor", "room", "coding", "context"}
     assert "default" in payload["presets"]
     assert set(payload["detection"]) == {"pi", "agy"}
     assert payload["path"] == str(coworker_file)

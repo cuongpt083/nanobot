@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from nanobot.coworker.config import RepoConfig
+from nanobot.coworker.runtime import session_state
 from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
@@ -26,6 +27,14 @@ if TYPE_CHECKING:
 
 class ProjectError(RuntimeError):
     """The coding project could not be resolved or is not allowed."""
+
+
+class DirectConfirmationError(ProjectError):
+    """The project is not a git repository and the user has not agreed to in-place edits yet."""
+
+    def __init__(self, path: Path, message: str) -> None:
+        super().__init__(message)
+        self.path = path
 
 
 @dataclass(frozen=True)
@@ -53,6 +62,35 @@ def _find_profile(cfg: CodingAgentConfig, path: str | Path) -> RepoConfig | None
         if path_key(repo.path) == key:
             return repo
     return None
+
+
+def direct_allowed(session: Any | None, path: str | Path) -> bool:
+    """Has the user agreed (in this chat) to the coding agent editing ``path`` in place?"""
+    if session is None:
+        return False
+    coding = session_state(session).get("coding")
+    if not isinstance(coding, dict):
+        return False
+    allowed = cast("dict[str, Any]", coding).get("direct_ok")
+    return isinstance(allowed, list) and path_key(path) in cast("list[Any]", allowed)
+
+
+def grant_direct(session: Any, path: str | Path) -> None:
+    """Record the user's consent for ``path`` (set by the UI / ``/code direct allow``, never the model)."""
+    state = session_state(session)
+    coding = state.get("coding")
+    if not isinstance(coding, dict):
+        coding = {}
+        state["coding"] = coding
+    coding = cast("dict[str, Any]", coding)
+    allowed: list[str] = []
+    existing = coding.get("direct_ok")
+    if isinstance(existing, list):
+        allowed = [str(item) for item in cast("list[Any]", existing)]
+    key = path_key(path)
+    if key not in allowed:
+        allowed.append(key)
+    coding["direct_ok"] = allowed
 
 
 def session_project_path(session: Any | None) -> Path | None:

@@ -75,7 +75,8 @@ Cỡ: **S** ≤ nửa ngày, **M** ~1 ngày, **L** 2–3 ngày.
 - `create_worktree`: dùng `toplevel`; backend `cwd = worktree / rel` khi là thư mục con. `merge/cleanup` dùng `toplevel`.
 - Test: repo thường, thư mục con, repo rỗng, thư mục thường, đường dẫn có khoảng trắng/Unicode (tạo repo tạm bằng `git init`).
 
-### T-P2 Chế độ `direct` — L (phụ thuộc T-P0, T-P1)
+### T-P2 Chế độ `direct` — L (phụ thuộc T-P0, T-P1) — **đã xong**
+- Làm xong: `coding/direct.py` (snapshot copy/manifest, `diff_manifest`, `text_diff`, `restore` có kiểm tra mtime), `CodingTask` (`mode/workdir/snapshot/changes/finished_at`), `TaskRegistry.count_active_direct`, `CodingRunner.admit_async` (chọn chế độ, đồng ý, khoá D8; giải phóng slot khi lỗi) — tool `coding_agent` và room dùng bản async, `admit` đồng bộ giữ nguyên; `execute_task` có nhánh `direct`, lỗi setup nay được đánh dấu `error` và báo lại thay vì mất trong task nền; thông báo kết quả riêng cho `direct`. Kéo sớm từ T-P3: `non_git` (`ask`/`direct`/`refuse`, mặc định `ask`), `snapshot_max_mb` và `direct_allowed/grant_direct` (lưu ở `session_state["coding"]["direct_ok"]`) để chế độ `direct` an toàn ngay từ đầu — T-P3 còn phần API/lệnh/UI để người dùng cấp quyền. Repo `git` chưa có commit được coi như `direct`. Chưa làm (T-P4): `/code discard|merge|diff` và hành động `diff` của tool cho task `direct`.
 - Mới `coworker/coding/direct.py`:
   ```python
   @dataclass(frozen=True)

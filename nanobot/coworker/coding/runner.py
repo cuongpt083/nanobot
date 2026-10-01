@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import time
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from nanobot.coworker.coding import direct as direct_mod
 from nanobot.coworker.coding.backends.base import (
     BackendEventDone,
     BackendEventError,
@@ -23,7 +25,12 @@ from nanobot.coworker.coding.brief import (
     render_brief,
     render_rules,
 )
-from nanobot.coworker.coding.project import resolve_project
+from nanobot.coworker.coding.project import (
+    DirectConfirmationError,
+    ProjectError,
+    direct_allowed,
+    resolve_project,
+)
 from nanobot.coworker.coding.tasks import (
     CodingTask,
     generate_task_id,
@@ -39,6 +46,8 @@ if TYPE_CHECKING:
 # Running backends by task id, shared by every runner instance so steer/abort issued from a later
 # tool call or `/code` command reaches the process started by an earlier one.
 _ACTIVE_BACKENDS: dict[str, CodingBackend] = {}
+
+_DELIVERY_FILE_LIMIT = 20
 
 
 def _lookup_session(session_key: str) -> Any | None:
@@ -131,6 +140,53 @@ class CodingRunner:
         self.registry.save(task)
         return task, backend, repo
 
+    async def admit_async(
+        self, **kwargs: Any
+    ) -> tuple[CodingTask, CodingBackend, RepoConfig]:
+        """``admit`` plus the checks that need git: worktree vs ``direct`` mode, consent, lock."""
+        task, backend, repo = self.admit(**kwargs)
+        try:
+            await self._choose_mode(task, repo)
+        except Exception as exc:
+            task.status = "error"
+            task.error = str(exc)
+            task.finished_at = time.time()
+            self.registry.save(task)  # releases the concurrency slot taken by admit
+            raise
+        return task, backend, repo
+
+    async def _choose_mode(self, task: CodingTask, repo: RepoConfig) -> None:
+        kind = await self.workspace_mgr.project_kind(repo)
+        if kind.has_worktree_support:
+            return
+        project = Path(repo.path).expanduser().resolve()
+        why = "is a git repository without any commit yet" if kind.kind == "git_empty" else (
+            "is not a git repository"
+        )
+        policy = self.config.coding.non_git
+        if policy == "refuse":
+            raise ProjectError(
+                f"'{project}' {why}, and coding.non_git is 'refuse'. Make it a git repository "
+                "(for a new repository, commit once) or change coding.non_git."
+            )
+        if policy == "ask" and not direct_allowed(_lookup_session(task.session_key), project):
+            raise DirectConfirmationError(
+                project,
+                f"'{project}' {why}, so the coding agent would edit its files in place "
+                "(no branch to merge; a snapshot is kept so the changes can be undone). "
+                "Ask the user to confirm in the chat UI, or to run `/code direct allow`.",
+            )
+        if self.registry.count_active_direct(project):
+            raise ProjectError(
+                f"Another direct coding task is already editing '{project}'. "
+                "Wait for it to finish or abort it."
+            )
+        task.mode = "direct"  # no await since the check above, so two admissions cannot both pass
+        task.workdir = str(project)
+        task.branch = ""
+        task.base = ""
+        self.registry.save(task)
+
     async def execute_task(
         self,
         task: CodingTask,
@@ -141,15 +197,35 @@ class CodingRunner:
         wait: bool = False,
     ) -> str:
         """Run the full coding task workflow from isolation to verification and delivery."""
-        # 1. Isolate worktree
-        worktree_dir, branch_name = await self.workspace_mgr.create_worktree(
-            repo=repo,
-            task_id=task.id,
-            base_ref=task.base,
-        )
-        task.worktree = str(worktree_dir)
-        task.branch = branch_name
-        task.subdir = (await self.workspace_mgr.project_kind(repo)).rel
+        # 1. Isolate: a git worktree, or (direct mode) a snapshot of the project we edit in place
+        is_direct = task.mode == "direct"
+        before: direct_mod.Manifest | None = None
+        try:
+            if is_direct:
+                snapshot_dir = self.workspace_mgr.worktree_base / task.id / "snapshot"
+                before = await asyncio.to_thread(
+                    direct_mod.take_snapshot,
+                    Path(task.workdir),
+                    snapshot_dir,
+                    max_mb=self.config.coding.snapshot_max_mb,
+                )
+                task.snapshot = str(snapshot_dir)
+            else:
+                worktree_dir, branch_name = await self.workspace_mgr.create_worktree(
+                    repo=repo,
+                    task_id=task.id,
+                    base_ref=task.base,
+                )
+                task.worktree = str(worktree_dir)
+                task.branch = branch_name
+                task.subdir = (await self.workspace_mgr.project_kind(repo)).rel
+        except Exception as exc:
+            logger.exception(f"Task {task.id} setup failed: {exc}")
+            task.status = "error"
+            task.error = f"Setup failed: {exc}"
+            task.finished_at = time.time()
+            self.registry.save(task)
+            return await self._deliver(task, wait)
         run_dir = task.run_dir
         task.status = "running"
         self.registry.save(task)
@@ -246,9 +322,18 @@ class CodingRunner:
                     break
 
                 # 2. Nanobot verification
-                await self.workspace_mgr.commit_uncommitted_changes(worktree_dir, task.backend)
-                task.diffstat = await self.workspace_mgr.get_diffstat(worktree_dir, task.base)
-                task.commits = await self.workspace_mgr.get_commits(worktree_dir, task.base)
+                if is_direct and before is not None:
+                    changes = await asyncio.to_thread(
+                        direct_mod.diff_manifest, before, Path(task.workdir)
+                    )
+                    task.changes = changes.to_dict()
+                    task.diffstat = changes.summary()
+                    task.commits = []
+                else:
+                    worktree_dir = Path(task.worktree)
+                    await self.workspace_mgr.commit_uncommitted_changes(worktree_dir, task.backend)
+                    task.diffstat = await self.workspace_mgr.get_diffstat(worktree_dir, task.base)
+                    task.commits = await self.workspace_mgr.get_commits(worktree_dir, task.base)
 
                 if task.acceptance:
                     passed, acc_out = await self.workspace_mgr.run_acceptance(run_dir, task.acceptance)
@@ -288,8 +373,12 @@ class CodingRunner:
             for r in task.round_stats:
                 total_stats = total_stats.add(BackendStats(**r))
             task.stats = total_stats.__dict__
+            task.finished_at = time.time()
             self.registry.save(task)
 
+        return await self._deliver(task, wait)
+
+    async def _deliver(self, task: CodingTask, wait: bool) -> str:
         # 3. Deliver result
         result_text = self._format_delivery_message(task)
         if not wait:
@@ -314,23 +403,45 @@ class CodingRunner:
         if stats.get("cost"):
             tokens_info += f" (${stats.get('cost', 0.0):.4f})"
 
+        is_direct = task.mode == "direct"
         lines = [
             f"[auto-coding-result] Task `{task.id}` ({task.backend}) finished with status: `{task.status}`",
             f"**Goal**: {task.brief}",
             f"**Harness Summary**: {task.summary or 'None'}",
-            f"**Commits**: {len(task.commits)} commit(s) on `{task.branch}`",
+            (
+                f"**Changes**: {task.diffstat or 'none'} (edited in place in `{task.workdir}`, no branch)"
+                if is_direct
+                else f"**Commits**: {len(task.commits)} commit(s) on `{task.branch}`"
+            ),
             f"**Tokens**: {tokens_info}",
             f"**Acceptance**: {acc_text}",
         ]
         if task.error:
             lines.append(f"**Error**: {task.error}")
-        if task.diffstat:
-            lines.extend(["**Diffstat**:", "```", task.diffstat, "```"])
-
-        lines.extend([
-            "",
-            f"Review the results above, then tell the user to `/code merge {task.id}` or `/code discard {task.id}`.",
-        ])
+        if is_direct:
+            files = [
+                f"{mark} {path}"
+                for mark, key in (("+", "added"), ("~", "modified"), ("-", "deleted"))
+                for path in task.changes.get(key, [])
+            ]
+            if files:
+                shown = files[:_DELIVERY_FILE_LIMIT]
+                if len(files) > len(shown):
+                    shown.append(f"… and {len(files) - len(shown)} more")
+                lines.extend(["**Files**:", "```", *shown, "```"])
+            lines.extend([
+                "",
+                "The changes are already applied. Review them, then tell the user they can keep them "
+                f"or run `/code discard {task.id}` to undo them.",
+            ])
+        else:
+            if task.diffstat:
+                lines.extend(["**Diffstat**:", "```", task.diffstat, "```"])
+            lines.extend([
+                "",
+                f"Review the results above, then tell the user to `/code merge {task.id}` "
+                f"or `/code discard {task.id}`.",
+            ])
         return "\n".join(lines)
 
     async def steer(self, task_id: str, message: str) -> None:

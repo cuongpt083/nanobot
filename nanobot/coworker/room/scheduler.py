@@ -254,7 +254,7 @@ async def _run_guest(room: _Room, agent: RoomAgentConfig, delegation: Delegation
         from nanobot.coworker.coding.runner import CodingRunner
 
         runner = CodingRunner(cfg, _workspace())
-        task, backend_obj, repo_cfg = runner.admit(
+        task, backend_obj, repo_cfg = await runner.admit_async(
             brief=delegation.task,
             session_key=room.session_key,
             channel=room.channel,
