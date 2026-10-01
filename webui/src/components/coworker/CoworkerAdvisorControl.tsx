@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain } from "lucide-react";
+import { Brain, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CoworkerAdvisorExchanges } from "@/components/coworker/CoworkerAdvisorExchanges";
@@ -183,11 +183,26 @@ export function CoworkerAdvisorControl({
             </SelectTrigger>
             <SelectContent>
               {presetOptions.map((name) => (
-                <SelectItem key={name} value={name}>{name}</SelectItem>
+                <SelectItem key={name} value={name}>
+                  {name === "default"
+                    ? t("coworker.advisorControl.presetDefault", {
+                        defaultValue: "Tự động (mặc định: {{preset}})",
+                        preset: advisor?.default_preset || "default",
+                      })
+                    : name}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
+
+        {status?.caching?.is_warm ? (
+          <div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-2 text-[11px] text-amber-700 dark:text-amber-400">
+            {t("coworker.advisorControl.cacheWarning", {
+              defaultValue: "Thay đổi này làm lần gửi kế tiếp tính giá ghi cache đầy đủ.",
+            })}
+          </div>
+        ) : null}
 
         {error ? (
           <p role="alert" className="rounded-md bg-red-500/10 px-2 py-1.5 text-[11px] text-red-600 dark:text-red-400">
@@ -201,13 +216,32 @@ export function CoworkerAdvisorControl({
               <span className="font-medium">
                 {t("coworker.advisorExchanges.title", { defaultValue: "Advisor Q&A" })}
               </span>
-              <span>
-                {t("coworker.participants.uses", {
-                  used: advisor?.uses ?? 0,
-                  max: advisor?.max_uses ?? 0,
-                  defaultValue: "{{used}}/{{max}} consults",
-                })}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={cn(
+                    (advisor?.uses ?? 0) >= (advisor?.max_uses ?? 0) && (advisor?.max_uses ?? 0) > 0
+                      ? "font-semibold text-red-600 dark:text-red-400"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {t("coworker.participants.uses", {
+                    used: advisor?.uses ?? 0,
+                    max: advisor?.max_uses ?? 0,
+                    defaultValue: "{{used}}/{{max}} consults",
+                  })}
+                </span>
+                <button
+                  type="button"
+                  data-testid="advisor-reset-uses-btn"
+                  title={t("coworker.advisorControl.resetUses", { defaultValue: "Reset consults budget" })}
+                  aria-label={t("coworker.advisorControl.resetUses", { defaultValue: "Reset consults budget" })}
+                  disabled={busy || (advisor?.uses ?? 0) === 0}
+                  className="inline-flex h-4 w-4 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  onClick={() => void apply({ reset_uses: true })}
+                >
+                  <RotateCcw className="h-2.5 w-2.5" />
+                </button>
+              </div>
             </div>
             <div className="max-h-56 overflow-y-auto overscroll-contain">
               <CoworkerAdvisorExchanges exchanges={advisor?.history} />

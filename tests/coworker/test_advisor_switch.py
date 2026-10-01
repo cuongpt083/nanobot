@@ -230,3 +230,36 @@ def test_mutation_action_maps_to_the_session_path() -> None:
 
     path = GatewayHTTPHandler._webui_mutation_path("session.coworker.advisor", {"key": "websocket:abc"})
     assert path == "/api/sessions/websocket%3Aabc/coworker/advisor"
+
+
+def test_mutation_route_resets_uses(env) -> None:
+    session = env.sessions.get_or_create("websocket:abc")
+    advisor_state.apply_switch(session, enabled=True, preset="strong")
+    advisor_state.count_use(session)
+    advisor_state.count_use(session)
+    assert advisor_state.effective(session).uses == 2
+
+    resp = _call_switch(env, {"reset_uses": True})
+    assert resp.status_code == 200
+    body = json.loads(resp.body)
+    assert body["advisor"]["uses"] == 0
+    assert advisor_state.effective(session).uses == 0
+
+
+@pytest.mark.asyncio
+async def test_cmd_advisor_reset(env) -> None:
+    from nanobot.bus.events import InboundMessage
+    from nanobot.command.router import CommandContext
+    from nanobot.coworker.commands import cmd_advisor
+
+    session = env.sessions.get_or_create("websocket:abc")
+    advisor_state.apply_switch(session, enabled=True, preset="strong")
+    advisor_state.count_use(session)
+    assert advisor_state.effective(session).uses == 1
+
+    msg = InboundMessage(channel="websocket", sender_id="u1", chat_id="abc", content="/advisor reset")
+    loop = SimpleNamespace(sessions=env.sessions)
+    ctx = CommandContext(msg=msg, key="websocket:abc", args="reset", raw="/advisor reset", loop=loop, session=session)
+    reply = await cmd_advisor(ctx)
+    assert "0/" in reply.content
+    assert advisor_state.effective(session).uses == 0

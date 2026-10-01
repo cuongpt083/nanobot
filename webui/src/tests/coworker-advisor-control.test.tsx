@@ -172,6 +172,43 @@ describe("advisor switch", () => {
     fireEvent.click(toggle);
     expect(await screen.findByRole("alert")).toHaveTextContent("no advisor preset configured");
   });
+
+  it("shows cache warning when cache is warm", async () => {
+    vi.spyOn(api, "fetchCoworkerSettings").mockResolvedValue({ presets: ["default"] } as never);
+    const warmStatus = status({ enabled: true, preset: "opus" });
+    warmStatus.caching.is_warm = true;
+
+    render(
+      <CoworkerAdvisorControl
+        client={client}
+        sessionKey="websocket:s"
+        token="t"
+        status={warmStatus}
+        onStatus={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Advisor" }));
+    expect(await screen.findByText(/full cache-write price/)).toBeInTheDocument();
+  });
+
+  it("resets consults budget when reset button is clicked", async () => {
+    vi.spyOn(api, "fetchCoworkerSettings").mockResolvedValue({ presets: ["default"] } as never);
+    const setSpy = vi.spyOn(api, "setCoworkerAdvisor").mockResolvedValue(status({ enabled: true, preset: "opus", uses: 0 }));
+    render(
+      <CoworkerAdvisorControl
+        client={client}
+        sessionKey="websocket:s"
+        token="t"
+        status={status({ enabled: true, preset: "opus", uses: 3, max_uses: 10 })}
+        onStatus={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Advisor" }));
+    const resetBtn = await screen.findByTestId("advisor-reset-uses-btn");
+    expect(resetBtn).toBeEnabled();
+    fireEvent.click(resetBtn);
+    await waitFor(() => expect(setSpy).toHaveBeenCalledWith(client, "websocket:s", { reset_uses: true }));
+  });
 });
 
 describe("header controls", () => {

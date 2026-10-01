@@ -34,13 +34,19 @@ def apply_advisor(session: Session, payload: dict[str, Any]) -> None:
     if reset_uses is not None and not isinstance(reset_uses, bool):
         raise SessionApiError("reset_uses must be a boolean", 400)
 
+    clean_preset = (preset or "").strip() if preset is not None else None
+    if clean_preset and clean_preset.lower() == "default":
+        advisor_state.set_preset(session, None)
+        clean_preset = None
+
     try:
-        advisor_state.apply_switch(
-            session,
-            enabled=enabled,
-            preset=(preset or "").strip() or None,
-            mode=mode,
-        )
+        if any(k in payload for k in ("enabled", "preset", "mode")):
+            advisor_state.apply_switch(
+                session,
+                enabled=enabled,
+                preset=clean_preset,
+                mode=mode,
+            )
     except ValueError as exc:
         raise SessionApiError(str(exc), 400) from exc
 

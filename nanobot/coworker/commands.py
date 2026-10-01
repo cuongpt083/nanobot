@@ -42,7 +42,7 @@ def _route(ctx: CommandContext) -> tuple[str, str]:
     return ctx.msg.channel, ctx.msg.chat_id
 
 
-_ADVISOR_USAGE = "Usage: /advisor on [preset] | off | brainstorm | code | <preset> | default | status"
+_ADVISOR_USAGE = "Usage: /advisor on [preset] | off | brainstorm | code | reset | <preset> | default | status"
 
 
 async def cmd_advisor(ctx: CommandContext) -> OutboundMessage:
@@ -60,6 +60,8 @@ async def cmd_advisor(ctx: CommandContext) -> OutboundMessage:
             advisor_state.apply_switch(session, enabled=True, mode=advisor_state.MODE_BRAINSTORM, preset=rest or None)
         elif verb == "code":
             advisor_state.apply_switch(session, mode=advisor_state.MODE_CODING)
+        elif verb == "reset":
+            advisor_state.reset_uses(session)
         elif verb == "default":
             advisor_state.set_preset(session, None)
         else:

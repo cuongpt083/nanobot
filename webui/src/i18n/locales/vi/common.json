@@ -2017,7 +2017,11 @@
         "hintBrainstorm": "Thảo luận và ra quyết định: agent xin ý kiến thứ hai trước khi đưa ra đề xuất.",
         "hintCoding": "Công việc kỹ thuật: agent đọc code trước, tham vấn trước khi ghi và trước khi kết thúc.",
         "model": "Mô hình advisor",
-        "choosePreset": "Chọn một preset mô hình"
+        "choosePreset": "Chọn một preset mô hình",
+        "resetUses": "Đặt lại số lượt tham vấn",
+        "cacheWarning": "Thay đổi này làm lần gửi kế tiếp tính giá ghi cache đầy đủ.",
+        "presetDefault": "Tự động (mặc định: {{preset}})",
+        "turnOffForSession": "Tắt cho phiên này"
       },
       "advisorExchanges": {
         "title": "Hỏi đáp với Advisor",
