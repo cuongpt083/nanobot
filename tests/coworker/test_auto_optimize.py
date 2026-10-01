@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
-
 import pytest
 
 from nanobot.agent.hook import AgentHookContext, AgentTurnHookContext
-from nanobot.coworker import directives, runtime
+from nanobot.coworker import directives
 from nanobot.coworker.config import ContextConfig, CoworkerConfig
 from nanobot.coworker.context import optimizer
-from nanobot.coworker.hook import CoworkerHook, WASTED_TOOL
+from nanobot.coworker.hook import WASTED_TOOL, CoworkerHook
 from nanobot.coworker.runtime import session_state
 from nanobot.coworker.session_api import apply_context
 from nanobot.coworker.status import coworker_session_status

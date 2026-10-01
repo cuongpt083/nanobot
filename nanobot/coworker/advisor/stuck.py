@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 _PATH_RE = re.compile(r"[a-zA-Z]:\\[^\s:\"']+|/(?:[^\s:\"']+/)+[^\s:\"']*")
 _HEX_RE = re.compile(r"0x[0-9a-fA-F]+")
@@ -17,16 +17,17 @@ def failure_signature(tool_name: str, args: dict[str, Any], result: Any) -> str 
     is_err = getattr(result, "is_error", False) is True
     if isinstance(result, BaseException):
         is_err = True
-    elif isinstance(result, dict) and result.get("is_error") is True:
+    elif isinstance(result, dict) and cast("dict[str, Any]", result).get("is_error") is True:
         is_err = True
 
     raw_text = ""
     if isinstance(result, BaseException):
         raw_text = f"{type(result).__name__}: {result}"
-    elif hasattr(result, "content"):
-        raw_text = str(result.content)
     elif isinstance(result, dict):
-        raw_text = str(result.get("content") or result.get("error") or "")
+        mapping = cast("dict[str, Any]", result)
+        raw_text = str(mapping.get("content") or mapping.get("error") or "")
+    elif hasattr(result, "content"):
+        raw_text = str(getattr(result, "content"))
     else:
         raw_text = str(result) if result is not None else ""
 

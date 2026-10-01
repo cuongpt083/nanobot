@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from nanobot.coworker.config import CoworkerConfig, RoomAgentConfig
 from nanobot.coworker.runtime import session_state
@@ -23,6 +23,11 @@ def resolve_persona(session: Any, cfg: CoworkerConfig) -> RoomAgentConfig | None
     return next((a for a in cfg.room.agents if a.id == agent_id), None)
 
 
+def _metadata(session: Any) -> dict[str, Any] | None:
+    meta = getattr(session, "metadata", None)
+    return cast("dict[str, Any]", meta) if isinstance(meta, dict) else None
+
+
 def set_persona_id(session: Any, agent_id: str | None, cfg: CoworkerConfig) -> RoomAgentConfig | None:
     """Assign or clear the per-session persona.
 
@@ -30,10 +35,11 @@ def set_persona_id(session: Any, agent_id: str | None, cfg: CoworkerConfig) -> R
     model selection metadata so the AgentLoop uses that model.
     """
     state = session_state(session)
+    metadata = _metadata(session)
     if not agent_id:
-        state.pop("persona", None)
-        if hasattr(session, "metadata") and isinstance(session.metadata, dict):
-            session.metadata.pop(SESSION_MODEL_PRESET_METADATA_KEY, None)
+        # Only undo the preset a persona applied; never wipe a model the user picked.
+        if state.pop("persona", None) is not None and metadata is not None:
+            metadata.pop(SESSION_MODEL_PRESET_METADATA_KEY, None)
         return None
 
     agent = next((a for a in cfg.room.agents if a.id == agent_id), None)
@@ -41,9 +47,9 @@ def set_persona_id(session: Any, agent_id: str | None, cfg: CoworkerConfig) -> R
         raise ValueError(f"unknown persona {agent_id!r}")
 
     state["persona"] = agent.id
-    if hasattr(session, "metadata") and isinstance(session.metadata, dict):
+    if metadata is not None:
         if agent.preset:
-            session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] = agent.preset
+            metadata[SESSION_MODEL_PRESET_METADATA_KEY] = agent.preset
         else:
-            session.metadata.pop(SESSION_MODEL_PRESET_METADATA_KEY, None)
+            metadata.pop(SESSION_MODEL_PRESET_METADATA_KEY, None)
     return agent

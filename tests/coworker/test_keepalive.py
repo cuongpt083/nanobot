@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from nanobot.coworker.context import cache_policy, keepalive
+from nanobot.coworker.context import keepalive
 from nanobot.coworker.context.cache_policy import CacheTtlPolicy
 from nanobot.coworker.context.keepalive import _Capture, evaluate, status_for
 from nanobot.coworker.context.keepalive_state import KeepWarmSetting
@@ -255,3 +255,22 @@ async def test_coworker_hook_adjust_provider_context_ttl1h(tmp_path) -> None:
         session_state(session)["keepalive"]["strategy"] = "ping"
         pc2 = ProviderCallContext(session_id="s1")
         assert hook.adjust_provider_context(ctx, pc2).cache_retention is None
+
+
+def test_capture_preserves_in_flight_mark() -> None:
+    runtime = SimpleNamespace(
+        provider=object(),
+        model="m",
+        generation=SimpleNamespace(max_tokens=1, temperature=0.0, reasoning_effort=None),
+    )
+    key = "websocket:in-flight-test"
+    keepalive._captures.pop(key, None)
+    try:
+        kwargs: dict = dict(runtime=runtime, messages=[], tools=None, ttl_s=300.0,
+                            window_s=1800.0, max_pings=4, lead_s=60.0)
+        keepalive.capture(key, **kwargs)
+        keepalive.mark_in_flight(key, True)
+        keepalive.capture(key, **kwargs)  # next iteration's transform_request
+        assert keepalive._captures[key].in_flight is True
+    finally:
+        keepalive._captures.pop(key, None)

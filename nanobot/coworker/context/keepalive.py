@@ -142,6 +142,8 @@ def capture(
         spent=spent,
         set_at_seen=previous.set_at_seen if previous is not None else 0.0,
         forced_long=previous.forced_long if previous is not None else False,
+        # transform_request marks the turn in flight *before* capturing; keep that mark.
+        in_flight=previous.in_flight if previous is not None else False,
     )
     _captures[session_key] = cap
     ensure_runner()

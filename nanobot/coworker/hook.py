@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -171,9 +171,17 @@ def _annotate_stuck(
                 continue
             annotated = {**message, "content": f"{content}\n\n{note}"}
         elif isinstance(content, list):
-            if any(_STUCK_HINT in str(b.get("text", "")) for b in content if isinstance(b, dict)):
+            blocks = cast("list[Any]", content)
+            if any(
+                _STUCK_HINT in str(cast("dict[str, Any]", b).get("text", ""))
+                for b in blocks
+                if isinstance(b, dict)
+            ):
                 continue
-            annotated = {**message, "content": [*content, {"type": "text", "text": note}]}
+            annotated: dict[str, Any] = {
+                **message,
+                "content": [*blocks, {"type": "text", "text": note}],
+            }
         else:
             continue
         if out is None:
@@ -253,11 +261,11 @@ class CoworkerHook(AgentHook):
             or not load_coworker_config().advisor.stuck_detection
         ):
             return
-        args = (
-            params
-            if isinstance(params, dict)
-            else (tool_call.arguments if isinstance(tool_call.arguments, dict) else {})
-        )
+        args: dict[str, Any] = {}
+        if isinstance(params, dict):
+            args = cast("dict[str, Any]", params)
+        elif isinstance(tool_call.arguments, dict):
+            args = cast("dict[str, Any]", tool_call.arguments)
         sig = failure_signature(tool_call.name, args, result)
         if self._stuck.record(sig):
             advisor_state.add_stuck_id(session, tool_call.id)
