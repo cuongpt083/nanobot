@@ -2092,7 +2092,19 @@
         "maxTokens": "Giới hạn độ dài lời khuyên",
         "timeout": "Thời gian chờ tham vấn",
         "nudge": "Nhắc agent tham vấn",
-        "nudgeHelp": "Sau khi làm nhiều việc hoặc khi một tác vụ code kết thúc, nhắc agent tham vấn một lần."
+        "nudgeHelp": "Sau khi làm nhiều việc hoặc khi một tác vụ code kết thúc, nhắc agent tham vấn một lần.",
+        "firstGap": "Nhắc tham vấn lần đầu sau",
+        "gapHelp": "Số bước thay đổi trạng thái mà chưa tham vấn cố vấn.",
+        "reconsultGap": "Nhắc tham vấn lại sau",
+        "discussionGate": "Cổng thảo luận",
+        "discussionGateHelp": "Yêu cầu tham vấn advisor trên bản nháp trước khi câu trả lời dài được chốt.",
+        "discussionGateOff": "Tắt",
+        "discussionGateBrainstorm": "Chỉ chế độ thảo luận",
+        "discussionGateAlways": "Luôn áp dụng",
+        "discussionMinChars": "Độ dài câu trả lời tối thiểu",
+        "discussionMinCharsHelp": "Chỉ kích hoạt khi câu trả lời nháp dài từ mức ký tự này trở lên.",
+        "stuckDetection": "Tự động phát hiện kẹt",
+        "stuckDetectionHelp": "Khi cùng một thao tác bị lỗi 2 lần liên tiếp, nhắc agent tham vấn advisor trước khi thử lại."
       },
       "team": {
         "add": "Thêm đồng đội",

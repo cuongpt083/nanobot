@@ -74,6 +74,29 @@ def decide_review_nudge(
     return NudgeDecision("reconsult" if scan.consulted else "first", scan.gap)
 
 
+def decide_discussion_gate(
+    scan: RunScan,
+    *,
+    draft_chars: int,
+    mode: str,
+    gate: Literal["off", "brainstorm", "always"],
+    min_chars: int,
+    first_gap: int,
+) -> NudgeDecision | None:
+    """Decide whether an open-ended conversational reply must pass through the advisor."""
+    if gate == "off":
+        return None
+    if gate == "brainstorm" and mode != "brainstorm":
+        return None
+    if scan.consulted:
+        return None
+    if scan.work_total >= first_gap:
+        return None
+    if draft_chars < min_chars:
+        return None
+    return NudgeDecision("discussion", gap=0)
+
+
 def review_nudge_text(decision: NudgeDecision) -> str:
     """The injected text; always starts with ``ADVISOR_REVIEW_MARKER``."""
     if decision.kind == "coding_result":

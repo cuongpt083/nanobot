@@ -216,6 +216,23 @@ describe("CoworkerSettingsEntry", () => {
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     expect(updateSpy.mock.calls[0][1].context?.keepalive.enabled).toBe(false);
   });
+
+  it("edits discussion gate and min chars in Advisor tab", async () => {
+    vi.spyOn(api, "fetchCoworkerSettings").mockResolvedValue(payload());
+    const updateSpy = vi.spyOn(api, "updateCoworkerSettings").mockResolvedValue(payload());
+    await openDialog();
+    expect(await screen.findByText(/Discussion gate/i)).toBeInTheDocument();
+
+    const selects = screen.getAllByRole("combobox");
+    const gateSelect = selects.find((s) => (s as HTMLSelectElement).value === "brainstorm") || selects[1];
+    fireEvent.change(gateSelect, { target: { value: "always" } });
+
+    const saveBtn = screen.getByRole("button", { name: "Save" });
+    expect(saveBtn).toBeEnabled();
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1].advisor?.discussion_gate).toBe("always");
+  });
 });
 
 describe("CodingAgentsPanel", () => {

@@ -2278,6 +2278,17 @@
         "coding": "Coding",
         "cache": "Cache"
       },
+      "advisor": {
+        "discussionGate": "Discussion gate",
+        "discussionGateHelp": "Require advisor consultation on draft before long answers stand.",
+        "discussionGateOff": "Off",
+        "discussionGateBrainstorm": "Brainstorm mode only",
+        "discussionGateAlways": "Always",
+        "discussionMinChars": "Minimum draft length",
+        "discussionMinCharsHelp": "Only gate drafts reaching this character count.",
+        "stuckDetection": "Mechanical stuck detection",
+        "stuckDetectionHelp": "When the same failure repeats, instruct the agent to consult the advisor before retrying."
+      },
       "cache": {
         "keepaliveTitle": "Prompt Cache Keep-Warm",
         "keepaliveCostNotice": "Keep-alive pings replay the prompt cache shortly before expiry to refresh TTL at cache-read prices (~0.1×–0.25× write price).",

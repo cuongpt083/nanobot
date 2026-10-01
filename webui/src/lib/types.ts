@@ -1892,6 +1892,9 @@ export interface CoworkerAdvisorConfig {
   review_nudge: boolean;
   first_consult_gap: number;
   reconsult_gap: number;
+  discussion_gate?: "off" | "brainstorm" | "always";
+  discussion_min_chars?: number;
+  stuck_detection?: boolean;
 }
 
 export interface CoworkerRoomAgentConfig {

@@ -261,6 +261,48 @@ function AdvisorTab({ state }: { state: CoworkerSettingsState }) {
             onChange={(reconsult_gap) => set({ reconsult_gap })}
           />
         </Field>
+        <Field
+          title={tx("advisor.discussionGate", "Discussion gate")}
+          description={tx(
+            "advisor.discussionGateHelp",
+            "Require advisor consultation on draft before long answers stand.",
+          )}
+        >
+          <select
+            className="rounded-lg border border-border/60 bg-bg-surface px-2.5 py-1.5 text-xs text-text-primary"
+            value={advisor.discussion_gate ?? "brainstorm"}
+            onChange={(e) => set({ discussion_gate: e.target.value as "off" | "brainstorm" | "always" })}
+          >
+            <option value="off">{tx("advisor.discussionGateOff", "Off")}</option>
+            <option value="brainstorm">{tx("advisor.discussionGateBrainstorm", "Brainstorm mode only")}</option>
+            <option value="always">{tx("advisor.discussionGateAlways", "Always")}</option>
+          </select>
+        </Field>
+        <Field
+          title={tx("advisor.discussionMinChars", "Minimum draft length")}
+          description={tx("advisor.discussionMinCharsHelp", "Only gate drafts reaching this character count.")}
+        >
+          <NumberInput
+            value={advisor.discussion_min_chars ?? 800}
+            min={100}
+            max={10000}
+            suffix="chars"
+            onChange={(discussion_min_chars) => set({ discussion_min_chars })}
+          />
+        </Field>
+        <Field
+          title={tx("advisor.stuckDetection", "Mechanical stuck detection")}
+          description={tx(
+            "advisor.stuckDetectionHelp",
+            "When the same failure repeats, instruct the agent to consult the advisor before retrying.",
+          )}
+        >
+          <Toggle
+            checked={advisor.stuck_detection ?? true}
+            label={tx("advisor.stuckDetection", "Mechanical stuck detection")}
+            onChange={(stuck_detection) => set({ stuck_detection })}
+          />
+        </Field>
       </SettingsGroup>
     </div>
   );

@@ -92,9 +92,17 @@ def _strong_advisor(env, monkeypatch) -> None:
     env.sessions.get_or_create(KEY)
 
 
-async def _prime(hook: CoworkerHook, messages: list[dict[str, Any]], *, iteration: int = 0) -> None:
+async def _prime(
+    hook: CoworkerHook,
+    messages: list[dict[str, Any]],
+    *,
+    iteration: int = 0,
+    response_content: str | None = None,
+) -> None:
     await hook.before_run(AgentRunHookContext(messages=[{"role": "user", "content": "build it"}]))
-    await hook.before_iteration(AgentHookContext(iteration=iteration, messages=messages))
+    from nanobot.providers.base import LLMResponse
+    resp = LLMResponse(content=response_content) if response_content is not None else None
+    await hook.before_iteration(AgentHookContext(iteration=iteration, messages=messages, response=resp))
 
 
 @pytest.mark.asyncio
@@ -195,6 +203,37 @@ async def test_coding_result_turn_does_not_nudge_when_already_consulted(env, mon
     hook = _hook(CODING_RESULT_META)
     await _prime(hook, _tool_messages("coding_agent", "advisor"))
     assert hook.continuation() is None
+
+
+@pytest.mark.asyncio
+async def test_discussion_gate_in_brainstorm_mode(env, monkeypatch) -> None:
+    _strong_advisor(env, monkeypatch)
+    session = env.sessions.get_or_create(KEY)
+    advisor_state.set_mode(session, advisor_state.MODE_BRAINSTORM)
+    hook = _hook()
+    long_draft = "A" * 1000
+    await _prime(hook, [], response_content=long_draft)
+    text = hook.continuation()
+    assert text is not None and "call advisor(focus=<the user's core question" in text
+    assert advisor_state.review_nudge(session)["kind"] == "discussion"
+
+
+@pytest.mark.asyncio
+async def test_discussion_gate_skips_when_short_or_off(env, monkeypatch) -> None:
+    _strong_advisor(env, monkeypatch)
+    session = env.sessions.get_or_create(KEY)
+    advisor_state.set_mode(session, advisor_state.MODE_BRAINSTORM)
+
+    # Short draft
+    hook = _hook()
+    await _prime(hook, [], response_content="short draft")
+    assert hook.continuation() is None
+
+    # Gate off
+    env.configure(CoworkerConfig(advisor=AdvisorConfig(preset="strong", discussion_gate="off")))
+    hook2 = _hook()
+    await _prime(hook2, [], response_content="A" * 1000)
+    assert hook2.continuation() is None
 
 
 # ---------- after-run orchestration ----------

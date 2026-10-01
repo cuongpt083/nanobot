@@ -35,3 +35,9 @@ def test_advisor_directive_is_byte_stable_across_builds() -> None:
 def test_user_requested_mention_note_says_it_will_not_be_refused() -> None:
     note = directives.advisor_mention_note(enabled=True)
     assert "user-requested" in note and "not be refused for thin context" in note
+
+
+def test_advisor_brainstorm_directive_wording() -> None:
+    text = directives.ADVISOR_BRAINSTORM
+    assert "consult the advisor on your draft before finalizing" in text
+    assert "You may quote the advisor's key point in one short attributed line — never paste the whole advice." in text

@@ -429,8 +429,6 @@ class CoworkerHook(AgentHook):
         eff = advisor_state.effective(session)
         if eff is None or eff.uses >= eff.max_uses:
             return None
-        if eff.mode == advisor_state.MODE_BRAINSTORM:
-            return None  # the review nudge is about vetting work; brainstorming has none to vet
         try:
             model_key = runtime_for_preset(eff.preset).model
         except Exception:
@@ -439,12 +437,26 @@ class CoworkerHook(AgentHook):
             logger.warning("coworker: advisor review nudge skipped, circuit open for {}", model_key)
             return None
         scan = policy.scan_run(context.messages if context is not None else [])
-        decision = policy.decide_review_nudge(
-            scan,
-            first_gap=cfg.advisor.first_consult_gap,
-            reconsult_gap=cfg.advisor.reconsult_gap,
-            coding_result=result_turn,
-        )
+        decision: policy.NudgeDecision | None = None
+        if eff.mode != advisor_state.MODE_BRAINSTORM:
+            decision = policy.decide_review_nudge(
+                scan,
+                first_gap=cfg.advisor.first_consult_gap,
+                reconsult_gap=cfg.advisor.reconsult_gap,
+                coding_result=result_turn,
+            )
+        if decision is None:
+            draft_chars = len(
+                (self._iter_ctx.response.content if self._iter_ctx and self._iter_ctx.response else "") or ""
+            )
+            decision = policy.decide_discussion_gate(
+                scan,
+                draft_chars=draft_chars,
+                mode=eff.mode,
+                gate=cfg.advisor.discussion_gate,
+                min_chars=cfg.advisor.discussion_min_chars,
+                first_gap=cfg.advisor.first_consult_gap,
+            )
         if decision is None:
             return None
         self._nudged = True

@@ -112,6 +112,24 @@ def test_advisor_off_is_a_valid_preset(cfg_file: Path) -> None:
     assert load_coworker_config().advisor.preset == "off"
 
 
+def test_advisor_discussion_gate_and_min_chars_round_trip(cfg_file: Path) -> None:
+    update_coworker_settings(
+        {"advisor": {"discussion_gate": "always", "discussion_min_chars": 1200, "stuck_detection": False}},
+        PRESETS,
+        detect=False,
+    )
+    live = load_coworker_config()
+    assert live.advisor.discussion_gate == "always"
+    assert live.advisor.discussion_min_chars == 1200
+    assert live.advisor.stuck_detection is False
+
+    with pytest.raises(CoworkerSettingsError, match="advisor"):
+        update_coworker_settings({"advisor": {"discussion_gate": "invalid"}}, PRESETS, detect=False)
+
+    with pytest.raises(CoworkerSettingsError, match="advisor"):
+        update_coworker_settings({"advisor": {"discussion_min_chars": 50}}, PRESETS, detect=False)
+
+
 def test_repos_must_be_absolute_existing_git_repositories(cfg_file: Path, tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()

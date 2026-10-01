@@ -31,6 +31,9 @@ class AdvisorConfig(Base):
     review_nudge: bool = True
     first_consult_gap: int = Field(default=2, ge=1)
     reconsult_gap: int = Field(default=12, ge=3)
+    discussion_gate: Literal["off", "brainstorm", "always"] = "brainstorm"
+    discussion_min_chars: int = Field(default=800, ge=100)
+    stuck_detection: bool = True
 
 
 class RoomAgentConfig(Base):

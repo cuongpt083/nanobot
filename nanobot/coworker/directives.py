@@ -77,12 +77,13 @@ ADVISOR_BRAINSTORM = "\n".join([
     "",
     "Use it for discussion, not just for code: call `advisor` BEFORE you give a recommendation, a plan "
     "or a judgment on any open-ended question (strategy, design, trade-offs, writing, decisions). You "
-    "do not need to read files or gather evidence first. Put the real question in `focus`.",
+    "do not need to read files or gather evidence first. Put the real question in `focus`. For long replies, "
+    "the harness may also ask you to consult the advisor on your draft before finalizing.",
     "",
     "Then answer the user yourself: show where the advisor's view agrees with yours and where it "
-    "differs, name the disagreement plainly instead of hiding it, and give your own conclusion. Do "
-    "not paste the advisor's text verbatim. Skip the advisor for greetings, clarifying questions and "
-    "one-line factual answers.",
+    "differs, name the disagreement plainly instead of hiding it, and give your own conclusion. You "
+    "may quote the advisor's key point in one short attributed line — never paste the whole advice. "
+    "Skip the advisor for greetings, clarifying questions and one-line factual answers.",
 ])
 
 ROOM_STATE = "\n".join([

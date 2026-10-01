@@ -24,8 +24,8 @@ def _run(*names: str) -> list[dict[str, Any]]:
     ]
 
 
-def _scan(consulted: bool, gap: int) -> policy.RunScan:
-    return policy.RunScan(consulted=consulted, gap=gap, work_total=gap)
+def _scan(consulted: bool, gap: int, work_total: int | None = None) -> policy.RunScan:
+    return policy.RunScan(consulted=consulted, gap=gap, work_total=gap if work_total is None else work_total)
 
 
 # ---------- scan_run ----------
@@ -85,6 +85,43 @@ def test_decide_coding_result_nudges_only_when_unreviewed() -> None:
     assert policy.decide_review_nudge(
         _scan(True, 5), first_gap=2, reconsult_gap=12, coding_result=True
     ) is None
+
+
+def test_decide_discussion_gate() -> None:
+    # Off gate
+    assert policy.decide_discussion_gate(
+        _scan(False, 0, work_total=0), draft_chars=1000, mode="brainstorm", gate="off", min_chars=800, first_gap=2
+    ) is None
+
+    # Brainstorm gate, but mode is coding
+    assert policy.decide_discussion_gate(
+        _scan(False, 0, work_total=0), draft_chars=1000, mode="coding", gate="brainstorm", min_chars=800, first_gap=2
+    ) is None
+
+    # Brainstorm gate, mode is brainstorm, draft >= min_chars
+    assert policy.decide_discussion_gate(
+        _scan(False, 0, work_total=0), draft_chars=1000, mode="brainstorm", gate="brainstorm", min_chars=800, first_gap=2
+    ) == policy.NudgeDecision("discussion", gap=0)
+
+    # Draft too short
+    assert policy.decide_discussion_gate(
+        _scan(False, 0, work_total=0), draft_chars=500, mode="brainstorm", gate="brainstorm", min_chars=800, first_gap=2
+    ) is None
+
+    # Already consulted
+    assert policy.decide_discussion_gate(
+        _scan(True, 0, work_total=0), draft_chars=1000, mode="brainstorm", gate="brainstorm", min_chars=800, first_gap=2
+    ) is None
+
+    # Work steps exceeded first_gap
+    assert policy.decide_discussion_gate(
+        _scan(False, 2, work_total=2), draft_chars=1000, mode="brainstorm", gate="brainstorm", min_chars=800, first_gap=2
+    ) is None
+
+    # Always gate with coding mode
+    assert policy.decide_discussion_gate(
+        _scan(False, 0, work_total=0), draft_chars=1000, mode="coding", gate="always", min_chars=800, first_gap=2
+    ) == policy.NudgeDecision("discussion", gap=0)
 
 
 # ---------- review_nudge_text ----------
