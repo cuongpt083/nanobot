@@ -78,6 +78,7 @@ export function CoworkerCachePill({
               <button
                 type="button"
                 aria-label={t("coworker.cache.title", { defaultValue: "Prompt Cache" })}
+                data-header-pill=""
                 className={cn(
                   "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-ring",
                   isWarm || isRunning

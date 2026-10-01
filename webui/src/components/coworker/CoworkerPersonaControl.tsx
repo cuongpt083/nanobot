@@ -61,6 +61,7 @@ export function CoworkerPersonaControl({
               <button
                 type="button"
                 data-testid="persona-control-btn"
+                data-header-pill=""
                 aria-label={label}
                 aria-pressed={Boolean(persona)}
                 className={cn(

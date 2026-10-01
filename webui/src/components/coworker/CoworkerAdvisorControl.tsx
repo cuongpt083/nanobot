@@ -97,6 +97,7 @@ export function CoworkerAdvisorControl({
                 type="button"
                 aria-label={label}
                 aria-pressed={enabled}
+                data-header-pill=""
                 className={cn(
                   "host-no-drag relative inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium transition-colors",
                   enabled

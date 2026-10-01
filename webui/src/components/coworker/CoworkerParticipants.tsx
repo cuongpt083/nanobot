@@ -127,6 +127,7 @@ export function CoworkerParticipantsStrip({
             <button
               type="button"
               data-participant={p.id}
+              data-header-pill=""
               data-state={p.state}
               title={[p.label, stateLabel, p.task].filter(Boolean).join(" · ")}
               onClick={() => onSelect?.(p)}
