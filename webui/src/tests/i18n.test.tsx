@@ -575,7 +575,12 @@ describe("webui i18n", () => {
     for (const [locale, resource] of Object.entries(resources)) {
       if (locale === "en") continue;
       const current = flattenResource(resource.common);
-      const missing = Array.from(reference.keys()).filter((key) => !current.has(key));
+      // coworker.* is an optional feature: only en and vi ship it; other locales fall back to
+      // the English defaultValue at runtime (see docs/coworker plans).
+      const coworkerOptional = locale !== "vi";
+      const missing = Array.from(reference.keys()).filter(
+        (key) => !current.has(key) && !(coworkerOptional && key.startsWith("coworker."))
+      );
       const extra = Array.from(current.keys()).filter((key) => !reference.has(key));
       const interpolationMismatches = Array.from(reference.entries())
         .filter(([key]) => current.has(key))

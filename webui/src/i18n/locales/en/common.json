@@ -1788,12 +1788,12 @@
         "mcpTitle": "MCP server: {{name}}",
         "sessionBadge": "Nanobot conversation",
         "sessionDescription": "Reference @{{name}} as a previous chat",
-          "agentGroup": "Agents",
-          "agentBadge": {
-            "coding": "Coding agent",
-            "advisor": "Advisor",
-            "teammate": "Teammate"
-          }
+        "agentGroup": "Agents",
+        "agentBadge": {
+          "coding": "Coding agent",
+          "advisor": "Advisor",
+          "teammate": "Teammate"
+        }
       },
       "encoding": "Encoding…",
       "remove": "Remove attachment",
@@ -2204,63 +2204,63 @@
       "codingTitle": "Coding Tasks",
       "advisorOffHint": "Off for this chat. Use the Advisor switch in the header to turn it on."
     },
-      "advisorControl": {
-        "title": "Advisor",
-        "tooltipOn": "Advisor is on for this chat",
-        "tooltipOff": "Turn on a second-opinion model for this chat",
-        "description": "A stronger model the agent consults for a second opinion. Works for any topic, not just code.",
-        "toggle": "Advisor for this chat",
-        "mode": "Use it for",
-        "modeBrainstorm": "Brainstorm",
-        "modeCoding": "Coding",
-        "hintBrainstorm": "Discussion and decisions: the agent asks for a second opinion before it recommends something.",
-        "hintCoding": "Engineering work: the agent reads the code first, consults before it writes, and again before it finishes.",
-        "model": "Advisor model",
-        "choosePreset": "Choose a model preset",
-        "resetUses": "Reset consults budget",
-        "cacheWarning": "This change will cause the next turn to be charged at full cache-write price.",
-        "presetDefault": "Automatic (default: {{preset}})",
-        "turnOffForSession": "Turn off for this session"
-      },
-      "advisorExchanges": {
-        "title": "Advisor Q&A",
-        "empty": "No consults yet. The agent asks the advisor when it needs a second opinion.",
-        "noFocus": "Reviewed the whole session"
-      },
-      "cache": {
-        "title": "Prompt Cache",
-        "running": "Warm (running)",
-        "cold": "Cold",
-        "tooltipWarm": "Prompt cache is warm",
-        "tooltipCold": "Prompt cache is cold",
-        "none": "No model requests yet in this session.",
-        "unreported": "This provider does not report prompt-cache usage, so hit rate is unknown.",
-        "hitRate": "Cache hit rate (session)",
-        "read": "From cache",
-        "write": "Newly cached",
-        "input": "Input total",
-        "last": "Last request: {{rate}} from cache ({{read}} of {{input}} tokens)"
-      },
-      "keepWarm": {
-        "title": "Keep-warm prompt cache",
-        "tooltip": "Re-reads the prompt cache shortly before it expires to refresh the TTL at cache-read price (~0.1× write).",
-        "modeLabel": "Keep-warm mode",
-        "modeGlobal": "Inherited (Global)",
-        "modeOn": "On",
-        "modeOff": "Off",
-        "strategy": "Strategy",
-        "strategyPing": "Periodic ping (~5 min)",
-        "strategyTtl1h": "Hold 1 hour (ttl1h)",
-        "window": "Keep-warm window",
-        "parked": "Pings paused after error"
-      },
-      "autoOptimize": {
-        "title": "Auto-optimize context",
-        "toggle": "Auto-optimize context",
-        "description": "Trims redundant history and drops dead tool calls while keeping prompt cache stable.",
-        "pending": "⏳ Will apply when cache cools down",
-        "savedMessages": "Trimmed {{count}} messages"
-      },
+    "advisorControl": {
+      "title": "Advisor",
+      "tooltipOn": "Advisor is on for this chat",
+      "tooltipOff": "Turn on a second-opinion model for this chat",
+      "description": "A stronger model the agent consults for a second opinion. Works for any topic, not just code.",
+      "toggle": "Advisor for this chat",
+      "mode": "Use it for",
+      "modeBrainstorm": "Brainstorm",
+      "modeCoding": "Coding",
+      "hintBrainstorm": "Discussion and decisions: the agent asks for a second opinion before it recommends something.",
+      "hintCoding": "Engineering work: the agent reads the code first, consults before it writes, and again before it finishes.",
+      "model": "Advisor model",
+      "choosePreset": "Choose a model preset",
+      "resetUses": "Reset consults budget",
+      "cacheWarning": "This change will cause the next turn to be charged at full cache-write price.",
+      "presetDefault": "Automatic (default: {{preset}})",
+      "turnOffForSession": "Turn off for this session"
+    },
+    "advisorExchanges": {
+      "title": "Advisor Q&A",
+      "empty": "No consults yet. The agent asks the advisor when it needs a second opinion.",
+      "noFocus": "Reviewed the whole session"
+    },
+    "cache": {
+      "title": "Prompt Cache",
+      "running": "Warm (running)",
+      "cold": "Cold",
+      "tooltipWarm": "Prompt cache is warm",
+      "tooltipCold": "Prompt cache is cold",
+      "none": "No model requests yet in this session.",
+      "unreported": "This provider does not report prompt-cache usage, so hit rate is unknown.",
+      "hitRate": "Cache hit rate (session)",
+      "read": "From cache",
+      "write": "Newly cached",
+      "input": "Input total",
+      "last": "Last request: {{rate}} from cache ({{read}} of {{input}} tokens)"
+    },
+    "keepWarm": {
+      "title": "Keep-warm prompt cache",
+      "tooltip": "Re-reads the prompt cache shortly before it expires to refresh the TTL at cache-read price (~0.1× write).",
+      "modeLabel": "Keep-warm mode",
+      "modeGlobal": "Inherited (Global)",
+      "modeOn": "On",
+      "modeOff": "Off",
+      "strategy": "Strategy",
+      "strategyPing": "Periodic ping (~5 min)",
+      "strategyTtl1h": "Hold 1 hour (ttl1h)",
+      "window": "Keep-warm window",
+      "parked": "Pings paused after error"
+    },
+    "autoOptimize": {
+      "title": "Auto-optimize context",
+      "toggle": "Auto-optimize context",
+      "description": "Trims redundant history and drops dead tool calls while keeping prompt cache stable.",
+      "pending": "⏳ Will apply when cache cools down",
+      "savedMessages": "Trimmed {{count}} messages"
+    },
     "advisor": {
       "reviewTitle": "Senior Advisor Review",
       "automated": "Checkpoint"
@@ -2287,7 +2287,18 @@
         "discussionMinChars": "Minimum draft length",
         "discussionMinCharsHelp": "Only gate drafts reaching this character count.",
         "stuckDetection": "Mechanical stuck detection",
-        "stuckDetectionHelp": "When the same failure repeats, instruct the agent to consult the advisor before retrying."
+        "stuckDetectionHelp": "When the same failure repeats, instruct the agent to consult the advisor before retrying.",
+        "disabled": "Disabled",
+        "firstGap": "First-consult reminder after",
+        "gapHelp": "Number of state-changing steps without consulting.",
+        "maxTokens": "Advice length limit",
+        "maxUses": "Consults per conversation",
+        "nudge": "Remind the agent to ask",
+        "preset": "Advisor model",
+        "reconsultGap": "Re-consult reminder after",
+        "timeout": "Consult timeout",
+        "presetHelp": "A stronger model the agent can consult for review. It only advises; it never edits or runs anything.",
+        "nudgeHelp": "After substantial work, or a finished coding task, nudge the agent to consult the advisor once."
       },
       "cache": {
         "keepaliveTitle": "Prompt Cache Keep-Warm",
@@ -2315,7 +2326,34 @@
         "freezeMaxHoldMinutes": "Max system freeze hold",
         "cacheTtlSeconds": "Cache TTL override",
         "cacheTtlSecondsHelp": "Leave empty to use provider natural TTL (~300s)."
-      }
+      },
+      "cancel": "Cancel",
+      "coding": {
+        "addRepo": "Add repository",
+        "confirmUnsandboxed": "I understand, enable",
+        "custom": "custom command",
+        "defaultBackend": "Default backend",
+        "enabled": "Enable coding agents",
+        "harnesses": "Installed harnesses",
+        "installed": "installed",
+        "notFound": "not found",
+        "repos": "Repositories",
+        "unsandboxed": "run without an OS sandbox"
+      },
+      "configure": "Configure in Coworker settings",
+      "entryHelp": "Advisor model, teammate agents and coding harnesses (Pi, agy).",
+      "loadFailed": "Could not load Coworker settings.",
+      "loading": "Loading…",
+      "retry": "Retry",
+      "revert": "Discard changes",
+      "save": "Save",
+      "saved": "Saved. Applies to new turns without a restart.",
+      "team": {
+        "add": "Add teammate",
+        "empty": "No teammates yet. Mention them in chat with @id once added.",
+        "remove": "Remove agent"
+      },
+      "title": "Coworker"
     },
     "participants": {
       "title": "Working on this",
@@ -2369,4 +2407,3 @@
     }
   }
 }
-

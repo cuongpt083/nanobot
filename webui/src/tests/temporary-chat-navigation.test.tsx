@@ -1,4 +1,13 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  configure,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/App";
@@ -20,6 +29,9 @@ vi.mock("@/lib/bootstrap", async (importOriginal) => ({
   fetchBootstrap: vi.fn(async () => ({ token: "test", api_token: "test", ws_path: "/" })),
   deriveWsUrl: () => "ws://test",
 }));
+
+// The lazy Settings chunk (Coworker tabs included) can take over the 1 s default to transform.
+configure({ asyncUtilTimeout: 5000 });
 
 // Only the network is fake: App, the workbench, stream hook and multiplexed client are real.
 class TestSocket {
