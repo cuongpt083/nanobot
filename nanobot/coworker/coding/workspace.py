@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import time
 from pathlib import Path
@@ -82,6 +83,21 @@ class WorkspaceManager:
             f"Repository '{repo_path}' is not in the allowed coding.repos list: "
             f"{[r.path for r in self.config.repos]}"
         )
+
+    def validate_task_repo(self, task_repo: str | Path) -> RepoConfig:
+        """Repo of a task this system already admitted (it is in the registry, so it is trusted).
+
+        Unlike :meth:`validate_repo` this does not require the path to be in ``coding.repos``:
+        the project may have been the directory the user picked for the chat. A matching
+        ``coding.repos`` entry still supplies its profile.
+        """
+        key = os.path.normcase(str(Path(task_repo).expanduser().resolve()))
+        for r in self.config.repos:
+            if os.path.normcase(str(Path(r.path).expanduser().resolve())) == key:
+                return r
+        from nanobot.coworker.config import RepoConfig
+
+        return RepoConfig(path=str(task_repo))
 
     async def create_worktree(
         self,

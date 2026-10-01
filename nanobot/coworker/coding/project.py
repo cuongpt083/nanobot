@@ -1,0 +1,119 @@
+"""Resolve which directory a coding task works on, and whether the model may choose it.
+
+Trust boundary: the project directory the user picked in the WebUI (persisted in the session's
+``workspace_scope``) and the ``coding.repos`` allowlist are the only sources. A path supplied by
+the model (``repo`` argument) is accepted only when it names one of those, so the model can never
+widen the set of directories a harness may run in.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+from nanobot.coworker.config import RepoConfig
+from nanobot.security.workspace_access import (
+    WORKSPACE_SCOPE_METADATA_KEY,
+    WorkspaceScopeError,
+    validate_workspace_scope_payload,
+)
+
+if TYPE_CHECKING:
+    from nanobot.coworker.config import CodingAgentConfig
+
+
+class ProjectError(RuntimeError):
+    """The coding project could not be resolved or is not allowed."""
+
+
+@dataclass(frozen=True)
+class ProjectTarget:
+    """Directory a coding task runs against, plus optional per-project defaults."""
+
+    path: Path
+    profile: RepoConfig | None
+    source: Literal["scope", "config"]
+
+    @property
+    def repo_config(self) -> RepoConfig:
+        """Profile when one matches the path, otherwise defaults (HEAD, global backend)."""
+        return self.profile if self.profile is not None else RepoConfig(path=str(self.path))
+
+
+def path_key(path: str | Path) -> str:
+    """Comparable form of a path (resolved, case-folded on Windows)."""
+    return os.path.normcase(str(Path(path).expanduser().resolve()))
+
+
+def _find_profile(cfg: CodingAgentConfig, path: str | Path) -> RepoConfig | None:
+    key = path_key(path)
+    for repo in cfg.repos:
+        if path_key(repo.path) == key:
+            return repo
+    return None
+
+
+def session_project_path(session: Any | None) -> Path | None:
+    """Directory the user explicitly picked for this session, or None.
+
+    Only an explicit ``workspace_scope`` counts: a session without one runs in the default
+    workspace, which must not silently become a coding repository.
+    """
+    metadata = getattr(session, "metadata", None) if session is not None else None
+    if not isinstance(metadata, dict):
+        return None
+    meta = cast("dict[str, Any]", metadata)
+    if WORKSPACE_SCOPE_METADATA_KEY not in meta:
+        return None
+    raw = meta[WORKSPACE_SCOPE_METADATA_KEY]
+    try:
+        scope = validate_workspace_scope_payload(
+            raw, default_workspace=Path.cwd(), default_restrict_to_workspace=False
+        )
+    except WorkspaceScopeError as exc:
+        raise ProjectError(
+            f"The project directory chosen for this chat is no longer usable: {exc.message}. "
+            "Pick the project directory again."
+        ) from exc
+    return scope.project_path
+
+
+def resolve_project(
+    session: Any | None,
+    cfg: CodingAgentConfig,
+    repo_arg: str | None = None,
+) -> ProjectTarget:
+    """Pick the project for a coding task.
+
+    Order: the session's chosen project directory, then the only configured repo. ``repo_arg``
+    (model-controlled) must equal the chosen directory or be one of ``cfg.repos``.
+    """
+    scope_path = session_project_path(session)
+
+    if repo_arg:
+        if scope_path is not None and path_key(repo_arg) == path_key(scope_path):
+            return ProjectTarget(scope_path, _find_profile(cfg, scope_path), "scope")
+        profile = _find_profile(cfg, repo_arg)
+        if profile is None:
+            allowed = [str(scope_path)] if scope_path is not None else []
+            allowed += [r.path for r in cfg.repos]
+            raise ProjectError(
+                f"Repository '{repo_arg}' is not allowed. Allowed: {allowed or 'none'}. "
+                "The project directory is chosen by the user, not by the agent."
+            )
+        return ProjectTarget(Path(profile.path).expanduser().resolve(), profile, "config")
+
+    if scope_path is not None:
+        return ProjectTarget(scope_path, _find_profile(cfg, scope_path), "scope")
+
+    if not cfg.repos:
+        raise ProjectError(
+            "No repositories configured in coding.repos and no project directory is selected "
+            "for this chat; execution is refused. Choose a project directory in the WebUI."
+        )
+    if len(cfg.repos) == 1:
+        only = cfg.repos[0]
+        return ProjectTarget(Path(only.path).expanduser().resolve(), only, "config")
+    raise ValueError(f"Ambiguous repository; specify one of: {[r.path for r in cfg.repos]}")

@@ -49,7 +49,8 @@ Ngoài phạm vi: tự động `git init` ngầm (chỉ khi người dùng yêu 
 
 Cỡ: **S** ≤ nửa ngày, **M** ~1 ngày, **L** 2–3 ngày.
 
-### T-P0 Resolver dự án + ranh giới tin cậy — M
+### T-P0 Resolver dự án + ranh giới tin cậy — M — **đã xong**
+- Làm xong: `coding/project.py` (`resolve_project`, `ProjectTarget`, `ProjectError`), `admit` tự tra phiên (nên room `_run_guest` được hưởng luôn), `validate_task_repo` và 3 chỗ trong `commands.py` (merge/discard/resume) đã dùng nó — kéo sớm từ T-P4 để task admit từ thư mục dự án vẫn merge được. Tra phiên lỗi (vd. service giả trong test) → rơi về `coding.repos`. Test: `test_project.py`.
 - Mới `coworker/coding/project.py`:
   ```python
   @dataclass(frozen=True)

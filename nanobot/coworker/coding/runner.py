@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -23,13 +23,14 @@ from nanobot.coworker.coding.brief import (
     render_brief,
     render_rules,
 )
+from nanobot.coworker.coding.project import resolve_project
 from nanobot.coworker.coding.tasks import (
     CodingTask,
     generate_task_id,
     shared_registry,
 )
 from nanobot.coworker.coding.workspace import WorkspaceManager
-from nanobot.coworker.runtime import inject_turn, post_to_chat
+from nanobot.coworker.runtime import get_session, inject_turn, post_to_chat
 
 if TYPE_CHECKING:
     from nanobot.coworker.config import CoworkerConfig, RepoConfig
@@ -38,6 +39,15 @@ if TYPE_CHECKING:
 # Running backends by task id, shared by every runner instance so steer/abort issued from a later
 # tool call or `/code` command reaches the process started by an earlier one.
 _ACTIVE_BACKENDS: dict[str, CodingBackend] = {}
+
+
+def _lookup_session(session_key: str) -> Any | None:
+    """Session of the task's chat; None when unavailable (falls back to ``coding.repos``)."""
+    try:
+        return get_session(session_key)
+    except Exception:
+        logger.debug("coding: session lookup failed for {}; using coding.repos", session_key)
+        return None
 
 
 class CodingRunner:
@@ -66,17 +76,9 @@ class CodingRunner:
         if not self.config.coding.enabled:
             raise RuntimeError("coding_agent is disabled in configuration (coding.enabled is False).")
 
-        if not self.config.coding.repos:
-            raise RuntimeError("No repositories configured in coding.repos; execution is refused.")
-
-        # Resolve repo
-        if repo_path:
-            repo = self.workspace_mgr.validate_repo(repo_path)
-        elif len(self.config.coding.repos) == 1:
-            repo = self.config.coding.repos[0]
-        else:
-            options = [r.path for r in self.config.coding.repos]
-            raise ValueError(f"Ambiguous repository; specify one of: {options}")
+        # Resolve the project: the directory the user picked for this chat, else coding.repos.
+        project = resolve_project(_lookup_session(session_key), self.config.coding, repo_path)
+        repo = project.repo_config
 
         # Resolve backend
         resolved_backend_name = (

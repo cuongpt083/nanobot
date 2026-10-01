@@ -116,7 +116,7 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
         if not t:
             return _reply(ctx, f"Task '{task_id}' not found.")
         try:
-            repo_cfg = runner.workspace_mgr.validate_repo(t.repo)
+            repo_cfg = runner.workspace_mgr.validate_task_repo(t.repo)
             commit_msg = (
                 f"{t.brief}\n\nTask: {t.id}\nBackend: {t.backend}\n\n"
                 f"{t.summary or 'Merged coding agent work'}"
@@ -146,7 +146,7 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
         if not t:
             return _reply(ctx, f"Task '{task_id}' not found.")
         try:
-            repo_cfg = runner.workspace_mgr.validate_repo(t.repo)
+            repo_cfg = runner.workspace_mgr.validate_task_repo(t.repo)
             await runner.workspace_mgr.cleanup(repo=repo_cfg, task_id=t.id, delete_branch=True)
             t.status = "aborted"
             runner.registry.save(t)
@@ -166,7 +166,7 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
             return _reply(ctx, f"Task '{task_id}' has no saved session or conversation reference to resume.")
 
         try:
-            repo_cfg = runner.workspace_mgr.validate_repo(t.repo)
+            repo_cfg = runner.workspace_mgr.validate_task_repo(t.repo)
             from nanobot.coworker.coding.backends.base import backend_for
 
             backend = backend_for(t.backend, runner.config)
