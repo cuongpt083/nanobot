@@ -6,6 +6,7 @@ import asyncio
 import os
 import shutil
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -17,6 +18,49 @@ if TYPE_CHECKING:
 
 class WorkspaceError(Exception):
     """Raised when repository or worktree operations fail."""
+
+
+@dataclass(frozen=True)
+class ProjectKind:
+    """What a project directory is, as far as git is concerned.
+
+    ``git``: the directory is a repository root with at least one commit.
+    ``git_subdir``: it sits inside a repository (``toplevel``); ``rel`` is the path below it.
+    ``git_empty``: a repository without any commit yet (no worktree can be created).
+    ``non_git``: not under version control (or git is unavailable).
+    """
+
+    kind: Literal["git", "git_subdir", "git_empty", "non_git"]
+    toplevel: Path | None = None
+    rel: str = ""
+
+    @property
+    def has_worktree_support(self) -> bool:
+        return self.kind in ("git", "git_subdir")
+
+
+async def inspect_project(path: str | Path) -> ProjectKind:
+    """Classify ``path`` with git; never raises (missing git counts as ``non_git``)."""
+    project = Path(path).expanduser().resolve()
+    try:
+        code, out = await _run_cmd(["git", "rev-parse", "--show-toplevel"], cwd=project)
+    except (OSError, ValueError):
+        return ProjectKind("non_git")
+    if code != 0 or not out.strip():
+        return ProjectKind("non_git")
+    toplevel = Path(out.strip().splitlines()[-1]).resolve()
+    try:
+        code, _ = await _run_cmd(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=project)
+    except (OSError, ValueError):
+        return ProjectKind("non_git")
+    if code != 0:
+        return ProjectKind("git_empty", toplevel)
+    rel = os.path.relpath(project, toplevel)
+    if rel in (".", ""):
+        return ProjectKind("git", toplevel)
+    if rel.startswith(".."):  # symlinked layout we cannot map; treat as unsupported
+        return ProjectKind("non_git")
+    return ProjectKind("git_subdir", toplevel, Path(rel).as_posix())
 
 
 async def _run_cmd(
@@ -107,12 +151,16 @@ class WorkspaceManager:
         base_ref: str | None = None,
     ) -> tuple[Path, str]:
         """Create a dedicated git worktree and branch for the task."""
-        repo_dir = Path(repo.path).expanduser().resolve()
-
-        # Check git repo root
-        code, out = await _run_cmd(["git", "rev-parse", "--show-toplevel"], cwd=repo_dir)
-        if code != 0:
-            raise WorkspaceError(f"'{repo_dir}' is not a valid git repository: {out}")
+        project_dir = Path(repo.path).expanduser().resolve()
+        info = await inspect_project(project_dir)
+        if info.kind == "git_empty":
+            raise WorkspaceError(
+                f"'{project_dir}' is a git repository without any commit yet; "
+                "make an initial commit so a worktree can be created."
+            )
+        if info.toplevel is None or not info.has_worktree_support:
+            raise WorkspaceError(f"'{project_dir}' is not inside a git repository.")
+        repo_dir = info.toplevel  # worktrees are always cut from the repository root
 
         base = base_ref or repo.base_ref or "HEAD"
         branch_name = f"coworker/code/{task_id}"
@@ -154,6 +202,9 @@ class WorkspaceManager:
         if code != 0 or not out.strip():
             return []
         return [line.strip() for line in out.splitlines() if line.strip()]
+
+    async def project_kind(self, repo: RepoConfig) -> ProjectKind:
+        return await inspect_project(repo.path)
 
     async def run_acceptance(
         self,

@@ -68,7 +68,8 @@ Cỡ: **S** ≤ nửa ngày, **M** ~1 ngày, **L** 2–3 ngày.
 - Test `tests/coworker/coding/test_project.py`: scope thắng; không scope + 1 repo; không scope + 0 repo → lỗi; `repo_arg` lạ bị từ chối;
   `repo_arg` bằng scope được nhận; profile khớp áp `acceptance/base_ref/backend`; Windows: khác hoa-thường/dấu `\`.
 
-### T-P1 Phân loại thư mục git — S (phụ thuộc T-P0)
+### T-P1 Phân loại thư mục git — S (phụ thuộc T-P0) — **đã xong**
+- Làm xong: `workspace.inspect_project` → `ProjectKind` (`git` / `git_subdir` / `git_empty` / `non_git`); `create_worktree` cắt từ toplevel thật và báo lỗi rõ cho repo chưa có commit / thư mục không phải git (T-P2 sẽ thay lỗi `non_git` bằng chế độ `direct`); `CodingTask.subdir` + `run_dir`: harness, vòng sửa lỗi, `acceptance` và `/code resume` chạy ở `worktree/<subdir>`, còn commit/diff/merge/cleanup chạy ở gốc repo. Test: `test_project_kind.py` (repo thật, thư mục con, rỗng, không git, đường dẫn có dấu cách/Unicode). `git_empty` hiện báo lỗi; chưa quyết định xử lý như `direct` (xem T-P2).
 - `workspace.py`: `inspect_project(path) -> ProjectKind` (`git`, `git_subdir(toplevel, rel)`, `git_empty`, `non_git`) bằng
   `git rev-parse --show-toplevel` và `--verify HEAD`. Dùng `toplevel` thật (hiện đang bị bỏ qua).
 - `create_worktree`: dùng `toplevel`; backend `cwd = worktree / rel` khi là thư mục con. `merge/cleanup` dùng `toplevel`.

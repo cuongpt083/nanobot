@@ -60,6 +60,15 @@ class CodingTask:
     # Live progress for the WebUI (tool_count, last_tool, last_event_at, rounds); the registry keeps
     # the same object in memory, so mutating it is visible to status without a disk write per event.
     live: dict[str, Any] = field(default_factory=dict)
+    # Project directory relative to the git toplevel when the user picked a subdirectory
+    # (monorepo); the harness and acceptance command run there, git operations at the root.
+    subdir: str = ""
+
+    @property
+    def run_dir(self) -> Path:
+        """Directory the harness runs in: the worktree, or its subdirectory for a subproject."""
+        base = Path(self.worktree)
+        return base / self.subdir if self.subdir else base
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

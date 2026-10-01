@@ -173,6 +173,7 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
             worktree_path = Path(t.worktree)
             if not worktree_path.exists():
                 return _reply(ctx, f"Worktree '{t.worktree}' not found.")
+            run_dir = t.run_dir
 
             rules = render_rules(t.acceptance)
 
@@ -180,7 +181,7 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
                 run = backend.follow_up(
                     run_ref=t.resume_ref,  # type: ignore[arg-type]
                     message=follow_up_msg,
-                    cwd=worktree_path,
+                    cwd=run_dir,
                     rules=rules,
                     task_id=t.id,
                 )

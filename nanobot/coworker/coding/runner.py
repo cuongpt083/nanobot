@@ -149,6 +149,8 @@ class CodingRunner:
         )
         task.worktree = str(worktree_dir)
         task.branch = branch_name
+        task.subdir = (await self.workspace_mgr.project_kind(repo)).rel
+        run_dir = task.run_dir
         task.status = "running"
         self.registry.save(task)
         self._active_backends[task.id] = backend
@@ -171,7 +173,7 @@ class CodingRunner:
             # Launch first round
             run = backend.start(
                 brief=rendered_brief,
-                cwd=worktree_dir,
+                cwd=run_dir,
                 rules=rules,
                 task_id=task.id,
             )
@@ -249,7 +251,7 @@ class CodingRunner:
                 task.commits = await self.workspace_mgr.get_commits(worktree_dir, task.base)
 
                 if task.acceptance:
-                    passed, acc_out = await self.workspace_mgr.run_acceptance(worktree_dir, task.acceptance)
+                    passed, acc_out = await self.workspace_mgr.run_acceptance(run_dir, task.acceptance)
                     task.acceptance_output = acc_out
                     if passed:
                         task.status = "succeeded"
@@ -263,7 +265,7 @@ class CodingRunner:
                         run = backend.follow_up(
                             run_ref=task.resume_ref,
                             message=fu_prompt,
-                            cwd=worktree_dir,
+                            cwd=run_dir,
                             rules=rules,
                             task_id=task.id,
                         )
