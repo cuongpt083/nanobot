@@ -10,6 +10,7 @@ from typing import Any
 from nanobot.agent.tools.base import ToolResult, tool_parameters
 from nanobot.coworker.coding.project import DirectConfirmationError
 from nanobot.coworker.coding.runner import CodingRunner
+from nanobot.coworker.coding.tasks import CodingTask
 from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.runtime import services, spawn_background
 from nanobot.coworker.tools_base import CoworkerTool
@@ -38,7 +39,10 @@ DIFF_MAX_CHARS = 20_000
         },
         "repo": {
             "type": "string",
-            "description": "Path of the repository. Optional if only one repo is configured.",
+            "description": (
+                "Optional. Defaults to the project directory the user chose for this chat; "
+                "only that directory or a configured repository is accepted."
+            ),
         },
         "base": {
             "type": "string",
@@ -69,7 +73,7 @@ DIFF_MAX_CHARS = 20_000
     "required": ["action"],
 })
 class CodingAgentTool(CoworkerTool):
-    """Delegate coding work to an external harness (Pi, agy) running in a git worktree."""
+    """Delegate coding work to an external harness (Pi, agy) in a git worktree, or in place for a non-git project."""
 
     @property
     def name(self) -> str:
@@ -79,7 +83,8 @@ class CodingAgentTool(CoworkerTool):
     def description(self) -> str:
         return (
             "Delegate multi-file coding, refactoring, or bug fixes with an acceptance test loop "
-            "to an external coding harness (Pi or agy) running in an isolated git worktree."
+            "to an external coding harness (Pi or agy). It runs in an isolated git worktree, or edits "
+            "the project in place (with an undo snapshot) when the project is not a git repository."
         )
 
     def _get_runner(self) -> CodingRunner:
@@ -87,6 +92,34 @@ class CodingAgentTool(CoworkerTool):
         ws_root = svc.workspace if svc is not None else Path.cwd()
         cfg = load_coworker_config()
         return CodingRunner(cfg, ws_root)
+
+    async def _direct_diff(self, runner: CodingRunner, t: CodingTask) -> ToolResult:
+        """Diff of an in-place task: the changed files plus a text diff when a snapshot copy exists."""
+        changes: dict[str, list[str]] = t.changes
+        if not any(changes.get(k) for k in ("added", "modified", "deleted")):
+            return self.payload("ok", id=t.id, mode="direct", diff="", note="No files were changed.")
+        try:
+            text = await runner.direct_diff_text(t, limit=DIFF_MAX_CHARS + 1)
+        except RuntimeError as exc:
+            return self.payload("error", error=str(exc))
+        truncated = len(text) > DIFF_MAX_CHARS
+        notes: list[str] = []
+        if truncated:
+            text = text[:DIFF_MAX_CHARS]
+            notes.append(f"Diff truncated to {DIFF_MAX_CHARS} characters; read the files for the rest.")
+        if not text:
+            notes.append("No text diff available (no copy of the originals was kept, or binary files).")
+        return self.payload(
+            "ok",
+            id=t.id,
+            mode="direct",
+            workdir=t.workdir,
+            changes=changes,
+            diffstat=t.diffstat,
+            truncated=truncated,
+            diff=text,
+            note=" ".join(notes) or None,
+        )
 
     async def execute(
         self,
@@ -170,7 +203,9 @@ class CodingAgentTool(CoworkerTool):
                 t.status,
                 id=t.id,
                 backend=t.backend,
+                mode=t.mode,
                 branch=t.branch,
+                changes=t.changes or None,
                 brief=t.brief,
                 commits=t.commits,
                 stats=t.stats,
@@ -217,6 +252,8 @@ class CodingAgentTool(CoworkerTool):
             t = runner.registry.get(id)
             if not t:
                 return self.payload("error", error=f"Task '{id}' not found.")
+            if t.mode == "direct":
+                return await self._direct_diff(runner, t)
             worktree = Path(t.worktree) if t.worktree else None
             if worktree is None or not worktree.exists():
                 return self.payload("error", error=f"Worktree for task '{id}' is no longer available.")

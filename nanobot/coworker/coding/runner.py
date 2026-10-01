@@ -468,6 +468,57 @@ class CodingRunner:
             ])
         return "\n".join(lines)
 
+    def _direct_manifest(self, task: CodingTask) -> direct_mod.Manifest:
+        manifest = direct_mod.load_manifest(Path(task.snapshot)) if task.snapshot else None
+        if manifest is None:
+            raise RuntimeError(f"The snapshot of task '{task.id}' is no longer available.")
+        return manifest
+
+    async def refresh_direct_changes(self, task: CodingTask) -> direct_mod.Changes:
+        """Recompute what a direct task changed (after a resumed round) and store it."""
+        manifest = self._direct_manifest(task)
+        changes = await asyncio.to_thread(direct_mod.diff_manifest, manifest, Path(task.workdir))
+        task.changes = changes.to_dict()
+        task.diffstat = changes.summary()
+        self.registry.save(task)
+        return changes
+
+    async def direct_diff_text(self, task: CodingTask, *, limit: int) -> str:
+        """Unified diff of a direct task's small text files, read against the snapshot."""
+        manifest = self._direct_manifest(task)
+        changes = direct_mod.Changes.from_dict(task.changes)
+        if not manifest.copied:
+            return ""
+        return await asyncio.to_thread(
+            direct_mod.text_diff, Path(task.snapshot), Path(task.workdir), changes, limit=limit
+        )
+
+    async def discard_direct(
+        self, task: CodingTask, *, force: bool = False
+    ) -> direct_mod.RestoreResult:
+        """Undo a direct task from its snapshot. Never removes the project directory itself."""
+        if task.mode != "direct":
+            raise RuntimeError(f"Task '{task.id}' did not edit in place.")
+        if task.status in ("started", "running"):
+            raise RuntimeError(f"Task '{task.id}' is still running; abort it first.")
+        manifest = self._direct_manifest(task)
+        changes = direct_mod.Changes.from_dict(task.changes)
+        result = await asyncio.to_thread(
+            direct_mod.restore,
+            manifest,
+            Path(task.snapshot),
+            Path(task.workdir),
+            changes,
+            since=task.finished_at or time.time(),
+            force=force,
+        )
+        if not result.skipped:
+            task.status = "aborted"
+            task.changes = {}
+            task.diffstat = "undone"
+            self.registry.save(task)
+        return result
+
     async def steer(self, task_id: str, message: str) -> None:
         backend = self._active_backends.get(task_id)
         if not backend:

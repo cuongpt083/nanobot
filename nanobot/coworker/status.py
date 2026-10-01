@@ -71,6 +71,8 @@ def _task_summary(task: CodingTask) -> dict[str, Any]:
         "status": task.status,
         "brief": task.brief,
         "branch": task.branch,
+        "mode": task.mode,
+        "changes": {k: list(v) for k, v in task.changes.items()},
         "diffstat": task.diffstat,
         "created_at": task.created_at,
         "updated_at": task.updated_at,

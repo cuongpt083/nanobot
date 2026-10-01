@@ -16,6 +16,7 @@ from nanobot.coworker.coding.project import (
     session_project_path,
 )
 from nanobot.coworker.coding.runner import CodingRunner
+from nanobot.coworker.coding.tasks import CodingTask
 from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.runtime import services, spawn_background
 
@@ -63,6 +64,25 @@ def _cmd_direct(ctx: CommandContext, action: str) -> OutboundMessage:
     return _reply(ctx, "Usage: /code direct allow | revoke | status")
 
 
+async def _discard_direct(
+    ctx: CommandContext, runner: CodingRunner, t: CodingTask, *, force: bool
+) -> OutboundMessage:
+    """`/code discard <id> [force]` for an in-place task: restore the files from the snapshot."""
+    try:
+        result = await runner.discard_direct(t, force=force)
+    except RuntimeError as exc:
+        return _reply(ctx, f"❌ {exc}")
+    lines = [
+        f"↩️ Undid task `{t.id}` in `{t.workdir}`: {len(result.restored)} file(s) restored, "
+        f"{len(result.removed)} added file(s) removed."
+    ]
+    if result.skipped:
+        lines.append("Not changed:")
+        lines.extend(f"- `{path}`: {reason}" for path, reason in result.skipped[:20])
+        lines.append(f"Run `/code discard {t.id} force` to overwrite files edited after the task finished.")
+    return _reply(ctx, "\n".join(lines))
+
+
 async def cmd_code(ctx: CommandContext) -> OutboundMessage:
     args = ctx.args.strip()
     parts = args.split(maxsplit=2)
@@ -81,7 +101,8 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
         now = time.time()
         for t in tasks[:15]:
             elapsed_m = int((now - t.created_at) / 60)
-            lines.append(f"- `{t.id}` [{t.backend}] — **{t.status}** ({elapsed_m}m ago): {t.brief[:50]}")
+            mode = " · in place" if t.mode == "direct" else ""
+            lines.append(f"- `{t.id}` [{t.backend}{mode}] — **{t.status}** ({elapsed_m}m ago): {t.brief[:50]}")
         return _reply(ctx, "\n".join(lines))
 
     if subcmd == "status":
@@ -95,9 +116,16 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
             f"**Task**: `{t.id}` ({t.backend})",
             f"**Status**: `{t.status}`",
             f"**Goal**: {t.brief}",
-            f"**Repo**: `{t.repo}` (base: `{t.base}`, branch: `{t.branch}`)",
-            f"**Commits**: {len(t.commits)} commit(s)",
         ]
+        if t.mode == "direct":
+            lines.append(f"**Project**: `{t.workdir}` (edited in place, no branch)")
+            for mark, key in (("+", "added"), ("~", "modified"), ("-", "deleted")):
+                lines.extend(f"{mark} {path}" for path in t.changes.get(key, [])[:20])
+        else:
+            lines.extend([
+                f"**Repo**: `{t.repo}` (base: `{t.base}`, branch: `{t.branch}`)",
+                f"**Commits**: {len(t.commits)} commit(s)",
+            ])
         if t.error:
             lines.append(f"**Error**: {t.error}")
         if t.diffstat:
@@ -111,6 +139,14 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
         t = runner.registry.get(task_id)
         if not t:
             return _reply(ctx, f"Task '{task_id}' not found.")
+        if t.mode == "direct":
+            try:
+                diff_text = await runner.direct_diff_text(t, limit=4000)
+            except RuntimeError as exc:
+                return _reply(ctx, str(exc))
+            summary = t.diffstat or "no changes"
+            body = f"\n```diff\n{diff_text}\n```" if diff_text.strip() else ""
+            return _reply(ctx, f"**{t.id}**: {summary}{body}")
         worktree_path = Path(t.worktree)
         if not worktree_path.exists():
             return _reply(ctx, f"Worktree for task '{task_id}' is no longer available.")
@@ -149,6 +185,12 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
         t = runner.registry.get(task_id)
         if not t:
             return _reply(ctx, f"Task '{task_id}' not found.")
+        if t.mode == "direct":
+            return _reply(
+                ctx,
+                f"Task `{task_id}` edited `{t.workdir}` in place, so there is nothing to merge. "
+                f"Keep the changes, or run `/code discard {task_id}` to undo them.",
+            )
         try:
             repo_cfg = runner.workspace_mgr.validate_task_repo(t.repo)
             commit_msg = (
@@ -179,6 +221,8 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
         t = runner.registry.get(task_id)
         if not t:
             return _reply(ctx, f"Task '{task_id}' not found.")
+        if t.mode == "direct":
+            return await _discard_direct(ctx, runner, t, force=len(parts) > 2 and parts[2].strip().lower() == "force")
         try:
             repo_cfg = runner.workspace_mgr.validate_task_repo(t.repo)
             await runner.workspace_mgr.cleanup(repo=repo_cfg, task_id=t.id, delete_branch=True)
@@ -204,10 +248,11 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
             from nanobot.coworker.coding.backends.base import backend_for
 
             backend = backend_for(t.backend, runner.config)
-            worktree_path = Path(t.worktree)
-            if not worktree_path.exists():
-                return _reply(ctx, f"Worktree '{t.worktree}' not found.")
             run_dir = t.run_dir
+            if not run_dir.exists():
+                return _reply(ctx, f"Working directory '{run_dir}' not found.")
+            if t.mode == "direct" and runner.registry.count_active_direct(t.workdir):
+                return _reply(ctx, "Another direct coding task is already editing this project.")
 
             rules = render_rules(t.acceptance)
 
@@ -222,7 +267,10 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
                 async for _ in run:
                     pass
                 t.status = "succeeded"
+                t.finished_at = time.time()
                 runner.registry.save(t)
+                if t.mode == "direct":
+                    await runner.refresh_direct_changes(t)
 
             spawn_background(_resume_run(), name=f"resume-{task_id}")
             return _reply(ctx, f"▶️ Resuming task `{task_id}` with follow-up message.")
@@ -231,5 +279,6 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
 
     return _reply(
         ctx,
-        "Usage: /code list | status <id> | diff <id> | steer <id> <msg> | abort <id> | merge <id> | discard <id> | resume <id> <msg>",
+        "Usage: /code list | status <id> | diff <id> | steer <id> <msg> | abort <id> | merge <id> "
+        "| discard <id> [force] | resume <id> <msg> | direct allow|revoke|status",
     )

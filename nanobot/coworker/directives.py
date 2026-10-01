@@ -171,7 +171,8 @@ CODING = "\n".join([
     "2. After calling `coding_agent(action='start')`, END YOUR TURN immediately. Do NOT poll in a loop; "
     "nanobot will automatically summon you with an `[auto-coding-result]` turn when execution completes.",
     "3. When you receive `[auto-coding-result]`, read the real changes with `coding_agent(action='diff', id=...)` "
-    "and check the acceptance results before recommending `/code merge <id>` to the user.",
+    "and check the acceptance results before recommending `/code merge <id>` to the user "
+    "(in a project without git the changes are already applied: offer `/code discard <id>` to undo).",
     "4. If the `advisor` tool is available, consult it (a) after you have oriented in the repo and before "
     "delegating, (b) when a task fails acceptance a second time, and (c) with a `focus` like \"review this "
     "diff\" after reading the diff and before recommending a merge. The advisor only sees what you have seen, "

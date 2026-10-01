@@ -115,7 +115,8 @@ Cỡ: **S** ≤ nửa ngày, **M** ~1 ngày, **L** 2–3 ngày.
 - Test: `ask` chưa đồng ý bị chặn; đồng ý đúng đường dẫn mới mở; đổi project → mất hiệu lực; `refuse`; `direct` bỏ qua hỏi;
   `test_session_api.py` cho section mới.
 
-### T-P4 Cập nhật tool, lệnh, room — M (phụ thuộc T-P2)
+### T-P4 Cập nhật tool, lệnh, room — M (phụ thuộc T-P2) — **đã xong**
+- Làm xong: `CodingRunner.direct_diff_text / refresh_direct_changes / discard_direct` dùng chung cho tool và lệnh; tool `coding_agent`: `diff` cho task `direct` (danh sách file + diff văn bản từ snapshot, cắt ở `DIFF_MAX_CHARS`), `status/result` có `mode` và `changes`, mô tả `repo` và công cụ cập nhật; `/code list|status|diff` hiểu `direct`, `/code merge` báo không có gì để merge, `/code discard <id> [force]` khôi phục từ snapshot (bỏ qua file người dùng sửa sau đó, `force` để ghi đè), `/code resume` chạy ở thư mục dự án và tính lại thay đổi; `status.coding.tasks[]` có `mode` và `changes`; directive CODING thêm một mệnh đề về `/code discard`. Room (`_run_guest`) đã dùng `admit_async` từ T-P2. Test: `test_direct_ops.py`.
 - `tools.py`: `repo` mô tả lại ("tuỳ chọn; mặc định là thư mục dự án của phiên"); `diff` hỗ trợ `direct` (D10); `result/status` hiện `mode`.
 - `commands.py`: `merge/discard/resume` dùng `validate_task_repo` và `workdir`; D11/D12; `/code list` hiện cột mode.
 - `room/scheduler.py:257 _run_guest`: lấy `ProjectTarget` từ session `room.session_key` (D1) thay vì `admit` trần.
