@@ -129,6 +129,29 @@ off or inert by default, so an unconfigured install behaves exactly like upstrea
   - **Advice card**: brain icon, focus title, `n/max` budget badge, model name, and 4-line collapsed markdown advice with expandable toggle.
   - **Status chip**: subtle status chips for `insufficient_context` ("chưa đủ ngữ cảnh"), `max_uses_exceeded` ("hết ngân sách"), or `advisor_error` ("lỗi advisor").
 
+### Persona
+Per-session persona lets the coordinator adopt the voice, instructions, and model preset of
+any agent configured in `room.agents[]` — without starting a multi-agent room.
+
+- **Header button**: a persona icon appears in the chat header (between the participants
+  strip and the advisor control). Click it to open a popover listing all configured agents
+  with their emoji, name, and bio. Select one to adopt that persona for the session.
+- **What it does when activated**:
+  - `session_state["persona"]` stores the chosen `agent_id`.
+  - `transform_request` prepends a `## Persona` section to the system prompt, sourced from
+    the agent's `instructions` field — this is part of the cacheable prefix.
+  - The session's model preset is set to the persona's `preset` (if configured).
+  - The coordinator participant in the header shows the persona's emoji + name.
+- **Cache bust warning**: changing persona mid-session modifies the system prompt prefix,
+  which may invalidate the provider's prompt cache. The popover shows a warning when the
+  cache is currently warm.
+- **Reset**: click the active persona again or use the reset button to return to the default
+  (no persona) state.
+- **WS mutation**: `session.coworker.persona` with body `{agentId: string | null}`.
+- **Status API**: the session status includes `persona` (current `CoworkerPersonaInfo | null`)
+  and `personas` (list of all available agents).
+
+
 ### Rooms
 - A session becomes a room with `/room on`, or automatically when the user @mentions a
   configured agent id. Room tools and the coordinator directive appear only then.
@@ -273,6 +296,9 @@ isolated worktree and acceptance verification.
   inspector lists them in detail. The **Advisor** button next to it is the manual per-session switch
   (mutation `session.coworker.advisor`, body `{enabled?, preset?, mode?, reset_uses?}`). It displays
   the current consult count (`uses/max`), with a reset icon `⟲` when the budget is spent.
+- **Persona**: between participants and advisor, a persona button opens a popover listing
+  `room.agents[]`. Selecting one adopts the agent's instructions and model preset for the
+  session. Warns about cache bust when switching while the cache is warm.
 - **Activity Timeline**: tool calls to `advisor` render dedicated consult cards: in-progress consultation indicator with clock,
   collapsible advice card with model and budget counters, and unobtrusive chips for non-advice statuses. Data comes from `participants[]` in
   `GET /api/sessions/{key}/coworker` and is polled every 3 s only while something is active.
@@ -280,5 +306,6 @@ isolated worktree and acceptance verification.
 ## Tests
 
 `tests/coworker/` — seams, optimizer gating, workflow engine/drive/distill, advisor guards,
-room scheduling (chaining, WAIT_FOR, budget), hook orchestration, and coding harness delegation
+room scheduling (chaining, WAIT_FOR, budget), hook orchestration, persona (set/resolve,
+hook injection, status, session API), and coding harness delegation
 (`tests/coworker/coding/`).

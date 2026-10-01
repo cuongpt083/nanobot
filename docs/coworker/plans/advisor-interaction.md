@@ -435,7 +435,7 @@ Ký hiệu cỡ: **S** ≤ nửa ngày, **M** ~1 ngày, **L** 2–3 ngày.
 | M4 | T7.1, T-KW8, T-KW9 | Ngân sách advisor trên UI; auto-optimize theo phiên; tab Cache global | [x] Hoàn thành |
 | M5 | T-KW10 | Chiến lược cache 1 giờ cho Anthropic | [x] Hoàn thành |
 | M6 | T4.1, T5.1, T6.1 | Advisor tham gia thảo luận; phát hiện kẹt; thẻ trao đổi inline | [x] Hoàn thành |
-| M7 | T-G1 (nếu chọn), T-DOC1 | Persona theo phiên; tài liệu | [x] T-DOC1 hoàn thành |
+| M7 | T-G1, T-DOC1 | Persona theo phiên; tài liệu | [x] Hoàn thành |
 
 Mỗi milestone: `ruff check nanobot/`, `uv run --no-sync basedpyright`, `pytest tests/coworker tests/agent -q`
 (+ `tests/providers` ở M5), `cd webui && bun run test && bun run build` khi có thay đổi WebUI; chạy các kịch bản E2E
