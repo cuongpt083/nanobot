@@ -1249,7 +1249,7 @@ class AgentLoop:
                 ),
                 injection_callback=_drain_pending,
                 terminal_injection_callback=_wait_for_pending,
-                continuation_callback=_goal_continue,
+                continuation_callback=lambda: hook.continuation() or _goal_continue(),
                 finalize_on_max_iterations=turn_continuation.should_finalize_on_max_iterations(
                     pending_queue_available=pending_queue is not None and session is not None,
                     session_metadata=session_metadata,

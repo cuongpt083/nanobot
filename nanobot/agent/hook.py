@@ -151,6 +151,10 @@ class AgentHook:
     def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
         return content
 
+    def continuation(self) -> str | None:
+        """Optional in-run follow-up text the runner may append when no user input is waiting."""
+        return None
+
     def transform_request(
         self,
         context: AgentHookContext,
@@ -287,6 +291,20 @@ class CompositeHook(AgentHook):
         for h in self._hooks:
             content = h.finalize_content(context, content)
         return content
+
+    def continuation(self) -> str | None:
+        # First non-empty wins; a faulty hook is isolated the same way as transform_request.
+        for h in self._hooks:
+            try:
+                text = h.continuation()
+            except Exception:
+                logger.opt(exception=tool_log_content_allowed()).error(
+                    "AgentHook.continuation error in {}", type(h).__name__,
+                )
+                continue
+            if text:
+                return text
+        return None
 
     def transform_request(
         self,
