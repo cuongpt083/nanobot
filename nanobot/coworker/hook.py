@@ -29,7 +29,7 @@ from nanobot.coworker.advisor.consult import breaker_open_seconds
 from nanobot.coworker.advisor.tool import ADVISOR_TOOL
 from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
-from nanobot.coworker.context import keepalive, metrics, optimizer
+from nanobot.coworker.context import cache_policy, keepalive, keepalive_state, metrics, optimizer
 from nanobot.coworker.context.tools import WASTED_TOOL, wasted_ids
 from nanobot.coworker.room import scheduler
 from nanobot.coworker.room.tools import ROOM_TOOLS, room_armed_for
@@ -44,6 +44,7 @@ from nanobot.coworker.runtime import (
     remember_live_messages,
     runtime_for_preset,
     services,
+    session_state,
     turn_kind,
 )
 from nanobot.coworker.transcript import as_dict, as_list, content_text, is_auto_turn
@@ -195,10 +196,25 @@ class CoworkerHook(AgentHook):
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         metrics.record(self._key, context.usage)
+        keepalive.mark_in_flight(self._key, False)
+        if self._key:
+            session = get_session(self._key)
+            if session is not None:
+                state = session_state(session)
+                request = current_request_context()
+                runtime = request.runtime if request else None
+                provider_name = getattr(runtime.provider, "provider_name", "") if runtime else ""
+                model = runtime.model if runtime else ""
+                state["cache"] = {
+                    "last_llm_call_at": time.time(),
+                    "provider": provider_name,
+                    "model": model,
+                }
 
     async def on_finally(self, context: AgentRunHookContext) -> None:
         forget_live_messages(self._key)
         mark_turn_finished(self._key)
+        keepalive.mark_in_flight(self._key, False)
 
     # ---------- payload ----------
 
@@ -217,7 +233,21 @@ class CoworkerHook(AgentHook):
         if session is None:
             return messages, tools
         ctx_cfg = cfg.context
-        ttl = optimizer.cache_ttl_seconds(ctx_cfg.cache_ttl_seconds)
+        keepalive.mark_in_flight(self._key, True)
+        kw_setting = keepalive_state.effective(session)
+        request = current_request_context()
+        runtime = request.runtime if request else None
+
+        policy = None
+        if runtime is not None:
+            policy = cache_policy.resolve(
+                runtime.provider,
+                runtime.model,
+                retention="long" if kw_setting.strategy == "ttl1h" else "short",
+                ttl_override=ctx_cfg.cache_ttl_seconds,
+            )
+        ttl = policy.ttl_s if policy else optimizer.cache_ttl_seconds(ctx_cfg.cache_ttl_seconds)
+
         if not stateful:
             messages = optimizer.optimize_payload(
                 self._key,
@@ -267,19 +297,17 @@ class CoworkerHook(AgentHook):
         if tools and hidden:
             tools = [t for t in tools if _tool_name(t) not in hidden]
 
-        if ctx_cfg.keepalive.enabled and not stateful:
-            request = current_request_context()
-            if request is not None and request.runtime is not None:
-                keepalive.capture(
-                    self._key,
-                    runtime=request.runtime,
-                    messages=messages,
-                    tools=tools,
-                    ttl_s=ttl,
-                    window_s=ctx_cfg.keepalive.window_minutes * 60,
-                    max_pings=ctx_cfg.keepalive.max_pings,
-                    lead_s=ctx_cfg.keepalive.lead_seconds,
-                )
+        if kw_setting.enabled and not stateful and runtime is not None:
+            keepalive.capture(
+                self._key,
+                runtime=runtime,
+                messages=messages,
+                tools=tools,
+                ttl_s=ttl,
+                window_s=kw_setting.window_min * 60,
+                max_pings=policy.ping_cap if policy else ctx_cfg.keepalive.max_pings,
+                lead_s=policy.lead_s if policy else ctx_cfg.keepalive.lead_seconds,
+            )
         return messages, tools
 
     # ---------- after the run ----------

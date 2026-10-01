@@ -10,7 +10,7 @@ from nanobot.coworker.advisor import state as advisor_state
 from nanobot.coworker.advisor.consult import active_consult, breaker_open_seconds
 from nanobot.coworker.coding.tasks import CodingTask, shared_registry
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
-from nanobot.coworker.context import metrics, optimizer
+from nanobot.coworker.context import keepalive, metrics, optimizer
 from nanobot.coworker.room.scheduler import room_snapshot
 from nanobot.coworker.room.store import RoomStateStore, room_id_for
 from nanobot.coworker.room.tools import room_armed_for
@@ -149,14 +149,24 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
 
     # 1. Context Cache & Optimizer
     opt_desc = optimizer.describe(key)
-    ttl_s = optimizer.cache_ttl_seconds(cfg.context.cache_ttl_seconds)
+    kw_status = keepalive.status_for(session)
+    now = time.time()
+    expires_at = kw_status.get("expires_at")
     raw_idle = opt_desc.get("idle_seconds")
     idle_s = float(raw_idle) if isinstance(raw_idle, (int, float)) else None
-    is_warm = idle_s is not None and idle_s < ttl_s
-    remaining_s = max(0, round(ttl_s - idle_s)) if is_warm and idle_s is not None else 0
+
+    # If expires_at is available from keepalive, use it; otherwise fallback to optimizer idle
+    if expires_at is not None:
+        is_warm = bool(expires_at > now)
+        remaining_s = max(0, round(expires_at - now)) if is_warm else 0
+        ttl_s = round(float(kw_status.get("ttl_s", optimizer.cache_ttl_seconds(cfg.context.cache_ttl_seconds))))
+    else:
+        ttl_s = optimizer.cache_ttl_seconds(cfg.context.cache_ttl_seconds)
+        is_warm = idle_s is not None and idle_s < ttl_s
+        remaining_s = max(0, round(ttl_s - idle_s)) if is_warm and idle_s is not None else 0
 
     caching_status: dict[str, Any] = {
-        "enabled": bool(cfg.context.optimize or cfg.context.trim.enabled),
+        "enabled": bool(cfg.context.optimize or cfg.context.trim.enabled or kw_status.get("enabled")),
         "is_warm": is_warm,
         "idle_seconds": idle_s,
         "ttl_seconds": ttl_s,
@@ -170,6 +180,7 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
         "original_messages": int(opt_desc.get("original_messages", 0)),
         # What the provider reported back (hit rate, read/write tokens), as opposed to what we sent.
         "usage": metrics.snapshot(key),
+        "keepalive": kw_status,
     }
 
     # 2. Advisor

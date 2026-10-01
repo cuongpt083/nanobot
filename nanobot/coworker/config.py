@@ -66,6 +66,7 @@ class TrimConfig(Base):
 
 class KeepaliveConfig(Base):
     enabled: bool = False
+    strategy: Literal["ping", "ttl1h"] = "ping"
     window_minutes: int = Field(default=30, ge=1, le=240)
     max_pings: int = Field(default=4, ge=1, le=20)
     lead_seconds: int = Field(default=60, ge=5, le=600)
