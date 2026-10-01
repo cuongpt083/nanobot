@@ -74,11 +74,11 @@ Deviations from the proposal / plan:
 4. **API shape** — `POST /api/settings/coworker/update` takes the sections (`advisor`, `room`, `coding`) as top-level
    payload keys; a submitted section replaces that section. Pass-through env names that look like credentials are
    rejected server-side.
-5. **Not done (deferred)**: rendering the advisor's real advice as a card (needs tool-result plumbing to the UI;
-   the old "Senior Advisor Review" card, which shows the nudge, now says "Review requested"); teammate message
-   attribution metadata; Merge/Discard buttons on the coding card; per-session advisor dropdown; translations of the
-   new keys beyond `en`/`vi` (the locale-shape test in `src/tests/i18n.test.tsx` already failed for the other locales
-   because they lack every `coworker.*` key).
+5. **Advisor consult card (completed in M6 T6.1)**: rendered via `AdvisorConsultRow.tsx` and `advisor-consult-model.ts`
+   in `AgentActivityCluster.tsx` (running state, collapsible markdown advice card, status chips).
+   Deferred remaining: teammate message attribution metadata; Merge/Discard buttons on the coding card;
+   per-session advisor dropdown; translations of the new keys beyond `en`/`vi` (the locale-shape test
+   in `src/tests/i18n.test.tsx` already failed for the other locales because they lack every `coworker.*` key).
 6. **Pre-existing failures observed** (unchanged by this work): `test_fake_pi_run_and_auto_cancel_ui`,
    `test_env_and_argv_hygiene`, `test_workspace_lifecycle_and_uncommitted_changes`,
    `test_distill_writes_a_valid_linear_draft`, `tests/webui/test_file_preview.py` symlink cases (Windows symlink

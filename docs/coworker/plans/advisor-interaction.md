@@ -427,15 +427,15 @@ Ký hiệu cỡ: **S** ≤ nửa ngày, **M** ~1 ngày, **L** 2–3 ngày.
 
 ## 6. Milestone & thứ tự
 
-| Milestone | Task | Kết quả người dùng thấy |
-|-----------|------|-------------------------|
-| M1 | T0.1, T0.2 | Keep-warm Codex/opencode thật sự giữ ấm; nudge không còn bắn do tool đọc |
-| M2 | T1.1, T1.2, T1.3, T2.1, T3.1 | Advisor tự được gọi trong cùng câu trả lời; `@advisor` luôn chạy |
-| M3 | T-KW1 → T-KW7 | Pill cache ấm/nguội + bật keep-warm theo phiên trên chat |
-| M4 | T7.1, T-KW8, T-KW9 | Ngân sách advisor trên UI; auto-optimize theo phiên; tab Cache global |
-| M5 | T-KW10 | Chiến lược cache 1 giờ cho Anthropic |
-| M6 | T4.1, T5.1, T6.1 | Advisor tham gia thảo luận; phát hiện kẹt; thẻ trao đổi inline |
-| M7 | T-G1 (nếu chọn), T-DOC1 | Persona theo phiên; tài liệu |
+| Milestone | Task | Kết quả người dùng thấy | Trạng thái |
+|-----------|------|-------------------------|------------|
+| M1 | T0.1, T0.2 | Keep-warm Codex/opencode thật sự giữ ấm; nudge không còn bắn do tool đọc | [x] Hoàn thành |
+| M2 | T1.1, T1.2, T1.3, T2.1, T3.1 | Advisor tự được gọi trong cùng câu trả lời; `@advisor` luôn chạy | [x] Hoàn thành |
+| M3 | T-KW1 → T-KW7 | Pill cache ấm/nguội + bật keep-warm theo phiên trên chat | [x] Hoàn thành |
+| M4 | T7.1, T-KW8, T-KW9 | Ngân sách advisor trên UI; auto-optimize theo phiên; tab Cache global | [x] Hoàn thành |
+| M5 | T-KW10 | Chiến lược cache 1 giờ cho Anthropic | [x] Hoàn thành |
+| M6 | T4.1, T5.1, T6.1 | Advisor tham gia thảo luận; phát hiện kẹt; thẻ trao đổi inline | [x] Hoàn thành |
+| M7 | T-G1 (nếu chọn), T-DOC1 | Persona theo phiên; tài liệu | [x] T-DOC1 hoàn thành |
 
 Mỗi milestone: `ruff check nanobot/`, `uv run --no-sync basedpyright`, `pytest tests/coworker tests/agent -q`
 (+ `tests/providers` ở M5), `cd webui && bun run test && bun run build` khi có thay đổi WebUI; chạy các kịch bản E2E

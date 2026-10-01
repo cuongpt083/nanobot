@@ -65,7 +65,10 @@ off or inert by default, so an unconfigured install behaves exactly like upstrea
     "timeoutSeconds": 180,
     "reviewNudge": true,
     "firstConsultGap": 2,
-    "reconsultGap": 12
+    "reconsultGap": 12,
+    "discussionGate": "brainstorm",
+    "discussionMinChars": 800,
+    "stuckDetection": true
   },
   "room": {
     "agents": [
@@ -83,7 +86,7 @@ off or inert by default, so an unconfigured install behaves exactly like upstrea
     "freezeSystemPrompt": false,
     "freezeMaxHoldMinutes": 60,
     "cacheTtlSeconds": null,
-    "keepalive": {"enabled": false, "windowMinutes": 30, "maxPings": 4, "leadSeconds": 60}
+    "keepalive": {"enabled": false, "strategy": "ping", "windowMinutes": 30, "maxPings": 4, "leadSeconds": 60}
   },
   "workflows": {"enabled": true, "stepMaxRetries": 3, "maxStepTurns": 100}
 }
@@ -99,22 +102,32 @@ off or inert by default, so an unconfigured install behaves exactly like upstrea
   The switch is manual and per session: it overrides the global setting in both directions.
 - Two modes, chosen in the same popover or with `/advisor brainstorm` / `/advisor code`:
   - **coding** (default): orient, consult before the first write, consult again before finishing;
-    thin-context refusal and the review nudge apply.
+    thin-context refusal, stuck detection, and the review nudge apply.
   - **brainstorm**: for discussion and decisions. The agent consults before it recommends anything,
     with no "read files first" phase (no thin-context refusal), under a thinking-partner reviewer prompt
-    that argues for a position instead of reviewing work. No review nudge.
+    that argues for a position instead of reviewing work. Discussion gate applies when drafts are long.
 - Every successful consult is kept (last 6, `focus` + advice, cleared by `/new`) and shown as **Advisor Q&A**
   in the header popover and the inspector, so you can see what the agent asked and what it was told.
 - The consult forwards the executor's **live** message list (system prompt + history +
   current run, captured by the hook) as quoted data under a clean reviewer system prompt.
   Oversized tool results are elided; over budget, the first task turn + newest tail are kept.
-- Guards: thin-context refusal (free, once per transcript), hard deadline, circuit breaker
-  (2 failures → 30 min pause), per-transcript budget (`maxUses`, reset on `/new`).
-- Review nudge: after a genuine user turn with ≥ `firstConsultGap` state-changing tool calls
-  and no consult (or ≥ `reconsultGap` since the last one), an `[auto-advisor-review]` turn
-  is injected. Never on cron/heartbeat turns, and never on injected turns — except the
-  `[auto-coding-result]` turn: when a coding task finishes and the agent has not consulted, it is
-  nudged once to read the diff (`coding_agent action="diff"`) and consult before recommending a merge.
+- Guards & Detection:
+  - **Thin-context refusal**: (free, once per transcript) refused if called before reading relevant files.
+  - **`@advisor` bypass**: user turns containing `@advisor` skip thin-context refusal so users can consult immediately.
+  - **Discussion gate**: in brainstorm mode (or when `discussionGate: "always"`), drafts ≥ `discussionMinChars` (default 800 chars)
+    prompt the agent to consult before the answer stands, then provide a short attributed follow-up.
+  - **Mechanical stuck detection**: repeating identical tool failure signatures (normalized of timestamps, hex, paths, numbers)
+    annotates the failing tool result with advice to consult before retrying. Resets when `advisor` runs.
+  - **Hard deadline & Circuit breaker**: 2 failures → 30 min pause.
+  - **Per-transcript budget**: `maxUses` (reset on `/new`, via `/advisor reset`, or via `uses/max ⟲` in the header).
+- In-run review nudge (continuation): after a genuine user turn with ≥ `firstConsultGap` state-changing tool calls
+  and no consult (or ≥ `reconsultGap` since the last one), the runner appends a review nudge in the same run
+  when no user input is waiting. Never interrupts real user messages. Coding result turns (`[auto-coding-result]`)
+  are nudged to inspect the diff (`coding_agent action="diff"`) and consult before recommending a merge.
+- Inline consult cards (WebUI): calls to `advisor` render directly in the message activity timeline:
+  - **Running**: clock icon + sheen label ("Đang hỏi advisor · {focus}").
+  - **Advice card**: brain icon, focus title, `n/max` budget badge, model name, and 4-line collapsed markdown advice with expandable toggle.
+  - **Status chip**: subtle status chips for `insufficient_context` ("chưa đủ ngữ cảnh"), `max_uses_exceeded` ("hết ngân sách"), or `advisor_error` ("lỗi advisor").
 
 ### Rooms
 - A session becomes a room with `/room on`, or automatically when the user @mentions a
@@ -154,8 +167,14 @@ payload shape is re-applied verbatim, so trimming never busts a live cache.
   dead-end round-trips; applied at the next cold moment.
 - `freezeSystemPrompt` (off by default) holds a drifted system prompt while warm; it is
   adopted immediately when the history after it was rewritten (compaction/summary).
-- Keep-alive (off by default) replays the last request with a tiny ping shortly before TTL
-  expiry, bounded by `windowMinutes`/`maxPings` — only worth it for large prefixes.
+- Keep-alive prompt caching (off by default) prevents provider prompt cache from expiring:
+  - `strategy: "ping"` (default): replays the last request with a tiny ping shortly before TTL
+    expiry, bounded by `windowMinutes`/`maxPings`/`leadSeconds` — ideal for standard 5-minute provider caches.
+  - `strategy: "ttl1h"`: enables Anthropic 1-hour prompt cache retention (`cache_retention="long"`).
+    Supported Anthropic models (`claude-3-7-sonnet`, `claude-3-5-sonnet`, `claude-3-5-haiku`, `claude-opus-3`)
+    retain prompt cache for 1 hour without requiring repeated ping requests.
+  - Per-session toggle: `/ctx keepalive on|off` or via the inspector popover.
+- Auto-optimize toggle: `/ctx optimize on|off` or via the inspector popover allows disabling optimization per session.
 - Only the outgoing payload changes; the session transcript is never modified. Providers
   with server-side conversation state (`stateful=True`) are not trimmed.
 - `/ctx` shows the per-session optimizer and keep-alive state.
@@ -243,16 +262,19 @@ isolated worktree and acceptance verification.
 
 ## WebUI
 
-- **Settings → Capabilities → Coworker** edits `coworker.json` (Advisor, Team, Coding tabs). Sections are
+- **Settings → Capabilities → Coworker** edits `coworker.json` (Advisor, Team, Coding, and Cache tabs). Sections are
   validated as `CoworkerConfig`, preset names and repositories are checked (repos must be absolute git
   work trees), credential-looking `passEnv` names are refused, and the file is written atomically with
   unknown keys preserved. Changes apply without a restart. API: `GET /api/settings/coworker`,
   mutation `settings.coworker.update` (`POST /api/settings/coworker/update`).
 - **Apps → Coding** shows Pi and agy (binary path/version; custom commands are located but never run).
 - **Participants**: the chat header shows chips for the agents taking part in the session (coordinator,
-  advisor mid-consult, teammates working/queued/waiting, coding tasks with tool count and last tool); the
+  advisor mid-consult or reviewing, teammates working/queued/waiting, coding tasks with tool count and last tool); the
   inspector lists them in detail. The **Advisor** button next to it is the manual per-session switch
-  (mutation `session.coworker.advisor`, body `{enabled?, preset?, mode?}`). Data comes from `participants[]` in
+  (mutation `session.coworker.advisor`, body `{enabled?, preset?, mode?, reset_uses?}`). It displays
+  the current consult count (`uses/max`), with a reset icon `⟲` when the budget is spent.
+- **Activity Timeline**: tool calls to `advisor` render dedicated consult cards: in-progress consultation indicator with clock,
+  collapsible advice card with model and budget counters, and unobtrusive chips for non-advice statuses. Data comes from `participants[]` in
   `GET /api/sessions/{key}/coworker` and is polled every 3 s only while something is active.
 
 ## Tests
