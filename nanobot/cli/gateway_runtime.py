@@ -398,6 +398,62 @@ def _start_anthropic_proactive_refresher(
     return refresher, unregister
 
 
+def _start_antigravity_proactive_refresher(
+    config: Config,
+    channels: Any,
+) -> "tuple[Any, Callable[[], None]]":
+    """Start Google Antigravity OAuth proactive refresh and forward status.
+
+    Returns ``(refresher, unregister)`` and mirrors the Anthropic refresher: the
+    loop tolerates a missing token so a sign-in after gateway start is picked up.
+    """
+
+    from nanobot.providers.antigravity_adapter import build_adapter
+    from nanobot.providers.antigravity_oauth import (
+        add_antigravity_oauth_status_listener,
+        start_proactive_refresher,
+    )
+
+    def _on_error(exc: BaseException) -> None:
+        logger.warning("Google Antigravity OAuth refresh: {}", exc)
+
+    try:
+        provider_config = config.providers.google_antigravity
+    except AttributeError:
+        provider_config = None
+    proxy = getattr(provider_config, "proxy", None) if provider_config is not None else None
+    adapter = build_adapter(
+        getattr(provider_config, "antigravity", None), proxy=proxy
+    )
+
+    loop = asyncio.get_running_loop()
+
+    def _on_status(status: str, token: Any) -> None:
+        channel = channels.get_channel("websocket")
+        send = getattr(channel, "send_oauth_status_updated", None)
+        if send is None:
+            return
+        expires_at = getattr(token, "expires", None) if token is not None else None
+        coro = send(provider="google_antigravity", status=status, expires_at=expires_at)
+
+        def _dispatch() -> None:
+            asyncio.ensure_future(coro, loop=loop)
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                loop.call_soon_threadsafe(_dispatch)
+            except RuntimeError:
+                coro.close()
+        else:
+            _dispatch()
+
+    unregister = add_antigravity_oauth_status_listener(_on_status)
+    refresher = start_proactive_refresher(adapter=adapter, proxy=proxy, on_error=_on_error)
+    return refresher, unregister
+
+
 def _run_gateway(
     config: Config,
     *,
@@ -970,10 +1026,15 @@ def _run_gateway(
         )
         refresher: ProactiveRefresher | None = None
         unregister_oauth_status: Callable[[], None] | None = None
+        antigravity_refresher: Any | None = None
+        unregister_antigravity_status: Callable[[], None] | None = None
         try:
             await cron.start()
             refresher, unregister_oauth_status = _start_anthropic_proactive_refresher(
                 config, channels
+            )
+            antigravity_refresher, unregister_antigravity_status = (
+                _start_antigravity_proactive_refresher(config, channels)
             )
             # Re-read once on first admission to close the watcher subscription window.
             agent.runtime_resolver.invalidate()
@@ -1072,6 +1133,10 @@ def _run_gateway(
                     await refresher.stop()
                 if unregister_oauth_status is not None:
                     unregister_oauth_status()
+                if antigravity_refresher is not None:
+                    await antigravity_refresher.stop()
+                if unregister_antigravity_status is not None:
+                    unregister_antigravity_status()
                 from nanobot.providers.patcher.proxy import stop_anthropic_patcher_proxy
 
                 with suppress(Exception):

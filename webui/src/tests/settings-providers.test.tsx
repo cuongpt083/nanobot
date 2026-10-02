@@ -97,6 +97,40 @@ describe("Settings providers", () => {
     expect(screen.queryByRole("option", { name: "Moonshot" })).not.toBeInTheDocument();
   });
 
+  it("deletes a provider after warning about cascading preset removal", async () => {
+    const user = userEvent.setup();
+    const payload = settingsPayload();
+    payload.providers = [
+      {
+        name: "custom-gateway",
+        label: "Company Gateway",
+        is_custom: true,
+        configured: true,
+        api_base: "https://gateway.example/v1",
+        linked_presets: ["company", "company-backup"],
+      },
+    ];
+    renderSettingsView({ initialSection: "models", initialSettings: payload });
+
+    await user.click(screen.getByRole("button", { name: "Company Gateway" }));
+    const rowDialog = screen.getByRole("dialog", { name: "Company Gateway" });
+    await user.click(within(rowDialog).getByRole("button", { name: "Delete" }));
+
+    const confirm = await screen.findByRole("dialog", { name: "Delete provider?" });
+    expect(confirm).toHaveTextContent("company, company-backup");
+
+    requestMutationMock.mockResolvedValueOnce({ ...payload, providers: [] });
+    await user.click(within(confirm).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(requestMutationMock).toHaveBeenCalledWith(
+        "settings.provider.delete",
+        { provider: "custom-gateway" },
+        20_000,
+      ),
+    );
+  });
+
   it.each([false, true])("retains the add-provider draft after a failed save (custom: %s)", async (custom) => {
     const user = userEvent.setup();
     const payload = settingsPayload();

@@ -429,6 +429,58 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         supports_prompt_caching=True,
         is_oauth=True,
     ),
+    # Google Antigravity: subscription OAuth via the Cloud Code Assist
+    # ("v1internal") wire protocol. Direct provider (no proxy); the volatile
+    # identity surface lives in providers.google_antigravity.antigravity.
+    # See docs/plan-google-antigravity-provider.md.
+    ProviderSpec(
+        name="google_antigravity",
+        keywords=("google-antigravity", "google_antigravity", "antigravity"),
+        env_key="",
+        display_name="Google Antigravity",
+        model_catalog="hybrid",
+        builtin_models=(
+            ProviderModelSpec(
+                id="google-antigravity/gemini-3-pro-low",
+                label="Gemini 3 Pro (Low)",
+                description="Gemini 3 Pro via Antigravity subscription.",
+                context_window=1_000_000,
+            ),
+            ProviderModelSpec(
+                id="google-antigravity/gemini-3-pro-high",
+                label="Gemini 3 Pro (High)",
+                description="Gemini 3 Pro (high reasoning) via Antigravity subscription.",
+                context_window=1_000_000,
+            ),
+            ProviderModelSpec(
+                id="google-antigravity/gemini-3-1-pro-low",
+                label="Gemini 3.1 Pro (Low)",
+                description="Gemini 3.1 Pro via Antigravity subscription.",
+                context_window=1_000_000,
+            ),
+            ProviderModelSpec(
+                id="google-antigravity/gemini-3-1-pro-high",
+                label="Gemini 3.1 Pro (High)",
+                description="Gemini 3.1 Pro (high reasoning) via Antigravity subscription.",
+                context_window=1_000_000,
+            ),
+            ProviderModelSpec(
+                id="google-antigravity/gemini-3.7-flash-tiered",
+                label="Gemini 3.7 Flash",
+                description="Gemini 3.7 Flash via Antigravity subscription.",
+                context_window=1_048_576,
+            ),
+            ProviderModelSpec(
+                id="google-antigravity/gemini-3.8-flash-tiered",
+                label="Gemini 3.8 Flash",
+                description="Gemini 3.8 Flash via Antigravity subscription.",
+                context_window=1_048_576,
+            ),
+        ),
+        backend="antigravity",
+        default_api_base="https://daily-cloudcode-pa.googleapis.com",
+        is_oauth=True,
+    ),
     # OpenAI: SDK default base URL (no override needed)
     ProviderSpec(
         name="openai",

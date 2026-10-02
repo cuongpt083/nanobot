@@ -11,6 +11,7 @@ const REFRESHED_TOAST_MS = 4_000;
 
 function providerLabel(provider: string): string {
   if (provider === "anthropic_oauth") return "Anthropic (OAuth)";
+  if (provider === "google_antigravity") return "Google Antigravity";
   return provider;
 }
 

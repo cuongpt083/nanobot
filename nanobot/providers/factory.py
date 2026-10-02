@@ -60,6 +60,7 @@ def _provider_oauth_signature(p: ProviderConfig | None) -> tuple[object, ...]:
     if p is None:
         return ()
     patcher = p.patcher
+    antigravity = getattr(p, "antigravity", None)
     return (
         p.auth_mode,
         None
@@ -69,6 +70,15 @@ def _provider_oauth_signature(p: ProviderConfig | None) -> tuple[object, ...]:
             patcher.port,
             patcher.target_base_url,
             patcher.claude_code_version,
+        ),
+        None
+        if antigravity is None
+        else (
+            antigravity.enabled,
+            antigravity.endpoint,
+            tuple(antigravity.endpoint_fallbacks or ()),
+            antigravity.user_agent_version,
+            antigravity.project_id,
         ),
     )
 
@@ -126,10 +136,11 @@ def _resolve_provider_setup(
         "openai_codex",
         "xai_grok",
         "anthropic",
+        "antigravity",
     }:
         raise ValueError(
             f"providers.{provider_name}.proxy is only supported for "
-            "OpenAI-compatible, Anthropic, OpenAI Codex, and xAI Grok providers."
+            "OpenAI-compatible, Anthropic, OpenAI Codex, xAI Grok, and Antigravity providers."
         )
 
     if backend == "azure_openai":
@@ -269,6 +280,17 @@ def _make_provider_core(
             profile=getattr(p, "profile", None) if p else None,
             extra_body=p.extra_body if p else None,
             provider_name=provider_name,
+        )
+    elif backend == "antigravity":
+        from nanobot.providers.antigravity_adapter import build_adapter
+        from nanobot.providers.antigravity_provider import AntigravityProvider
+
+        settings = getattr(p, "antigravity", None) if p else None
+        provider = AntigravityProvider(
+            default_model=model,
+            provider_name=provider_name,
+            adapter=build_adapter(settings, proxy=p.proxy if p else None),
+            proxy=p.proxy if p else None,
         )
     else:
         from nanobot.providers.openai_compat_provider import OpenAICompatProvider

@@ -332,6 +332,20 @@ def update_provider_settings(
     )
 
 
+def delete_provider_settings(
+    query: QueryParams,
+    *,
+    config_path: Path | None = None,
+) -> dict[str, Any]:
+    config = _load_settings_config(config_path)
+    provider_key, deleted_presets = models.delete_provider_settings(config, query)
+    _save_settings_config(config, config_path)
+    payload = settings_payload(config_path=config_path)
+    payload["deleted_provider"] = provider_key
+    payload["deleted_presets"] = deleted_presets
+    return payload
+
+
 def provider_models_payload(
     query: QueryParams,
     *,

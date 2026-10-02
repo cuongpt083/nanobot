@@ -409,14 +409,27 @@ def serve(
     )
 
     _refresher_holder: dict[str, Any] = {"ref": None}
+    _antigravity_refresher_holder: dict[str, Any] = {"ref": None}
 
     async def on_startup(_app: Any) -> None:
         await mcp_provider.connect()
         from nanobot.providers.anthropic_oauth import start_proactive_refresher
+        from nanobot.providers.antigravity_adapter import build_adapter
+        from nanobot.providers.antigravity_oauth import (
+            start_proactive_refresher as start_antigravity_refresher,
+        )
 
         _refresher_holder["ref"] = start_proactive_refresher(
             proxy=runtime_config.providers.anthropic_oauth.proxy,
             on_error=lambda exc: logger.warning("Anthropic OAuth refresh: {}", exc),
+        )
+        antigravity_provider = runtime_config.providers.google_antigravity
+        _antigravity_refresher_holder["ref"] = start_antigravity_refresher(
+            adapter=build_adapter(
+                antigravity_provider.antigravity, proxy=antigravity_provider.proxy
+            ),
+            proxy=antigravity_provider.proxy or None,
+            on_error=lambda exc: logger.warning("Google Antigravity OAuth refresh: {}", exc),
         )
 
     async def on_cleanup(_app: Any) -> None:
@@ -424,6 +437,9 @@ def serve(
             refresher = _refresher_holder["ref"]
             if refresher is not None:
                 await refresher.stop()
+            antigravity_refresher = _antigravity_refresher_holder["ref"]
+            if antigravity_refresher is not None:
+                await antigravity_refresher.stop()
             await agent_loop.aclose()
         finally:
             await mcp_provider.aclose()

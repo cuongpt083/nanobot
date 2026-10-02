@@ -26,6 +26,7 @@ _PROVIDER_DISPLAY: dict[str, str] = {
     "xai_grok": "xAI Grok",
     "github_copilot": "GitHub Copilot",
     "anthropic_oauth": "Anthropic (OAuth)",
+    "google_antigravity": "Google Antigravity",
 }
 
 _OAUTH_PROVIDER_DEFAULT_MODELS: dict[str, str] = {
@@ -33,6 +34,7 @@ _OAUTH_PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "xai_grok": "xai-grok/grok-4.6",
     "github_copilot": "github-copilot/gpt-5.4-mini",
     "anthropic_oauth": "anthropic-oauth/claude-sonnet-4-6",
+    "google_antigravity": "google-antigravity/gemini-3-pro-low",
 }
 
 
@@ -141,6 +143,8 @@ def _set_oauth_provider_as_main(
         "xai-grok/grok-4.6",
     }:
         config.agents.defaults.context_window_tokens = 500_000
+    if provider_name == "google_antigravity":
+        config.agents.defaults.context_window_tokens = 1_000_000
     save_config(config, resolved_config_path)
 
     saved_path = resolved_config_path or get_config_path()
@@ -398,15 +402,60 @@ def _logout_anthropic_oauth() -> None:
         console.print(f"[yellow]! No local OAuth credentials found for {provider_label}[/yellow]")
 
 
+def _login_google_antigravity() -> None:
+    """Authenticate with Google Antigravity using the shared agy OAuth contract."""
+    from nanobot.config.loader import load_config, resolve_config_env_vars
+    from nanobot.providers.antigravity_adapter import build_adapter
+    from nanobot.providers.antigravity_oauth import login_antigravity_oauth
+
+    try:
+        provider = resolve_config_env_vars(load_config()).providers.google_antigravity
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    adapter = build_adapter(provider.antigravity, proxy=provider.proxy)
+    console.print("[cyan]Starting Google Antigravity OAuth login...[/cyan]\n")
+    try:
+        token = login_antigravity_oauth(
+            print_fn=lambda message: console.print(message),
+            adapter=adapter,
+            proxy=provider.proxy or None,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface any login failure to the user
+        console.print(f"[red]Authentication error: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    account = token.email or token.project_id or "Google account"
+    console.print(f"[green]✓ Authenticated with Google Antigravity[/green]  [dim]{account}[/dim]")
+
+
+def _logout_google_antigravity() -> None:
+    """Clear local Antigravity OAuth credentials."""
+    from nanobot.providers.antigravity_oauth import (
+        get_antigravity_oauth_storage_path,
+        logout_antigravity_oauth,
+    )
+
+    token_path = get_antigravity_oauth_storage_path()
+    provider_label = _PROVIDER_DISPLAY["google_antigravity"]
+    if logout_antigravity_oauth():
+        console.print(f"[green]✓ Logged out from {provider_label}[/green]")
+        console.print(f"[dim]Removed: {token_path}[/dim]")
+    else:
+        console.print(f"[yellow]! No local OAuth credentials found for {provider_label}[/yellow]")
+
+
 _LOGIN_HANDLERS: dict[str, Callable[[], None]] = {
     "openai_codex": _login_openai_codex,
     "xai_grok": _login_xai_grok,
     "github_copilot": _login_github_copilot,
     "anthropic_oauth": _login_anthropic_oauth,
+    "google_antigravity": _login_google_antigravity,
 }
 _LOGOUT_HANDLERS: dict[str, Callable[[], None]] = {
     "openai_codex": _logout_openai_codex,
     "xai_grok": _logout_xai_grok,
     "github_copilot": _logout_github_copilot,
     "anthropic_oauth": _logout_anthropic_oauth,
+    "google_antigravity": _logout_google_antigravity,
 }

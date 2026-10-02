@@ -10,6 +10,7 @@ def test_importing_providers_package_is_lazy(monkeypatch) -> None:
     original_package = sys.modules["nanobot.providers"]
     monkeypatch.delitem(sys.modules, "nanobot.providers", raising=False)
     monkeypatch.delitem(sys.modules, "nanobot.providers.anthropic_provider", raising=False)
+    monkeypatch.delitem(sys.modules, "nanobot.providers.antigravity_provider", raising=False)
     monkeypatch.delitem(sys.modules, "nanobot.providers.openai_compat_provider", raising=False)
     monkeypatch.delitem(sys.modules, "nanobot.providers.openai_codex_provider", raising=False)
     monkeypatch.delitem(sys.modules, "nanobot.providers.xai_oauth", raising=False)
@@ -22,6 +23,7 @@ def test_importing_providers_package_is_lazy(monkeypatch) -> None:
         providers = importlib.import_module("nanobot.providers")
 
         assert "nanobot.providers.anthropic_provider" not in sys.modules
+        assert "nanobot.providers.antigravity_provider" not in sys.modules
         assert "nanobot.providers.openai_compat_provider" not in sys.modules
         assert "nanobot.providers.openai_codex_provider" not in sys.modules
         assert "nanobot.providers.xai_oauth" not in sys.modules
@@ -34,6 +36,7 @@ def test_importing_providers_package_is_lazy(monkeypatch) -> None:
             "LLMResponse",
             "LLMUsage",
             "AnthropicProvider",
+            "AntigravityProvider",
             "OpenAICompatProvider",
             "OpenAICodexProvider",
             "XAIGrokProvider",

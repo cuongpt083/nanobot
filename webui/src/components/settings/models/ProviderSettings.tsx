@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Trash2,
   Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -76,7 +77,7 @@ export type ProviderForm = {
   profile: string;
 };
 export type CustomProviderDraft = ProviderForm & { name: string };
-const OAUTH_PROXY_PROVIDERS = new Set(["openai_codex", "xai_grok", "anthropic_oauth"]);
+const OAUTH_PROXY_PROVIDERS = new Set(["openai_codex", "xai_grok", "anthropic_oauth", "google_antigravity"]);
 type ProviderRequestOption = {
   kind: "priority" | "hosted_tool";
   titleKey: string;
@@ -691,6 +692,7 @@ export function ProvidersSettings({
   onChangeProviderForm,
   onSaveProvider,
   onCreateCustomProvider,
+  onDeleteProvider,
   onProviderOAuthLogin,
   onProviderOAuthLogout,
 }: {
@@ -711,6 +713,7 @@ export function ProvidersSettings({
   onChangeProviderForm: (provider: string, value: Partial<ProviderForm>) => void;
   onSaveProvider: (provider: string) => void;
   onCreateCustomProvider: (draft: CustomProviderDraft) => Promise<boolean>;
+  onDeleteProvider: (provider: string) => Promise<boolean>;
   onProviderOAuthLogin: (provider: string) => void;
   onProviderOAuthLogout: (provider: string) => void;
 }) {
@@ -737,6 +740,17 @@ export function ProvidersSettings({
   const selectedUnconfiguredProvider =
     unconfiguredProviders.find((provider) => provider.name === expandedProvider) ?? null;
   const customProviderSaving = providerSaving === CUSTOM_PROVIDER_CREATION_KEY;
+  const [providerPendingDelete, setProviderPendingDelete] = useState<
+    SettingsPayload["providers"][number] | null
+  >(null);
+  const [deletingProvider, setDeletingProvider] = useState(false);
+  const confirmDeleteProvider = async () => {
+    if (!providerPendingDelete || deletingProvider) return;
+    setDeletingProvider(true);
+    const deleted = await onDeleteProvider(providerPendingDelete.name);
+    setDeletingProvider(false);
+    if (deleted) setProviderPendingDelete(null);
+  };
   const selectedProviderToAdd = settings.providers.find((provider) => provider.name === providerToAdd);
   useEffect(() => {
     // Existing save/cancel actions own expandedProvider; close the add flow when they finish.
@@ -1058,31 +1072,47 @@ export function ProvidersSettings({
                   form={form}
                   onChange={(value) => onChangeProviderForm(provider.name, value)}
                 />
-                <div className="flex items-center justify-end gap-2">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => toggleProvider(provider.name)}
-                    className="rounded-full"
-                  >
-                    {t("settings.actions.cancel")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onSaveProvider(provider.name)}
-                    disabled={
-                      saving
-                      || missingRequiredApiKey
-                      || missingOptionalCredential
-                      || (provider.is_custom && !form.displayName.trim())
-                    }
-                    className="rounded-full"
-                  >
-                    {saving
-                      ? t("settings.actions.saving")
-                      : tx("settings.providers.saveProvider", "Save provider")}
-                  </Button>
+                <div className="flex items-center justify-between gap-2">
+                  {provider.configured ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="rounded-full text-muted-foreground hover:text-destructive"
+                      disabled={saving}
+                      onClick={() => setProviderPendingDelete(provider)}
+                    >
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                      {tx("settings.actions.delete", "Delete")}
+                    </Button>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => toggleProvider(provider.name)}
+                      className="rounded-full"
+                    >
+                      {t("settings.actions.cancel")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onSaveProvider(provider.name)}
+                      disabled={
+                        saving
+                        || missingRequiredApiKey
+                        || missingOptionalCredential
+                        || (provider.is_custom && !form.displayName.trim())
+                      }
+                      className="rounded-full"
+                    >
+                      {saving
+                        ? t("settings.actions.saving")
+                        : tx("settings.providers.saveProvider", "Save provider")}
+                    </Button>
+                  </div>
                 </div>
               </>
             )}
@@ -1287,7 +1317,83 @@ export function ProvidersSettings({
           </ProviderSetupPanel>
         </SettingsGroup>
       </section>
+      <ProviderDeleteDialog
+        provider={providerPendingDelete}
+        deleting={deletingProvider}
+        onOpenChange={(open) => {
+          if (!open) setProviderPendingDelete(null);
+        }}
+        onConfirm={confirmDeleteProvider}
+      />
     </div>
+  );
+}
+
+export function ProviderDeleteDialog({
+  provider,
+  deleting,
+  onOpenChange,
+  onConfirm,
+}: {
+  provider: SettingsPayload["providers"][number] | null;
+  deleting: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
+    t(key, { defaultValue: fallback, ...(values ?? {}) });
+  const linkedPresets = provider?.linked_presets ?? [];
+  return (
+    <Dialog open={provider !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[460px]">
+        <DialogHeader className="text-left">
+          <DialogTitle>
+            {tx("settings.providers.deleteProviderTitle", "Delete provider?")}
+          </DialogTitle>
+          <DialogDescription className="leading-5">
+            {linkedPresets.length > 0
+              ? tx(
+                  "settings.providers.deleteProviderCascadeHelp",
+                  "Deleting “{{name}}” also deletes its {{count}} model preset(s): {{presets}}. This cannot be undone.",
+                  {
+                    name: provider?.label ?? "",
+                    count: linkedPresets.length,
+                    presets: linkedPresets.join(", "),
+                  },
+                )
+              : tx(
+                  "settings.providers.deleteProviderHelp",
+                  "Delete “{{name}}”. This cannot be undone.",
+                  { name: provider?.label ?? "" },
+                )}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={deleting}
+            onClick={() => onOpenChange(false)}
+          >
+            {tx("settings.actions.cancel", "Cancel")}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={deleting}
+            onClick={onConfirm}
+          >
+            {deleting ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : null}
+            {deleting
+              ? tx("settings.actions.deleting", "Deleting...")
+              : tx("settings.actions.delete", "Delete")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

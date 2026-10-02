@@ -953,7 +953,10 @@
       "capabilityXSearch": "X Search",
       "capabilityXSearchHelp": "Allow supported Grok models to use xAI-hosted X Search. Search activity appears in chat.",
       "capabilityOpenAISearch": "OpenAI web search",
-      "capabilityOpenAISearchHelp": "Allow compatible Responses API models to search the web. Search activity appears in chat."
+      "capabilityOpenAISearchHelp": "Allow compatible Responses API models to search the web. Search activity appears in chat.",
+      "deleteProviderTitle": "Delete provider?",
+      "deleteProviderHelp": "Delete “{{name}}”. This cannot be undone.",
+      "deleteProviderCascadeHelp": "Deleting “{{name}}” also deletes its {{count}} model preset(s): {{presets}}. This cannot be undone."
     },
     "legal": {
       "thirdPartyBrands": "Product names, logos, and brands are property of their respective owners. Use is for identification only and does not imply endorsement."

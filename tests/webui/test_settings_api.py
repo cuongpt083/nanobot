@@ -27,6 +27,7 @@ from nanobot.webui.settings_api import (
     create_model_configuration,
     create_provider_settings,
     delete_model_configuration,
+    delete_provider_settings,
     login_oauth_provider,
     logout_oauth_provider,
     migrate_model_configurations,
@@ -769,6 +770,91 @@ def test_delete_model_configuration_protects_primary_and_removes_fallback_refere
     assert {row["name"] for row in payload["model_presets"]} == {"default", "primary"}
     assert "spare" not in load_config(config_path).model_presets
     assert load_config(config_path).agents.defaults.fallback_models == ["primary"]
+
+
+def test_delete_provider_settings_cascades_to_presets_and_fallbacks(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = _dynamic_provider_config(api_base="https://old.example/v1")
+    config.providers.openai.api_key = "sk-test"
+    config.model_presets = {
+        "primary": ModelPresetConfig(model="openai/gpt-4.1", provider="openai"),
+        "company": ModelPresetConfig(
+            model=f"{DYNAMIC_PROVIDER_NAME}/gpt-4o-mini",
+            provider=DYNAMIC_PROVIDER_NAME,
+        ),
+    }
+    config.agents.defaults.model_preset = "primary"
+    config.agents.defaults.fallback_models = [
+        "company",
+        InlineFallbackConfig(model="x", provider=DYNAMIC_PROVIDER_NAME),
+    ]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = delete_provider_settings({"provider": [DYNAMIC_PROVIDER_NAME]})
+
+    assert payload["deleted_provider"] == DYNAMIC_PROVIDER_NAME
+    assert payload["deleted_presets"] == ["company"]
+    saved = load_config(config_path)
+    assert DYNAMIC_PROVIDER_NAME not in (saved.providers.model_extra or {})
+    assert "company" not in saved.model_presets
+    assert saved.agents.defaults.fallback_models == []
+    # The provider row is gone from the payload too.
+    assert all(row["name"] != DYNAMIC_PROVIDER_NAME for row in payload["providers"])
+
+
+def test_delete_provider_settings_reports_linked_presets_in_row(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = _dynamic_provider_config(api_base="https://old.example/v1")
+    config.model_presets = {
+        "company": ModelPresetConfig(
+            model=f"{DYNAMIC_PROVIDER_NAME}/gpt-4o-mini",
+            provider=DYNAMIC_PROVIDER_NAME,
+        ),
+    }
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    row = next(
+        provider
+        for provider in settings_payload()["providers"]
+        if provider["name"] == DYNAMIC_PROVIDER_NAME
+    )
+    assert row["linked_presets"] == ["company"]
+
+
+def test_delete_provider_settings_protects_primary_provider(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = _dynamic_provider_config(api_base="https://old.example/v1")
+    config.model_presets = {
+        "company": ModelPresetConfig(
+            model=f"{DYNAMIC_PROVIDER_NAME}/gpt-4o-mini",
+            provider=DYNAMIC_PROVIDER_NAME,
+        ),
+    }
+    config.agents.defaults.model_preset = "company"
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    with pytest.raises(WebUISettingsError) as excinfo:
+        delete_provider_settings({"provider": [DYNAMIC_PROVIDER_NAME]})
+    assert excinfo.value.status == 409
+    # Nothing was removed.
+    assert DYNAMIC_PROVIDER_NAME in load_config(config_path).providers.model_extra
+
+
+def test_delete_provider_settings_requires_provider() -> None:
+    with pytest.raises(WebUISettingsError):
+        delete_provider_settings({"provider": []})
 
 
 def test_update_provider_settings_updates_dynamic_custom_provider(

@@ -407,6 +407,12 @@ async def test_oauth_completion_reads_websocket_payload(
             {"provider": "team", "api_base": "https://llm.example/v2"},
             {"provider": ["team"], "api_base": ["https://llm.example/v2"]},
         ),
+        (
+            "/api/settings/provider/delete",
+            "delete_provider_settings",
+            {"provider": "team"},
+            {"provider": ["team"]},
+        ),
     ],
 )
 @pytest.mark.asyncio

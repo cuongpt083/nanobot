@@ -12,6 +12,7 @@ __all__ = [
     "LLMResponse",
     "LLMUsage",
     "AnthropicProvider",
+    "AntigravityProvider",
     "OpenAICompatProvider",
     "OpenAICodexProvider",
     "XAIGrokProvider",
@@ -22,6 +23,7 @@ __all__ = [
 
 _LAZY_IMPORTS = {
     "AnthropicProvider": ".anthropic_provider",
+    "AntigravityProvider": ".antigravity_provider",
     "OpenAICompatProvider": ".openai_compat_provider",
     "OpenAICodexProvider": ".openai_codex_provider",
     "XAIGrokProvider": ".xai_grok_provider",
@@ -32,6 +34,7 @@ _LAZY_IMPORTS = {
 
 if TYPE_CHECKING:
     from nanobot.providers.anthropic_provider import AnthropicProvider
+    from nanobot.providers.antigravity_provider import AntigravityProvider
     from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
     from nanobot.providers.bedrock_provider import BedrockProvider
     from nanobot.providers.github_copilot_provider import GitHubCopilotProvider

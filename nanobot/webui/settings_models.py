@@ -25,7 +25,13 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, TypedDict, cast
 import httpx
 
 from nanobot.config.loader import resolve_config_env_vars
-from nanobot.config.schema import Config, FallbackCandidate, ModelPresetConfig, ProviderConfig
+from nanobot.config.schema import (
+    Config,
+    FallbackCandidate,
+    InlineFallbackConfig,
+    ModelPresetConfig,
+    ProviderConfig,
+)
 from nanobot.providers.image_generation import get_image_gen_provider
 from nanobot.providers.oauth_guidance import OAUTH_CLI_KIT_MISSING_MESSAGE
 from nanobot.providers.oauth_model_catalog import (
@@ -66,6 +72,7 @@ class ModelSettingsOperations:
     update_call_order: SettingsOperation
     update_provider: SettingsOperation
     create_provider: SettingsOperation
+    delete_provider: SettingsOperation
     provider_models: SettingsOperation
     oauth_login: SettingsOperation
     oauth_complete: SettingsOperation
@@ -85,7 +92,12 @@ class ModelSettingsPayload(TypedDict):
     providers: list[dict[str, Any]]
 
 
-_OAUTH_PROXY_PROVIDERS = {"openai_codex", "xai_grok", "anthropic_oauth"}
+_OAUTH_PROXY_PROVIDERS = {
+    "openai_codex",
+    "xai_grok",
+    "anthropic_oauth",
+    "google_antigravity",
+}
 _WEBUI_OAUTH_TIMEOUT_S = 600
 _MODEL_CONFIGURATION_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -395,6 +407,32 @@ def oauth_provider_status(spec: Any) -> dict[str, Any]:
             "login_supported": True,
         }
 
+    if spec.name == "google_antigravity":
+        try:
+            from nanobot.providers.antigravity_oauth import get_antigravity_oauth_login_status
+        except Exception:
+            return {
+                "configured": False,
+                "account": None,
+                "expires_at": None,
+                "login_supported": False,
+            }
+        token = None
+        with suppress(Exception):
+            token = get_antigravity_oauth_login_status()
+        expires_at = getattr(token, "expires", None) if token else None
+        now_ms = int(time.time() * 1000)
+        return {
+            "configured": bool(
+                token
+                and token.access
+                and (getattr(token, "refresh", None) or (expires_at and expires_at > now_ms))
+            ),
+            "account": getattr(token, "email", None) if token else None,
+            "expires_at": expires_at,
+            "login_supported": True,
+        }
+
     return {"configured": False, "account": None, "expires_at": None, "login_supported": False}
 
 
@@ -471,11 +509,26 @@ def _provider_advanced_field_names(name: str, spec: Any) -> list[str]:
     return fields
 
 
+def _linked_preset_names(config: Config, provider_key: str) -> list[str]:
+    """Return the names of model presets bound to ``provider_key``.
+
+    Deleting a provider cascades to these presets, so the Settings UI surfaces
+    the list up-front as a warning in the confirmation dialog.
+    """
+
+    return [
+        name
+        for name, preset in config.model_presets.items()
+        if preset.provider == provider_key
+    ]
+
+
 def _provider_settings_row(
     name: str,
     spec: Any,
     provider_config: ProviderConfig,
     oauth_status_reader: OAuthStatusReader,
+    linked_presets: list[str] | None = None,
 ) -> dict[str, Any]:
     oauth_status = oauth_status_reader(spec) if spec.is_oauth else None
     is_custom = find_by_name(name) is None
@@ -503,6 +556,7 @@ def _provider_settings_row(
         "region": getattr(provider_config, "region", None),
         "profile": getattr(provider_config, "profile", None),
         "proxy": provider_config.proxy,
+        "linked_presets": linked_presets or [],
     }
     if oauth_status is not None:
         row["oauth_account"] = oauth_status["account"]
@@ -543,7 +597,13 @@ def _provider_settings_rows(
         provider_config = getattr(config.providers, chosen.name, None)
         if provider_config is None:
             continue
-        row = _provider_settings_row(chosen.name, chosen, provider_config, oauth_status)
+        row = _provider_settings_row(
+            chosen.name,
+            chosen,
+            provider_config,
+            oauth_status,
+            _linked_preset_names(config, chosen.name),
+        )
         row["label"] = canonical.label
         rows.append(row)
     return rows
@@ -1055,6 +1115,7 @@ def model_settings_payload(
                 ),
                 provider_config,
                 oauth_status,
+                _linked_preset_names(config, provider_key),
             )
         )
 
@@ -1545,6 +1606,65 @@ def update_provider_settings(
     return changed, restart_required
 
 
+def delete_provider_settings(config: Config, query: QueryParams) -> tuple[str, list[str]]:
+    """Delete a provider, cascading to the model presets bound to it.
+
+    Custom providers are removed from ``model_extra``; built-in providers are
+    reset to their schema default (clearing credentials/settings). Every preset
+    whose ``provider`` is this key is deleted, and dangling references from the
+    call order, Dream override and inline fallbacks are dropped so the config
+    still validates.
+    """
+
+    provider_name = (query_first(query, "provider") or "").strip()
+    if not provider_name:
+        raise WebUISettingsError("provider is required")
+
+    resolved_provider = resolve_settings_provider(config, provider_name)
+    if resolved_provider is None:
+        raise WebUISettingsError("unknown provider")
+    _spec, provider_key, _provider_config = resolved_provider
+
+    # Refuse to delete the provider backing the active primary model: the user
+    # must switch the primary first, otherwise the config would point at a
+    # provider that no longer exists.
+    active = config.resolve_preset()
+    if config.get_provider_name(active.model, preset=active) == provider_key:
+        raise WebUISettingsError(
+            "the primary model uses this provider; switch the primary model first",
+            status=409,
+        )
+
+    defaults = config.agents.defaults
+    removed = set(_linked_preset_names(config, provider_key))
+    for name in removed:
+        config.model_presets.pop(name, None)
+    defaults.fallback_models = [
+        fallback
+        for fallback in defaults.fallback_models
+        if not (isinstance(fallback, str) and fallback in removed)
+        and not (
+            isinstance(fallback, InlineFallbackConfig)
+            and fallback.provider == provider_key
+        )
+    ]
+    if defaults.dream.model_override in removed:
+        defaults.dream.model_override = None
+    if defaults.provider == provider_key:
+        defaults.provider = "auto"
+
+    model_extra = config.providers.model_extra or {}
+    if provider_key in model_extra:
+        del model_extra[provider_key]
+    else:
+        existing = getattr(config.providers, provider_key, None)
+        provider_type = (
+            type(existing) if isinstance(existing, ProviderConfig) else ProviderConfig
+        )
+        setattr(config.providers, provider_key, provider_type())
+    return provider_key, sorted(removed)
+
+
 def login_oauth_provider(
     config: Config,
     query: QueryParams,
@@ -1686,6 +1806,39 @@ def login_oauth_provider(
             "completion_input": "authorization_code",
         }
 
+    if spec.name == "google_antigravity":
+        from nanobot.providers.antigravity_adapter import build_adapter
+        from nanobot.providers.antigravity_oauth import start_antigravity_oauth_login
+
+        try:
+            provider_config = resolve_config_env_vars(
+                config,
+                config_path=config_path,
+            ).providers.google_antigravity
+        except ValueError as exc:
+            raise WebUISettingsError(str(exc), status=400) from exc
+        adapter = build_adapter(provider_config.antigravity, proxy=provider_config.proxy)
+        try:
+            antigravity_flow = start_antigravity_oauth_login(
+                adapter=adapter,
+                proxy=provider_config.proxy or None,
+                timeout_s=_WEBUI_OAUTH_TIMEOUT_S,
+            )
+        except Exception as exc:
+            raise WebUISettingsError(
+                f"Google Antigravity OAuth login failed: {exc}", status=502
+            ) from exc
+        flow_id = secrets.token_urlsafe(24)
+        oauth_flows.register(spec.name, flow_id, antigravity_flow)
+        return {
+            "status": "authorization_required",
+            "provider": spec.name,
+            "flow_id": flow_id,
+            "authorization_url": antigravity_flow.authorization_url,
+            "expires_in": antigravity_flow.remaining_seconds,
+            "completion_input": "authorization_code",
+        }
+
     raise WebUISettingsError("OAuth login is not supported for this provider")
 
 
@@ -1705,6 +1858,7 @@ def complete_oauth_provider(
         "xai_grok",
         "github_copilot",
         "anthropic_oauth",
+        "google_antigravity",
     }:
         raise WebUISettingsError("OAuth completion is not supported for this provider")
     if not flow_id:
@@ -1737,6 +1891,8 @@ def complete_oauth_provider(
                 raise WebUISettingsError("Invalid GitHub sign-in session. Start again.")
             token = flow.complete()
         elif spec.name == "anthropic_oauth":
+            token = flow.complete(authorization_response)
+        elif spec.name == "google_antigravity":
             token = flow.complete(authorization_response)
         else:
             from nanobot.providers.xai_oauth import complete_xai_oauth_login
@@ -1808,6 +1964,13 @@ def logout_oauth_provider(
         logout_anthropic_oauth()
         invalidate_oauth_model_catalog(spec.name)
         return settings_payload(config_path=config_path)
+    elif spec.name == "google_antigravity":
+        from nanobot.providers.antigravity_oauth import logout_antigravity_oauth
+
+        oauth_flows.clear(spec.name)
+        logout_antigravity_oauth()
+        invalidate_oauth_model_catalog(spec.name)
+        return settings_payload(config_path=config_path)
     else:
         raise WebUISettingsError("OAuth logout is not supported for this provider")
 
@@ -1861,6 +2024,7 @@ class ModelSettingsHandler:
                 "models-migrate": operations.migrate_models,
                 "call-order-update": operations.update_call_order,
                 "provider-create": operations.create_provider,
+                "provider-delete": operations.delete_provider,
             }.get(action)
             if mutation is not None:
                 payload = self.settings.mutate(mutation, request.query)

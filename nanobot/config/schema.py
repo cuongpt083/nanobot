@@ -205,6 +205,37 @@ class PatcherSettings(Base):
     add_session_id: bool = True
 
 
+class AntigravitySettings(Base):
+    """Google Antigravity (agy mock) provider settings.
+
+    Data-driven identity surface for the direct Antigravity provider; see
+    ``docs/plan-google-antigravity-provider.md``. Values default to the shipped
+    reference; override to absorb a Google-side change without a code release.
+    The Google OAuth ``client_id`` / ``client_secret`` are not shipped: set them
+    here or via the ``NANOBOT_ANTIGRAVITY_*`` environment variables.
+    """
+
+    enabled: bool = False
+    endpoint: str = "https://daily-cloudcode-pa.googleapis.com"
+    endpoint_fallbacks: list[str] = Field(
+        default_factory=lambda: ["https://cloudcode-pa.googleapis.com"]
+    )
+    # App-managed identity floor: never pinned below the shipped default.
+    user_agent_version: str = "1.21.9"
+    client_id: str = ""  # empty -> NANOBOT_ANTIGRAVITY_CLIENT_ID env var
+    client_secret: str = Field(default="", repr=False)  # empty -> NANOBOT_ANTIGRAVITY_CLIENT_SECRET env var
+    redirect_uri: str = "http://localhost:51121/oauth-callback"
+    callback_port: int = Field(default=51121, ge=0, le=65535)
+    scopes: list[str] | None = None  # None -> shipped scope set
+    project_id: str | None = None  # override / pre-seeded Cloud Code Assist project
+    model_aliases: dict[str, str] | None = None  # None -> shipped alias map
+    header_overrides: dict[str, str] | None = None
+    body_overrides: dict[str, Any] | None = None
+    request_overrides: dict[str, Any] | None = None
+    inject_system_instruction: bool = True
+    request_type: str = "agent"
+
+
 class ProviderConfig(Base):
     """LLM provider configuration."""
 
@@ -223,6 +254,7 @@ class ProviderConfig(Base):
     thinking_style: str | None = None  # Thinking/reasoning style for custom providers
     auth_mode: Literal["api_key", "oauth"] = "api_key"  # Anthropic: OAuth subscription vs API key
     patcher: PatcherSettings | None = None  # Anthropic OAuth patcher proxy
+    antigravity: AntigravitySettings | None = None  # Google Antigravity (agy mock) settings
 
     # Valid values mirror the keys of _THINKING_STYLE_MAP in
     # nanobot/providers/openai_compat_provider.py. Kept duplicated here to
@@ -312,6 +344,10 @@ class ProvidersConfig(Base):
     openai_codex: ProviderConfig = Field(default_factory=ProviderConfig, exclude=True)  # OpenAI Codex (OAuth)
     xai_grok: ProviderConfig = Field(default_factory=ProviderConfig, exclude=True)  # xAI Grok (OAuth)
     github_copilot: ProviderConfig = Field(default_factory=ProviderConfig, exclude=True)  # Github Copilot (OAuth)
+    google_antigravity: ProviderConfig = Field(
+        default_factory=lambda: ProviderConfig(antigravity=AntigravitySettings()),
+        exclude=True,
+    )  # Google Antigravity (agy mock subscription OAuth)
     qianfan: ProviderConfig = Field(default_factory=ProviderConfig)  # Qianfan (百度千帆)
     nvidia: ProviderConfig = Field(default_factory=ProviderConfig)  # NVIDIA NIM (nvapi- keys)
     opencode: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenCode Zen (canonical provider id)

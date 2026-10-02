@@ -914,6 +914,8 @@ export interface SettingsPayload {
   model_configuration_migratable?: boolean;
   created_model_preset?: string;
   created_provider?: string;
+  deleted_provider?: string;
+  deleted_presets?: string[];
   providers: Array<{
     name: string;
     label: string;
@@ -947,6 +949,8 @@ export interface SettingsPayload {
     thinking_style?: string | null;
     region?: string | null;
     profile?: string | null;
+    /** Model presets bound to this provider; deleting the provider removes them. */
+    linked_presets?: string[];
   }>;
   web_search: {
     provider: string;

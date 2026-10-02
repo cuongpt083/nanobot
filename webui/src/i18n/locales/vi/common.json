@@ -538,7 +538,10 @@
       "capabilityXSearch": "Tìm kiếm X",
       "capabilityXSearchHelp": "Cho phép các mô hình Grok được hỗ trợ dùng X Search do xAI lưu trữ. Hoạt động tìm kiếm được hiển thị trong cuộc trò chuyện.",
       "capabilityOpenAISearch": "Tìm kiếm web OpenAI",
-      "capabilityOpenAISearchHelp": "Cho phép các mô hình tương thích với Responses API tìm kiếm trên web. Hoạt động tìm kiếm được hiển thị trong cuộc trò chuyện."
+      "capabilityOpenAISearchHelp": "Cho phép các mô hình tương thích với Responses API tìm kiếm trên web. Hoạt động tìm kiếm được hiển thị trong cuộc trò chuyện.",
+      "deleteProviderTitle": "Xóa nhà cung cấp?",
+      "deleteProviderHelp": "Xóa “{{name}}”. Không thể hoàn tác.",
+      "deleteProviderCascadeHelp": "Xóa “{{name}}” cũng sẽ xóa {{count}} preset mô hình liên quan: {{presets}}. Không thể hoàn tác."
     },
     "image": {
       "selectProvider": "Chọn nhà cung cấp",

@@ -21,6 +21,7 @@ import {
   createModelConfiguration,
   createProviderSettings,
   deleteModelConfiguration,
+  deleteProviderSettings,
   loginProviderOAuth,
   logoutProviderOAuth,
   migrateModelConfigurations,
@@ -473,6 +474,28 @@ export function useModelSettingsActions({
     }
   };
 
+  const deleteProvider = async (providerName: string): Promise<boolean> => {
+    if (providerSaving) return false;
+    setProviderSaving(providerName);
+    try {
+      const payload = await deleteProviderSettings(client, providerName);
+      applyPayload(payload);
+      setExpandedProvider(null);
+      setProviderForms((prev) => {
+        const next = { ...prev };
+        delete next[providerName];
+        return next;
+      });
+      setError(null);
+      return true;
+    } catch (err) {
+      setError((err as Error).message);
+      return false;
+    } finally {
+      setProviderSaving(null);
+    }
+  };
+
   const runProviderOAuth = async (providerName: string, action: "login" | "logout") => {
     if (providerSaving) return;
     let popup: Window | null = null;
@@ -604,6 +627,7 @@ export function useModelSettingsActions({
     changeModelCallOrder,
     completeProviderOAuthResponse,
     createCustomProvider,
+    deleteProvider,
     handleDeleteModelConfiguration,
     handleMigrateModelConfigurations,
     handleToggleProvider,

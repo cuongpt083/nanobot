@@ -1,6 +1,9 @@
 # Ideas: Antigravity OAuth "agy mock" patcher proxy cho nanobot
 
-> Trạng thái: **ideas / pre-spec**. Chưa phải thiết kế cuối, chưa có plan triển khai.
+> Trạng thái: **ideas / pre-spec** — các câu hỏi O1–O5 đã được giải quyết và thiết kế
+> đã được triển khai; xem [`docs/plan-google-antigravity-provider.md`](./plan-google-antigravity-provider.md).
+> Ghi chú: thiết kế triển khai chọn **direct provider + adapter rules (không proxy)** thay vì
+> local patcher proxy như bản ideas này; lý do & đánh đổi ở §1.1 của tài liệu triển khai.
 > Nguồn đối chiếu: mã nguồn `aicoworker-2026.6.28`
 > (`electron/utils/antigravity-oauth.ts`, `electron/gateway/pi-ai-patches-preload.cjs`,
 > `electron/gateway/manager.ts`, `gateway-source/src/agents/models-config.providers.google-antigravity.test.ts`)
@@ -43,7 +46,7 @@ Mục tiêu:
 |---|---|---|
 | Giao thức | Anthropic Messages API (JSON + SSE `event:`) | Gemini/cloudcode `v1internal:generateContent/streamGenerateContent` (JSON + SSE `data:`) |
 | Endpoint | `api.anthropic.com` | `daily-cloudcode-pa.googleapis.com` (KHÔNG `.sandbox.`) |
-| Client ID | Claude Code (`9d1c…`) | Gemini CLI dùng chung (`1071006060591-tmhssin2h21lcre235vtolojh4g403ep…`) |
+| Client ID | Claude Code (`9d1c…`) | Gemini CLI dùng chung (`1071006060591-…`; cấu hình qua env/config, không ship trong source) |
 | Client secret | không có | **có** (`GOCSPX-…`) |
 | Redirect | loopback port động | aicoworker: `localhost:51121` cố định; URL bạn quan sát: `https://antigravity.google/oauth-callback` |
 | "project" | không có | **UUID do client sinh**, phải được đăng ký qua `loadCodeAssist`; UUID lạ → 403 |
