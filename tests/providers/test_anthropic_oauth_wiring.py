@@ -277,3 +277,39 @@ def test_anthropic_provider_maps_reauth_cause_to_oauth_auth_required() -> None:
     assert response.error_kind == "oauth_auth_required"
     assert response.error_should_retry is False
     assert "sign in again" in (response.content or "")
+
+
+def test_anthropic_oauth_strips_provider_prefix_from_wire_model() -> None:
+    from nanobot.providers.anthropic_provider import AnthropicProvider
+
+    provider = AnthropicProvider(
+        api_key="sk-test",
+        default_model="claude-opus-5-5",
+        provider_name="anthropic_oauth",
+    )
+
+    assert provider._strip_prefix("anthropic-oauth/claude-opus-5-5") == "claude-opus-5-5"
+    assert provider._strip_prefix("claude-opus-5-5") == "claude-opus-5-5"
+    kwargs = provider._build_kwargs(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=None,
+        model="anthropic-oauth/claude-opus-5-5",
+        max_tokens=16,
+        temperature=0.7,
+        reasoning_effort=None,
+        tool_choice=None,
+    )
+    assert kwargs["model"] == "claude-opus-5-5"
+
+
+def test_anthropic_provider_still_strips_legacy_anthropic_prefix() -> None:
+    from nanobot.providers.anthropic_provider import AnthropicProvider
+
+    provider = AnthropicProvider(
+        api_key="sk-test",
+        default_model="claude-sonnet-4-6",
+        provider_name="anthropic",
+    )
+    assert provider._strip_prefix("anthropic/claude-sonnet-4-6") == "claude-sonnet-4-6"
+    # A vendor path that is not this provider's prefix is left untouched.
+    assert provider._strip_prefix("vendor/model") == "vendor/model"

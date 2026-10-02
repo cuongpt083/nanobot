@@ -292,10 +292,24 @@ class AnthropicProvider(LLMProvider):
             current = current.__cause__ or current.__context__
         return False
 
-    @staticmethod
-    def _strip_prefix(model: str) -> str:
-        if model.startswith("anthropic/"):
-            return model[len("anthropic/"):]
+    def _strip_prefix(self, model: str) -> str:
+        """Return the wire model id with this provider's catalogue prefix removed.
+
+        Presets address a model as ``<provider>/<id>`` (e.g.
+        ``anthropic-oauth/claude-opus-5-5``), but Anthropic expects the bare id.
+        Strip the leading segment only when it is this provider's own prefix (or
+        the legacy ``anthropic/`` alias) so a genuine vendor path is never
+        mangled.
+        """
+
+        if "/" not in model:
+            return model
+        prefix, bare = model.split("/", 1)
+        if not bare:
+            return model
+        known = {"anthropic", self.provider_name.replace("-", "_").lower()}
+        if prefix.replace("-", "_").lower() in known:
+            return bare
         return model
 
     # ------------------------------------------------------------------
