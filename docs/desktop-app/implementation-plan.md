@@ -411,10 +411,10 @@ loading the SPA as a plain browser page.
 - [x] T2.2 `build_python_runtime.py`
 - [x] T2.3 `build_runtime.py` + scripts
 - [x] T2.4 Production resolution + package-data
-- [ ] T3.1 Bundle config
-- [ ] T3.2 One-command build + docs
+- [x] T3.1 Bundle config
+- [x] T3.2 One-command build + docs
 - [ ] T3.3 macOS signing (when building on macOS)
-- [ ] T3.4 Windows installer test
+- [x] T3.4 Windows installer test
 - [ ] T4.1 Port-conflict + error UI
 - [ ] T4.2 Lifecycle semantics
 - [ ] T4.3 (Optional) Native surface
@@ -425,3 +425,4 @@ Append a dated line per work session: who/what, result, blockers.
 
 - 2026-10-02: Completed Phase 0 (toolchain verified) and Phase 1 (scaffolded `desktop/`, implemented `runtime.rs` and `lib.rs`, verified unit tests and end-to-end dev smoke test on Windows). Gateway auto-start, bootstrap response, and cleanup on exit verified. No blockers.
 - 2026-10-02: Completed Phase 2 (Python runtime bundling). Created `fetch_python_runtime.py` (downloading python-build-standalone with caching), `build_python_runtime.py` (uv wheel build + pip install into site-packages + sitecustomize.py for .pth handling), `build_runtime.py` orchestrator with `bun run runtime`. Verified production resolution and gateway bootstrap in standalone mode without `NANOBOT_DESKTOP_PYTHON`. All tests passing. No blockers.
+- 2026-10-02: Completed Phase 3 (Bundle & Installer). Configured `bundle.resources` (`../runtime` mapping) and `bundle.targets: "all"` in `tauri.conf.json`. Updated `desktop/README.md` with full documentation of build commands, env vars, and artifact locations. Executed `bun run build` which built the release binary and successfully generated both NSIS (`Nanobot_0.1.0_x64-setup.exe`, 64.39 MB) and MSI (`Nanobot_0.1.0_x64_en-US.msi`, 106.17 MB) installers containing the entire standalone Python runtime and packages. No blockers.
