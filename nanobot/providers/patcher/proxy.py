@@ -224,11 +224,15 @@ def transform_request(config: PatcherConfig, body: dict[str, Any]) -> dict[str, 
 def build_upstream_headers(config: PatcherConfig, incoming: dict[str, str], session_id: str) -> dict[str, str]:
     """Build headers from scratch (never pass browser/CLI fingerprints through)."""
 
+    # HTTP header names are case-insensitive but a plain dict lookup is not, and
+    # aiohttp hands back the wire casing (e.g. ``Authorization``). Normalise so a
+    # title-cased inbound header still forwards the OAuth bearer token.
+    normalized = {name.lower(): value for name, value in incoming.items()}
     headers: dict[str, str] = {}
-    authorization = incoming.get("authorization")
+    authorization = normalized.get("authorization")
     if authorization:
         headers["authorization"] = authorization
-    anthropic_version = incoming.get("anthropic-version")
+    anthropic_version = normalized.get("anthropic-version")
     if anthropic_version:
         headers["anthropic-version"] = anthropic_version
     headers["content-type"] = "application/json"

@@ -159,6 +159,7 @@ async def test_proxy_non_streaming_reverses_and_rewrites_request() -> None:
     assert forwarded["system"][1]["text"] == "Hi Claude Code"
     assert forwarded["tools"][0]["name"] == "Sessions_list"
     assert seen[0]["headers"]["user-agent"] == "claude-cli/2.1.280"
+    assert seen[0]["headers"]["authorization"] == "Bearer tok"
     assert seen[0]["headers"]["x-claude-code-session-id"]
 
     # Response side: tool name + text reversed.

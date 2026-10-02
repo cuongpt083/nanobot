@@ -176,6 +176,20 @@ def test_build_upstream_headers_can_disable_session_id() -> None:
     assert "x-claude-code-session-id" not in headers
 
 
+def test_build_upstream_headers_forwards_bearer_regardless_of_header_case() -> None:
+    # aiohttp surfaces the wire casing (``Authorization``), so the forwarder must
+    # match case-insensitively or the OAuth bearer token is silently dropped.
+    config = _config(rules=[])
+    incoming = {
+        "Authorization": "Bearer tok",
+        "Anthropic-Version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+    headers = build_upstream_headers(config, incoming, "s")
+    assert headers["authorization"] == "Bearer tok"
+    assert headers["anthropic-version"] == "2023-06-01"
+
+
 def test_reverse_full_response_reverts_names_and_input() -> None:
     rules = [
         PatcherRule(
