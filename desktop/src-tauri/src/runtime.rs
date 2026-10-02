@@ -1,0 +1,344 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+/// Map bind hosts to a browser-openable local host.
+/// Matches `_host_for_local_browser` in `nanobot/cli/webui_support.py`.
+pub fn format_local_host(host: &str) -> String {
+    let trimmed = host.trim();
+    if trimmed == "0.0.0.0" || trimmed.is_empty() {
+        "127.0.0.1".to_string()
+    } else if trimmed == "::" {
+        "[::1]".to_string()
+    } else if trimmed.contains(':') && !trimmed.starts_with('[') {
+        format!("[{trimmed}]")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Generate the bootstrap URL for the WebUI.
+/// Matches `_webui_browser_url` in `nanobot/cli/webui_support.py`.
+pub fn bootstrap_url(host: &str, port: u16, secret: &str) -> String {
+    let clean_host = format_local_host(host);
+    let base_url = format!("http://{clean_host}:{port}");
+    let trimmed_secret = secret.trim();
+    if trimmed_secret.is_empty() {
+        base_url
+    } else {
+        format!(
+            "{base_url}/#/?bootstrapSecret={}",
+            urlencoding::encode(trimmed_secret)
+        )
+    }
+}
+
+/// Resolves the Python executable to run.
+///
+/// Priority:
+/// 1. `NANOBOT_DESKTOP_PYTHON` environment variable (used during development).
+/// 2. Bundled python in `<resource_dir>/runtime/python/...` (used in production).
+pub fn resolve_python(resource_dir: Option<&Path>) -> Result<PathBuf, String> {
+    if let Ok(val) = std::env::var("NANOBOT_DESKTOP_PYTHON") {
+        let trimmed = val.trim();
+        if !trimmed.is_empty() {
+            let path = PathBuf::from(trimmed);
+            if path.is_file() {
+                return Ok(path);
+            }
+            return Err(format!(
+                "NANOBOT_DESKTOP_PYTHON was set to '{trimmed}', but the file does not exist."
+            ));
+        }
+    }
+
+    if let Some(res_dir) = resource_dir {
+        #[cfg(windows)]
+        let bundled = res_dir.join("runtime").join("python").join("python.exe");
+
+        #[cfg(not(windows))]
+        let bundled = res_dir
+            .join("runtime")
+            .join("python")
+            .join("bin")
+            .join("python3");
+
+        if bundled.is_file() {
+            return Ok(bundled);
+        }
+    }
+
+    Err(
+        "Could not find Python interpreter.\n\
+         In development: set the NANOBOT_DESKTOP_PYTHON environment variable to your venv's python executable.\n\
+         In production: ensure the runtime bundle is installed in the app resources directory."
+            .to_string(),
+    )
+}
+
+/// Resolves the Nanobot config path.
+/// Defaults to `NANOBOT_DESKTOP_CONFIG` or `~/.nanobot/config.json`.
+pub fn resolve_config_path() -> PathBuf {
+    if let Ok(val) = std::env::var("NANOBOT_DESKTOP_CONFIG") {
+        let trimmed = val.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+
+    PathBuf::from(home).join(".nanobot").join("config.json")
+}
+
+/// Reads the WebSocket channel endpoint from `config.json`.
+/// Returns `Some((host, port, secret))` if readable, or None if the file doesn't exist / isn't valid JSON.
+pub fn read_webui_endpoint(config_path: &Path) -> Option<(String, u16, String)> {
+    let content = fs::read_to_string(config_path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    // Read channels.websocket
+    let channels = value.get("channels")?;
+    let ws = channels.get("websocket").or_else(|| channels.get("WebSocket"))?;
+
+    let host = ws
+        .get("host")
+        .and_then(|h| h.as_str())
+        .unwrap_or("127.0.0.1")
+        .to_string();
+
+    let port = ws
+        .get("port")
+        .and_then(|p| p.as_u64())
+        .unwrap_or(8765) as u16;
+
+    let secret = ws
+        .get("tokenIssueSecret")
+        .or_else(|| ws.get("token_issue_secret"))
+        .or_else(|| ws.get("token"))
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Some((host, port, secret))
+}
+
+/// Spawns the Nanobot sidecar process: `python -m nanobot webui --no-open --yes`.
+pub fn spawn_sidecar(
+    python: &Path,
+    custom_config: Option<&Path>,
+    workspace: Option<&Path>,
+    resource_dir: Option<&Path>,
+    log_file: &Path,
+) -> Result<Child, String> {
+    if let Some(parent) = log_file.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create directory for log file '{}': {}",
+                parent.display(),
+                e
+            )
+        })?;
+    }
+
+    let out_file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(log_file)
+        .map_err(|e| format!("Failed to open log file '{}': {}", log_file.display(), e))?;
+
+    let err_file = out_file
+        .try_clone()
+        .map_err(|e| format!("Failed to duplicate log file descriptor: {e}"))?;
+
+    let mut cmd = Command::new(python);
+    cmd.args(["-m", "nanobot", "webui", "--no-open", "--yes"]);
+
+    if let Some(cfg) = custom_config {
+        cmd.args(["--config", &cfg.to_string_lossy()]);
+    }
+
+    if let Some(ws) = workspace {
+        cmd.args(["--workspace", &ws.to_string_lossy()]);
+    } else if let Ok(val) = std::env::var("NANOBOT_DESKTOP_WORKSPACE") {
+        if !val.trim().is_empty() {
+            cmd.args(["--workspace", val.trim()]);
+        }
+    }
+
+    cmd.env("PYTHONUNBUFFERED", "1");
+
+    // In production, configure PYTHONPATH to point to bundled site-packages
+    if let Some(res_dir) = resource_dir {
+        let site_packages = res_dir.join("runtime").join("site-packages");
+        if site_packages.is_dir() {
+            cmd.env("PYTHONPATH", site_packages);
+        }
+    }
+
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::from(out_file));
+    cmd.stderr(Stdio::from(err_file));
+
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    cmd.spawn()
+        .map_err(|e| format!("Failed to spawn Nanobot sidecar process: {e}"))
+}
+
+use std::sync::{Arc, Mutex};
+
+/// Polls until the Nanobot WebUI gateway responds with 200 OK at `/webui/bootstrap`,
+/// or until timeout.
+pub fn wait_ready(
+    config_path: &Path,
+    log_path: &Path,
+    sidecar: &Arc<Mutex<Option<Child>>>,
+    timeout: Duration,
+) -> Result<(String, u16, String), String> {
+    let start = Instant::now();
+    let poll_interval = Duration::from_millis(300);
+
+    while start.elapsed() < timeout {
+        // 1. Check if the child process exited prematurely
+        if let Ok(mut guard) = sidecar.lock() {
+            if let Some(proc) = guard.as_mut() {
+                match proc.try_wait() {
+                    Ok(Some(status)) => {
+                        return Err(format!(
+                            "Nanobot sidecar exited unexpectedly with status: {status}.\n\
+                             Please inspect the launch log for details:\n{}",
+                            log_path.display()
+                        ));
+                    }
+                    Ok(None) => {
+                        // Still running, proceed
+                    }
+                    Err(e) => {
+                        return Err(format!("Failed to query sidecar status: {e}"));
+                    }
+                }
+            }
+        }
+
+        // 2. Try to read the endpoint from config
+        if let Some((host, port, secret)) = read_webui_endpoint(config_path) {
+            let clean_host = format_local_host(&host);
+            let probe_url = format!("http://{clean_host}:{port}/webui/bootstrap");
+
+            let mut req = ureq::get(&probe_url).timeout(Duration::from_millis(1500));
+            if !secret.trim().is_empty() {
+                req = req.set("X-Nanobot-Auth", secret.trim());
+            }
+
+            match req.call() {
+                Ok(resp) if resp.status() == 200 => {
+                    return Ok((host, port, secret));
+                }
+                Ok(_) | Err(_) => {
+                    // Gateway not listening or not ready yet, continue polling
+                }
+            }
+        }
+
+        std::thread::sleep(poll_interval);
+    }
+
+    Err(format!(
+        "Timed out waiting for Nanobot gateway to become ready after {}s.\n\
+         Please inspect the launch log for details:\n{}",
+        timeout.as_secs(),
+        log_path.display()
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_local_host() {
+        assert_eq!(format_local_host("0.0.0.0"), "127.0.0.1");
+        assert_eq!(format_local_host(""), "127.0.0.1");
+        assert_eq!(format_local_host("::"), "[::1]");
+        assert_eq!(format_local_host("::1"), "[::1]");
+        assert_eq!(format_local_host("[::1]"), "[::1]");
+        assert_eq!(format_local_host("127.0.0.1"), "127.0.0.1");
+        assert_eq!(format_local_host("localhost"), "localhost");
+    }
+
+    #[test]
+    fn test_bootstrap_url() {
+        assert_eq!(
+            bootstrap_url("127.0.0.1", 8765, ""),
+            "http://127.0.0.1:8765"
+        );
+        assert_eq!(
+            bootstrap_url("0.0.0.0", 8765, "simple-secret"),
+            "http://127.0.0.1:8765/#/?bootstrapSecret=simple-secret"
+        );
+        assert_eq!(
+            bootstrap_url("127.0.0.1", 8765, "abc/def?foo=bar&baz=123 hello"),
+            "http://127.0.0.1:8765/#/?bootstrapSecret=abc%2Fdef%3Ffoo%3Dbar%26baz%3D123%20hello"
+        );
+    }
+
+    #[test]
+    fn test_read_webui_endpoint_camel_case() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_config_camel.json");
+        let content = r#"{
+            "channels": {
+                "websocket": {
+                    "enabled": true,
+                    "host": "0.0.0.0",
+                    "port": 9000,
+                    "tokenIssueSecret": "my-secret-token"
+                }
+            }
+        }"#;
+        fs::write(&test_file, content).unwrap();
+
+        let endpoint = read_webui_endpoint(&test_file).expect("Failed to read endpoint");
+        assert_eq!(endpoint.0, "0.0.0.0");
+        assert_eq!(endpoint.1, 9000);
+        assert_eq!(endpoint.2, "my-secret-token");
+
+        let _ = fs::remove_file(test_file);
+    }
+
+    #[test]
+    fn test_read_webui_endpoint_snake_case() {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_config_snake.json");
+        let content = r#"{
+            "channels": {
+                "websocket": {
+                    "enabled": true,
+                    "host": "127.0.0.1",
+                    "port": 8765,
+                    "token_issue_secret": "snake-secret"
+                }
+            }
+        }"#;
+        fs::write(&test_file, content).unwrap();
+
+        let endpoint = read_webui_endpoint(&test_file).expect("Failed to read endpoint");
+        assert_eq!(endpoint.0, "127.0.0.1");
+        assert_eq!(endpoint.1, 8765);
+        assert_eq!(endpoint.2, "snake-secret");
+
+        let _ = fs::remove_file(test_file);
+    }
+}
