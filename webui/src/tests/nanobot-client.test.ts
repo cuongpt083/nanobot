@@ -103,6 +103,40 @@ describe("NanobotClient", () => {
     client.close();
   });
 
+  it("emits oauth_status_updated to onOAuthStatus subscribers", () => {
+    const client = new NanobotClient({
+      url: "ws://test", reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    const socket = lastSocket();
+    socket.fakeOpen();
+    const handler = vi.fn();
+    const unsubscribe = client.onOAuthStatus(handler);
+
+    socket.fakeMessage({
+      event: "oauth_status_updated",
+      provider: "anthropic_oauth",
+      status: "reauth_required",
+      expires_at: 123,
+    });
+    expect(handler).toHaveBeenCalledWith({
+      provider: "anthropic_oauth",
+      status: "reauth_required",
+      expiresAt: 123,
+      message: null,
+    });
+
+    unsubscribe();
+    socket.fakeMessage({
+      event: "oauth_status_updated",
+      provider: "anthropic_oauth",
+      status: "refreshed",
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    client.close();
+  });
+
   it("reconciles simultaneous client submissions to the gateway-owned turn", () => {
     const client = new NanobotClient({
       url: "ws://test",

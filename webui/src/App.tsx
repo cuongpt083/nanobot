@@ -19,6 +19,7 @@ import { matchSidebarShortcut } from "@/lib/sidebar-shortcuts";
 import type { SidebarDeleteItem } from "@/components/ChatList";
 import type { SettingsSectionKey } from "@/components/settings/SettingsView";
 import { StartupShell } from "@/components/StartupShell";
+import { OAuthStatusNotice } from "@/components/OAuthStatusNotice";
 import { ComposerDraftStore, clearStoredComposerDrafts } from "@/lib/composer-draft";
 import { activateReloadCache, clearReloadCache } from "@/lib/reload-cache";
 import { webuiThreadCache } from "@/lib/webui-thread-cache";
@@ -3111,6 +3112,7 @@ function Shell({
             </div>
           </div>
         ) : null}
+        <OAuthStatusNotice onOpenModelSettings={onOpenModelSettings} />
         <PairingCodePopup
           requests={visiblePairingRequests}
           total={visiblePairingRequests.length}

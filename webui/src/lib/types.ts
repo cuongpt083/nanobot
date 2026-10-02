@@ -1728,6 +1728,13 @@ export type InboundEvent =
       model_preset?: string | null;
     }
   | {
+      event: "oauth_status_updated";
+      provider: string;
+      status: "refreshed" | "reauth_required";
+      expires_at?: number | null;
+      message?: string | null;
+    }
+  | {
       event: "turn_model_updated";
       chat_id: string;
       model_name: string;

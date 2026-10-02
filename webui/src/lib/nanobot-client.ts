@@ -68,6 +68,14 @@ type Unsubscribe = () => void;
 type EventHandler = (ev: InboundEvent) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
 type RuntimeModelHandler = (modelName: string | null, modelPreset?: string | null) => void;
+export type OAuthProviderStatus = "refreshed" | "reauth_required";
+export interface OAuthStatusEvent {
+  provider: string;
+  status: OAuthProviderStatus;
+  expiresAt?: number | null;
+  message?: string | null;
+}
+type OAuthStatusHandler = (event: OAuthStatusEvent) => void;
 type SessionUpdateScope = "metadata" | "thread" | string;
 type SessionUpdateHandler = (
   chatId: string,
@@ -190,6 +198,7 @@ export class NanobotClient {
   private socket: WebSocket | null = null;
   private statusHandlers = new Set<StatusHandler>();
   private runtimeModelHandlers = new Set<RuntimeModelHandler>();
+  private oauthStatusHandlers = new Set<OAuthStatusHandler>();
   private sessionUpdateHandlers = new Set<SessionUpdateHandler>();
   private sidebarStateUpdateHandlers = new Set<SidebarStateUpdateHandler>();
   private runStatusHandlers = new Set<RunStatusHandler>();
@@ -279,6 +288,14 @@ export class NanobotClient {
     this.runtimeModelHandlers.add(handler);
     return () => {
       this.runtimeModelHandlers.delete(handler);
+    };
+  }
+
+  /** Subscribe to OAuth token status changes (refresh / sign-in required). */
+  onOAuthStatus(handler: OAuthStatusHandler): Unsubscribe {
+    this.oauthStatusHandlers.add(handler);
+    return () => {
+      this.oauthStatusHandlers.delete(handler);
     };
   }
 
@@ -1205,6 +1222,16 @@ export class NanobotClient {
       return;
     }
 
+    if (parsed.event === "oauth_status_updated") {
+      this.emitOAuthStatus({
+        provider: parsed.provider,
+        status: parsed.status,
+        expiresAt: parsed.expires_at ?? null,
+        message: parsed.message ?? null,
+      });
+      return;
+    }
+
     if (parsed.event === "transcription_result") {
       this.resolveTranscription(parsed.request_id, parsed.text);
       return;
@@ -1261,6 +1288,12 @@ export class NanobotClient {
   private emitRuntimeModelUpdate(modelName: string | null, modelPreset?: string | null): void {
     for (const handler of this.runtimeModelHandlers) {
       handler(modelName, modelPreset);
+    }
+  }
+
+  private emitOAuthStatus(event: OAuthStatusEvent): void {
+    for (const handler of this.oauthStatusHandlers) {
+      handler(event);
     }
   }
 
