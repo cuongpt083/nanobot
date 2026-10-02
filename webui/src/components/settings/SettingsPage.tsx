@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { SettingsExitGuard } from "@/components/settings/contracts";
 import { isCapabilitySection, type SettingsSectionKey } from "@/components/settings/contracts";
 import { SettingsFeature } from "@/components/settings/shared/SettingsFeature";
+import { openExternalUrl } from "@/lib/external-link";
 
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
 import { ImageGenerationSettings } from "@/components/settings/capabilities/ImageGenerationSettings";
@@ -697,12 +698,7 @@ export function SettingsPage({
         }}
         onOpenAuthorization={() => {
           if (!providerOAuthFlow) return;
-          const opened = window.open(
-            providerOAuthFlow.authorization_url,
-            "_blank",
-            "noopener,noreferrer",
-          );
-          if (opened) opened.opener = null;
+          openExternalUrl(providerOAuthFlow.authorization_url);
         }}
         onComplete={() => void completeProviderOAuthResponse()}
         onClose={closeProviderOAuthFlow}

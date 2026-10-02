@@ -14,6 +14,7 @@ import {
 } from "@/components/settings/models/ProviderSettings";
 import type { ModelSettingsState } from "@/components/settings/models/useModelSettingsState";
 import { normalizeContextWindowTokens } from "@/components/settings/shared/ModelControls";
+import { openExternalUrl } from "@/lib/external-link";
 import {
   ApiError,
   cancelProviderOAuth,
@@ -499,11 +500,11 @@ export function useModelSettingsActions({
   const runProviderOAuth = async (providerName: string, action: "login" | "logout") => {
     if (providerSaving) return;
     let popup: Window | null = null;
-    if (
+    const shouldPreopenPopup =
       action === "login"
-      && providerName === "xai_grok"
-      && !remoteBrowserAccess
-    ) {
+      && (providerName === "xai_grok" || providerName === "google_antigravity" || providerName === "anthropic_oauth")
+      && !remoteBrowserAccess;
+    if (shouldPreopenPopup) {
       try {
         popup = window.open("about:blank", "_blank");
         if (popup) popup.opener = null;
@@ -518,7 +519,7 @@ export function useModelSettingsActions({
           ? await loginProviderOAuth(
               client,
               providerName,
-              providerName === "openai_codex" && remoteBrowserAccess,
+              (providerName === "openai_codex" || providerName === "google_antigravity") && remoteBrowserAccess,
             )
           : await logoutProviderOAuth(client, providerName);
       if (isProviderOAuthAuthorizationRequired(payload)) {
@@ -526,10 +527,17 @@ export function useModelSettingsActions({
           await cancelProviderOAuth(client, payload.provider, payload.flow_id).catch(() => {});
           return;
         }
+        let openedInPopup = false;
         try {
-          if (popup && !popup.closed) popup.location.href = payload.authorization_url;
+          if (popup && !popup.closed) {
+            popup.location.href = payload.authorization_url;
+            openedInPopup = true;
+          }
         } catch {
           // The dialog keeps the authorization link available when the popup was closed.
+        }
+        if (!openedInPopup && !remoteBrowserAccess && providerName !== "openai_codex") {
+          openExternalUrl(payload.authorization_url);
         }
         providerOAuthFlowRef.current = payload;
         setProviderOAuthFlow(payload);

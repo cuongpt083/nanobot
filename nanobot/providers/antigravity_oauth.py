@@ -980,6 +980,8 @@ def start_antigravity_oauth_login(
     adapter: AntigravityAdapter | None = None,
     proxy: str | None = None,
     timeout_s: float = 300,
+    open_browser: bool = False,
+    browser_opener: Callable[[str], bool] = webbrowser.open,
 ) -> AntigravityOAuthLoginFlow:
     """Create a non-blocking OAuth flow for browser or pasted-callback completion."""
 
@@ -992,6 +994,9 @@ def start_antigravity_oauth_login(
     port = server.server_port
     redirect_uri = f"http://localhost:{port}{_CALLBACK_PATH}"
     authorize_url = _build_authorize_url(adapter, redirect_uri, challenge, state)
+    if open_browser:
+        with suppress(Exception):
+            browser_opener(authorize_url)
     return AntigravityOAuthLoginFlow(
         authorization_url=authorize_url,
         redirect_uri=redirect_uri,
@@ -1016,12 +1021,14 @@ def login_antigravity_oauth(
     """Run the browser flow, persist the token and verify it by reading it back."""
 
     flow = start_antigravity_oauth_login(
-        adapter=adapter, proxy=proxy, timeout_s=callback_timeout_s
+        adapter=adapter,
+        proxy=proxy,
+        timeout_s=callback_timeout_s,
+        open_browser=True,
+        browser_opener=browser_opener,
     )
     print_fn("Opening Google sign-in in your browser...")
     print_fn(f"If it does not open automatically, visit:\n{flow.authorization_url}")
-    with suppress(Exception):
-        browser_opener(flow.authorization_url)
     try:
         return flow.wait(callback_timeout_s)
     finally:

@@ -42,6 +42,39 @@ fn open_log_file(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("Only http and https URLs are allowed".to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|e| format!("Failed to open URL in browser: {e}"))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL in browser: {e}"))?;
+    }
+
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL in browser: {e}"))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn retry_gateway(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
 
@@ -110,7 +143,7 @@ pub fn run() {
     let mut builder = tauri::Builder::default();
 
     builder = builder
-        .invoke_handler(tauri::generate_handler![open_log_file, retry_gateway])
+        .invoke_handler(tauri::generate_handler![open_log_file, retry_gateway, open_external_url])
         .setup(move |app| {
             let app_handle = app.handle();
             let resource_dir = app_handle.path().resource_dir().ok();
@@ -138,6 +171,25 @@ pub fn run() {
             .title("NextTutorBot")
             .inner_size(1100.0, 760.0)
             .center()
+            .initialization_script(r#"
+              (function() {
+                var _open = window.open;
+                window.open = function(url, target, features) {
+                  if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+                    try {
+                      var parsed = new URL(url, window.location.href);
+                      if (parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost') {
+                        if (window.__TAURI__ && window.__TAURI__.core) {
+                          window.__TAURI__.core.invoke('open_external_url', { url: url }).catch(console.error);
+                          return null;
+                        }
+                      }
+                    } catch (e) {}
+                  }
+                  return _open ? _open.apply(window, arguments) : null;
+                };
+              })();
+            "#)
             .build()?;
 
             // Resolve Python executable
