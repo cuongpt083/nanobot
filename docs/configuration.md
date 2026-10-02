@@ -842,8 +842,10 @@ export NANOBOT_ANTIGRAVITY_CLIENT_ID="your-google-oauth-client-id"
 export NANOBOT_ANTIGRAVITY_CLIENT_SECRET="your-google-oauth-client-secret"
 ```
 
-Explicit config wins over the environment. If neither is set, login and token
-refresh fail with an actionable error.
+Explicit config wins over the environment. When neither is set, nanobot tries
+to detect the client automatically from a locally installed Gemini CLI or
+Antigravity CLI (`agy`). If nothing is found, login and token refresh fail with
+an actionable error.
 
 **1. Login:**
 ```bash

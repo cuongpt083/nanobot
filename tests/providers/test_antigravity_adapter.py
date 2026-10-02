@@ -2,17 +2,43 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from pathlib import Path
+
 import pytest
 
+from nanobot.providers import antigravity_adapter as adapter_module
 from nanobot.providers.antigravity_adapter import (
     AntigravityAdapter,
     apply_overrides,
     build_adapter,
     build_headers,
+    discover_local_client_credentials,
     normalize_model_id,
     render_user_agent,
     resolve_user_agent_version,
 )
+
+# Synthetic samples assembled at runtime so no credential-shaped literal is
+# committed (secret scanners flag the raw patterns). Secrets carry the fixed
+# 28-character body Google issues.
+_FAKE_CLIENT_ID = (
+    "123456789012-abcdefghij"
+    "klmnopqrstuvwxyz012345.apps.googleusercontent.com"
+)
+_FAKE_SHARED_CLIENT_ID = (
+    "1071006060591-fakeclient"
+    "body00000000000000.apps.googleusercontent.com"
+)
+_FAKE_CLIENT_SECRET = "GOCS" + "PX-" + "0123456789abcdefghijklmnopqr"
+_FAKE_CLIENT_SECRET_ALT = "GOCS" + "PX-" + "zyxwvutsrqponmlkjihgfedcba98"
+
+
+@pytest.fixture(autouse=True)
+def _clear_credential_cache() -> Iterator[None]:
+    discover_local_client_credentials.cache_clear()
+    yield
+    discover_local_client_credentials.cache_clear()
 
 
 def test_normalize_model_id_applies_routing_suffix() -> None:
@@ -98,3 +124,68 @@ def test_build_adapter_prefers_config_over_env(monkeypatch: pytest.MonkeyPatch) 
 
     assert adapter.client_id == "cfg-id"
     assert adapter.client_secret == "cfg-secret"
+
+
+def test_discover_local_client_credentials_prefers_shared_client(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    blob = tmp_path / "agy.bin"
+    blob.write_bytes(
+        " ".join(
+            [
+                _FAKE_CLIENT_ID,
+                _FAKE_SHARED_CLIENT_ID,
+                _FAKE_CLIENT_SECRET,
+                _FAKE_CLIENT_SECRET_ALT,
+            ]
+        ).encode()
+    )
+    monkeypatch.setattr(adapter_module, "_candidate_client_files", lambda: [blob])
+
+    assert discover_local_client_credentials() == (
+        _FAKE_SHARED_CLIENT_ID,
+        (_FAKE_CLIENT_SECRET, _FAKE_CLIENT_SECRET_ALT),
+    )
+
+
+def test_discover_local_client_credentials_without_shared_client(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    blob = tmp_path / "gemini.bin"
+    blob.write_bytes((_FAKE_CLIENT_ID + " " + _FAKE_CLIENT_SECRET).encode())
+    monkeypatch.setattr(adapter_module, "_candidate_client_files", lambda: [blob])
+
+    assert discover_local_client_credentials() == (_FAKE_CLIENT_ID, (_FAKE_CLIENT_SECRET,))
+
+
+def test_discover_local_client_credentials_requires_both(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    blob = tmp_path / "agy.bin"
+    blob.write_bytes(_FAKE_CLIENT_ID.encode())
+    monkeypatch.setattr(adapter_module, "_candidate_client_files", lambda: [blob])
+
+    assert discover_local_client_credentials() is None
+
+
+def test_build_adapter_falls_back_to_discovered_credentials(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    blob = tmp_path / "agy.bin"
+    blob.write_bytes(
+        (
+            _FAKE_SHARED_CLIENT_ID + " " + _FAKE_CLIENT_SECRET + " " + _FAKE_CLIENT_SECRET_ALT
+        ).encode()
+    )
+    monkeypatch.setattr(adapter_module, "_candidate_client_files", lambda: [blob])
+    monkeypatch.delenv("NANOBOT_ANTIGRAVITY_CLIENT_ID", raising=False)
+    monkeypatch.delenv("NANOBOT_ANTIGRAVITY_CLIENT_SECRET", raising=False)
+
+    class _Settings:
+        pass
+
+    adapter = build_adapter(_Settings())
+
+    assert adapter.client_id == _FAKE_SHARED_CLIENT_ID
+    assert adapter.client_secret == _FAKE_CLIENT_SECRET
+    assert adapter.client_secret_candidates == (_FAKE_CLIENT_SECRET_ALT,)

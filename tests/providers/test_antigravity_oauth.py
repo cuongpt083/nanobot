@@ -138,6 +138,28 @@ def test_refresh_transient_failure_raises_generic_error() -> None:
             refresh_antigravity_token("live", client=client)
 
 
+def test_refresh_retries_alternate_client_secret() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        secret = parse_qs(request.content.decode())["client_secret"][0]
+        seen.append(secret)
+        if secret == "wrong-secret":
+            return httpx.Response(401, json={"error": "invalid_client"})
+        return httpx.Response(200, json={"access_token": "acc", "refresh_token": "ref"})
+
+    adapter = AntigravityAdapter(
+        client_id="client-id",
+        client_secret="wrong-secret",
+        client_secret_candidates=("right-secret",),
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        token = refresh_antigravity_token("ref", adapter=adapter, client=client)
+
+    assert token.access == "acc"
+    assert seen == ["wrong-secret", "right-secret"]
+
+
 def test_storage_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     storage = tmp_path / "antigravity.json"
     monkeypatch.setattr(oauth, "get_antigravity_oauth_storage_path", lambda: storage)

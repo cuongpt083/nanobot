@@ -92,9 +92,31 @@ def _require_client_credentials(adapter: AntigravityAdapter) -> None:
         return
     raise AntigravityOAuthError(
         "Google Antigravity OAuth client credentials are not configured. "
-        f"Set {CLIENT_ID_ENV_VAR} and {CLIENT_SECRET_ENV_VAR}, or configure "
-        "provider.antigravity.client_id / client_secret."
+        f"Set {CLIENT_ID_ENV_VAR} and {CLIENT_SECRET_ENV_VAR}, configure "
+        "provider.antigravity.client_id / client_secret, or install the Gemini "
+        "CLI / Antigravity CLI so they can be detected automatically."
     )
+
+
+def _client_secret_candidates(adapter: AntigravityAdapter) -> tuple[str, ...]:
+    """Primary secret first, then any discovered alternatives (dedup, non-empty)."""
+
+    ordered = [adapter.client_secret, *adapter.client_secret_candidates]
+    return tuple(dict.fromkeys(secret for secret in ordered if secret))
+
+
+def _is_invalid_client(response: httpx.Response) -> bool:
+    """True when Google rejected the OAuth client credentials (wrong secret)."""
+
+    if response.status_code != 401:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return True
+    if not isinstance(payload, dict):
+        return False
+    return cast(dict[str, Any], payload).get("error") == "invalid_client"
 
 
 @dataclass(frozen=True)
@@ -340,25 +362,33 @@ def exchange_code_for_tokens(
     """Exchange an authorization code (Google expects form encoding)."""
 
     adapter = adapter or AntigravityAdapter()
-    body = {
-        "client_id": adapter.client_id,
-        "client_secret": adapter.client_secret,
-        "code": code,
-        "grant_type": "authorization_code",
-        "redirect_uri": redirect_uri,
-        "code_verifier": verifier,
-    }
+    _require_client_credentials(adapter)
     owns_client = client is None
     http_client = client or _http_client(proxy)
     try:
-        response = http_client.post(
-            adapter.token_url,
-            data=body,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
+        response: httpx.Response | None = None
+        for secret in _client_secret_candidates(adapter):
+            response = http_client.post(
+                adapter.token_url,
+                data={
+                    "client_id": adapter.client_id,
+                    "client_secret": secret,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                    "code_verifier": verifier,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if not _is_invalid_client(response):
+                break
     finally:
         if owns_client:
             http_client.close()
+    if response is None:
+        raise AntigravityOAuthError(
+            "Antigravity token exchange could not authenticate the OAuth client."
+        )
     if response.status_code >= 400:
         raise AntigravityOAuthError(
             f"Antigravity token exchange failed (HTTP {response.status_code})."
@@ -383,23 +413,30 @@ def refresh_antigravity_token(
 
     adapter = adapter or AntigravityAdapter()
     _require_client_credentials(adapter)
-    body = {
-        "client_id": adapter.client_id,
-        "client_secret": adapter.client_secret,
-        "refresh_token": refresh_token,
-        "grant_type": "refresh_token",
-    }
     owns_client = client is None
     http_client = client or _http_client(proxy)
     try:
-        response = http_client.post(
-            adapter.token_url,
-            data=body,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
+        response: httpx.Response | None = None
+        for secret in _client_secret_candidates(adapter):
+            response = http_client.post(
+                adapter.token_url,
+                data={
+                    "client_id": adapter.client_id,
+                    "client_secret": secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if not _is_invalid_client(response):
+                break
     finally:
         if owns_client:
             http_client.close()
+    if response is None:
+        raise AntigravityOAuthError(
+            "Antigravity refresh could not authenticate the OAuth client."
+        )
     if response.status_code >= 400:
         body_text = response.text
         if is_permanent_grant_failure(response.status_code, body_text):

@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import pytest
+
 from nanobot.config.schema import Config, ProviderConfig, ProvidersConfig
 from nanobot.providers.antigravity_provider import AntigravityProvider
 from nanobot.providers.factory import make_provider
+
+
+@pytest.fixture(autouse=True)
+def _antigravity_client_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep factory-built adapters off the local credential discovery path."""
+
+    monkeypatch.setenv("NANOBOT_ANTIGRAVITY_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("NANOBOT_ANTIGRAVITY_CLIENT_SECRET", "test-client-secret")
 
 
 def test_registry_spec() -> None:
