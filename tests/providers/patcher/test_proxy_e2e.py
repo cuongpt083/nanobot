@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -219,3 +220,51 @@ async def test_proxy_rejects_invalid_json() -> None:
                     assert response.status == 400
         finally:
             await proxy.stop()
+
+
+@asynccontextmanager
+async def _start_gzip_upstream() -> AsyncIterator[str]:
+    app = web.Application()
+
+    async def handler(request: web.Request) -> web.Response:
+        await request.read()
+        body = json.dumps(
+            {"type": "message", "content": [{"type": "text", "text": "HEALTH_CHECK"}]}
+        ).encode()
+        return web.Response(
+            body=gzip.compress(body),
+            headers={"Content-Type": "application/json", "Content-Encoding": "gzip"},
+        )
+
+    app.router.add_post("/v1/messages", handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    server = site._server
+    port = server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        await runner.cleanup()
+
+
+async def test_proxy_does_not_forward_content_encoding_of_a_decompressed_body() -> None:
+    # aiohttp transparently decompresses the upstream body; echoing its
+    # Content-Encoding makes the SDK fail with a bogus "Connection error".
+    async with _start_gzip_upstream() as base_url:
+        proxy = AnthropicPatcherProxy(_config(base_url))
+        await proxy.start(0)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"http://127.0.0.1:{proxy.port}/v1/messages",
+                    json={"model": "m", "messages": []},
+                    headers={"authorization": "Bearer tok"},
+                ) as response:
+                    assert "Content-Encoding" not in response.headers
+                    body = await response.json()
+        finally:
+            await proxy.stop()
+
+    assert body["content"][0]["text"] == "HEARTBEAT_OK"

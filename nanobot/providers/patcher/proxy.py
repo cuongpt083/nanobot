@@ -51,6 +51,15 @@ UPSTREAM_HEADERS_TIMEOUT_S = 600.0
 #: Extra attempts when the connection fails *before* any response byte arrives.
 UPSTREAM_CONNECT_MAX_RETRIES = 2
 
+#: Upstream response headers that must never be copied verbatim onto our reply.
+#: ``content-encoding`` is here because aiohttp transparently decompresses the
+#: upstream body, so echoing the header would make the downstream client try to
+#: decode already-plain bytes (httpx raises ``DecodingError``, which the Anthropic
+#: SDK surfaces as a bogus "Connection error.").
+_DROPPED_UPSTREAM_HEADERS = frozenset(
+    {"content-length", "transfer-encoding", "connection", "content-encoding"}
+)
+
 NETWORK_CODE_HINTS: dict[str, str] = {
     "ENETUNREACH": "network unreachable — no route to the internet",
     "EHOSTUNREACH": "host unreachable — no route to the internet",
@@ -532,7 +541,7 @@ class AnthropicPatcherProxy:
     ) -> web.StreamResponse:
         response = web.StreamResponse(status=upstream.status)
         for key, value in upstream.headers.items():
-            if key.lower() in ("transfer-encoding", "content-length", "connection"):
+            if key.lower() in _DROPPED_UPSTREAM_HEADERS:
                 continue
             response.headers[key] = value
         await response.prepare(request)
@@ -585,7 +594,7 @@ class AnthropicPatcherProxy:
 
         response = web.Response(status=upstream.status, body=response_body)
         for key, value in upstream.headers.items():
-            if key.lower() in ("content-length", "transfer-encoding", "connection"):
+            if key.lower() in _DROPPED_UPSTREAM_HEADERS:
                 continue
             response.headers[key] = value
         return response
