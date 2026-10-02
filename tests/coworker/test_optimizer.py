@@ -144,3 +144,27 @@ def test_system_prompt_is_adopted_immediately_when_history_was_rewritten() -> No
     optimize_payload("s", [{"role": "system", "content": "v1"}, {"role": "user", "content": "old"}], policy, now=1000)
     compacted = [{"role": "system", "content": "v1 + summary"}, {"role": "user", "content": "new"}]
     assert optimize_payload("s", compacted, policy, now=1005)[0]["content"] == "v1 + summary"
+
+
+def test_optimize_records_per_call_drop_and_send_counts() -> None:
+    messages = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "heartbeat"},
+        {"role": "assistant", "content": "HEARTBEAT_OK"},
+        {"role": "user", "content": "real"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "next"},
+    ]
+    optimize_payload("s", messages, _policy(optimize=True), now=1000)
+    stats = optimizer.describe("s")
+    assert stats["last_original_messages"] == 6
+    assert stats["last_sent_messages"] == 4
+    assert stats["last_dropped_messages"] == 2
+    assert stats["last_rewritten_messages"] == 0
+
+
+def test_optimize_records_per_call_trimmed_count() -> None:
+    optimize_payload("s", _history(7), _policy(trim_enabled=True, max_turns=4), now=1000)
+    stats = optimizer.describe("s")
+    assert stats["last_trimmed_messages"] == 8
+    assert stats["last_sent_messages"] == 7

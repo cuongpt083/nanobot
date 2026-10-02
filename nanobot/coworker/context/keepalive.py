@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from loguru import logger
 
+from nanobot.coworker import metrics_store
 from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.context import cache_policy, keepalive_state, metrics, optimizer
 from nanobot.coworker.context.cache_policy import CacheTtlPolicy, supports_ttl1h
@@ -55,6 +56,7 @@ class _Capture:
     in_flight: bool = False
     set_at_seen: float = 0.0
     forced_long: bool = False
+    warm_hits: int = 0
     spent: dict[str, int] = field(default_factory=dict)
 
 
@@ -62,6 +64,10 @@ _captures: dict[str, _Capture] = {}
 _runner_task: asyncio.Task[Any] | None = None
 
 Action = Literal["none", "kickstart", "rewarm", "ping"]
+
+
+def _provider_name(cap: _Capture) -> str:
+    return getattr(cap.provider, "provider_name", "") or ""
 
 
 def evaluate(
@@ -142,6 +148,7 @@ def capture(
         spent=spent,
         set_at_seen=previous.set_at_seen if previous is not None else 0.0,
         forced_long=previous.forced_long if previous is not None else False,
+        warm_hits=previous.warm_hits if previous is not None else 0,
         # transform_request marks the turn in flight *before* capturing; keep that mark.
         in_flight=previous.in_flight if previous is not None else False,
     )
@@ -186,6 +193,12 @@ async def _send_ping(
             cap.failures += 1
             cap.last_failure_at = time.time()
             cap.last_error = "finish_reason error"
+            metrics_store.record_ping(
+                session_key=cap.session_key,
+                provider=_provider_name(cap),
+                model=cap.model,
+                failure=True,
+            )
             return
 
         now = time.time()
@@ -208,6 +221,16 @@ async def _send_ping(
             cap.spent["output"] = cap.spent.get("output", 0) + int(usage.output_tokens or 0)
             cap.spent["cache_read"] = cap.spent.get("cache_read", 0) + int(usage.cache_read_tokens or 0)
             cap.spent["cache_write"] = cap.spent.get("cache_write", 0) + int(usage.cache_write_tokens or 0)
+        warm_hit = not kickstart
+        if warm_hit:
+            cap.warm_hits += 1
+        metrics_store.record_ping(
+            session_key=cap.session_key,
+            provider=_provider_name(cap),
+            model=cap.model,
+            usage=usage,
+            warm_hit=warm_hit,
+        )
         logger.debug("coworker keep-alive ping {} for {}", cap.pings, cap.session_key)
     except asyncio.CancelledError:
         raise
@@ -215,6 +238,12 @@ async def _send_ping(
         cap.failures += 1
         cap.last_failure_at = time.time()
         cap.last_error = str(exc)[:200]
+        metrics_store.record_ping(
+            session_key=cap.session_key,
+            provider=_provider_name(cap),
+            model=cap.model,
+            failure=True,
+        )
         logger.warning("coworker keep-alive ping failed for {}: {}", cap.session_key, exc)
     finally:
         cap.pinging = False
@@ -369,6 +398,8 @@ def status_for(session: Any) -> dict[str, Any]:
             ttl1h_armed = False
             run_active = bool(turn_running_since(key) is not None)
 
+    warm_hits = cap.warm_hits if cap is not None else 0
+
     metrics_snap = metrics.snapshot(key)
     raw_last: object = metrics_snap.get("last")
     last_req = as_dict(raw_last)
@@ -392,6 +423,7 @@ def status_for(session: Any) -> dict[str, Any]:
         "ttl1h_supported": ttl1h_supported,
         "ttl1h_armed": ttl1h_armed,
         "pings": pings,
+        "warm_hits": warm_hits,
         "ping_cap": ping_cap,
         "can_ping": can_ping,
         "next_ping_at": next_ping_at,

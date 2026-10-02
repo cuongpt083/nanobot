@@ -26,6 +26,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from nanobot.coworker import config as coworker_config
+from nanobot.coworker import metrics_store
 from nanobot.coworker.advisor.state import OFF
 from nanobot.coworker.config import CoworkerConfig, coworker_config_path, load_coworker_config
 from nanobot.coworker.transcript import as_dict
@@ -139,6 +140,15 @@ def coworker_settings_payload(preset_names: Iterable[str], *, detect: bool = Tru
         "detection": detect_backends(cfg) if detect else {},
         "repos": [check_repo(r.path) for r in cfg.coding.repos],
     }
+
+
+def coworker_metrics_payload(
+    *,
+    timezone_name: str | None = None,
+    days: int = 30,
+) -> dict[str, Any]:
+    """Read-only 30-day cache / keep-warm / optimize history for the settings Cache tab."""
+    return metrics_store.metrics_payload(days=days, timezone_name=timezone_name)
 
 
 # ---------- update ----------

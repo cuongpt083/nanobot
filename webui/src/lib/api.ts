@@ -11,6 +11,7 @@ import type {
   CoworkerCodingSwitch,
   CoworkerContextSwitch,
   CoworkerKeepaliveSwitch,
+  CoworkerMetricsHistory,
   CoworkerSettingsPayload,
   CoworkerSettingsUpdate,
   CoworkerStatus,
@@ -572,6 +573,18 @@ export async function fetchCoworkerSettings(
 ): Promise<CoworkerSettingsPayload> {
   return request<CoworkerSettingsPayload>(
     `${base}/api/settings/coworker`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchCoworkerMetrics(
+  token: string,
+  base: string = "",
+): Promise<CoworkerMetricsHistory> {
+  return request<CoworkerMetricsHistory>(
+    `${base}/api/settings/coworker/metrics`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,

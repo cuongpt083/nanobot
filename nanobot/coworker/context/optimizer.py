@@ -321,6 +321,10 @@ def optimize_payload(
     cold = state.last_send == 0.0 or now - state.last_send > policy.ttl_s
     state.last_send = now
     out = list(messages)
+    dropped_this = 0
+    rewritten_this = 0
+    trimmed_this = 0
+    system_holds_this = 0
 
     # System prompt freeze. When the history right after the system prompt changed
     # (compaction, consolidation, /new) the cached prefix is already gone, so the
@@ -338,6 +342,7 @@ def optimize_payload(
         else:
             out[0] = {**out[0], "content": state.frozen_system}
             state.stats["system_holds"] = state.stats.get("system_holds", 0) + 1
+            system_holds_this = 1
 
     if cold:
         # Re-decide junk/waste; nothing warm can be invalidated now.
@@ -346,15 +351,22 @@ def optimize_payload(
         state.wasted_applied = policy.wasted_ids
 
     if state.wasted_applied:
+        before = len(out)
         out = _drop_wasted(out, state.wasted_applied)
+        dropped_this += before - len(out)
     if state.drop or state.rewrite:
         limit = _last_turn_start(out)
         shaped: list[dict[str, Any]] = []
         for i, m in enumerate(out):
             fp = fingerprint(m) if i < limit else ""
             if fp and fp in state.drop:
+                dropped_this += 1
                 continue
-            shaped.append(rewrite_message(m) if fp and fp in state.rewrite else m)
+            if fp and fp in state.rewrite:
+                rewritten_this += 1
+                shaped.append(rewrite_message(m))
+            else:
+                shaped.append(m)
         out = shaped
     if not policy.trim_enabled:
         state.trim_anchor = None
@@ -367,11 +379,18 @@ def optimize_payload(
                 state.trim_anchor = fingerprint(current[cut])
         if state.trim_anchor is not None:
             out, trimmed = _apply_trim(out, state.trim_anchor)
+            trimmed_this = trimmed
             if trimmed == 0 and not any(fingerprint(m) == state.trim_anchor for m in out):
                 state.trim_anchor = None  # anchor consolidated away: history is already shorter
             state.stats["trimmed_messages"] = trimmed
     state.stats["sent_messages"] = len(out)
     state.stats["original_messages"] = len(messages)
+    state.stats["last_original_messages"] = len(messages)
+    state.stats["last_sent_messages"] = len(out)
+    state.stats["last_trimmed_messages"] = trimmed_this
+    state.stats["last_dropped_messages"] = dropped_this
+    state.stats["last_rewritten_messages"] = rewritten_this
+    state.stats["last_system_holds"] = system_holds_this
     return out
 
 

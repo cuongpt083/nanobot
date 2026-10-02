@@ -257,6 +257,82 @@ async def test_coworker_hook_adjust_provider_context_ttl1h(tmp_path) -> None:
         assert hook.adjust_provider_context(ctx, pc2).cache_retention is None
 
 
+@pytest.mark.asyncio
+async def test_send_ping_records_metric_and_counts_warm_hits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        keepalive, "metrics_store", SimpleNamespace(record_ping=lambda **kw: recorded.append(kw))
+    )
+    provider = SimpleNamespace(
+        provider_name="anthropic",
+        backend="anthropic",
+        chat_with_context=AsyncMock(
+            return_value=LLMResponse(
+                content="ok",
+                finish_reason="stop",
+                usage=LLMUsage.reported(
+                    input_tokens=100, output_tokens=5, cache_read_tokens=80, cache_write_tokens=0
+                ),
+            )
+        ),
+    )
+
+    warm = _make_cap(provider=provider)
+    await keepalive._send_ping(warm, kickstart=False)
+    assert warm.warm_hits == 1
+    assert recorded[-1]["warm_hit"] is True
+    assert recorded[-1].get("failure", False) is False
+    assert recorded[-1]["session_key"] == "s1"
+
+    kick = _make_cap(provider=provider)
+    await keepalive._send_ping(kick, kickstart=True)
+    assert kick.warm_hits == 0
+    assert recorded[-1]["warm_hit"] is False
+
+
+@pytest.mark.asyncio
+async def test_send_ping_records_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        keepalive, "metrics_store", SimpleNamespace(record_ping=lambda **kw: recorded.append(kw))
+    )
+    provider = SimpleNamespace(
+        provider_name="anthropic",
+        backend="anthropic",
+        chat_with_context=AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    cap = _make_cap(provider=provider)
+    await keepalive._send_ping(cap, kickstart=False)
+    assert cap.failures == 1
+    assert recorded and recorded[0]["failure"] is True
+
+
+def test_status_for_reports_warm_hits() -> None:
+    runtime = SimpleNamespace(
+        provider=SimpleNamespace(provider_name="anthropic", backend="anthropic"),
+        model="claude-3-5-sonnet",
+        generation=SimpleNamespace(max_tokens=4096, temperature=0.7, reasoning_effort=None),
+    )
+    keepalive.capture(
+        "warm-status",
+        runtime=runtime,
+        messages=[{"role": "user", "content": "hi"}],
+        tools=None,
+        ttl_s=300.0,
+        window_s=1800.0,
+        max_pings=4,
+        lead_s=60.0,
+    )
+    try:
+        keepalive._captures["warm-status"].warm_hits = 3
+        session = SimpleNamespace(key="warm-status", metadata={})
+        assert status_for(session)["warm_hits"] == 3
+    finally:
+        keepalive.cancel_all()
+
+
 def test_capture_preserves_in_flight_mark() -> None:
     runtime = SimpleNamespace(
         provider=object(),

@@ -350,6 +350,68 @@ export interface CoworkerContextSwitch {
   trim?: boolean | null;
 }
 
+/** Aggregated cache / keep-warm / optimize figures for one day, one source, or a 30-day total. */
+export interface CoworkerMetricsTotals {
+  turns: number;
+  pings: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  observed_input_tokens: number;
+  cache_read_rate: number | null;
+  ping_input_tokens: number;
+  ping_output_tokens: number;
+  ping_cache_read_tokens: number;
+  ping_cache_write_tokens: number;
+  warm_turns: number;
+  warm_hits: number;
+  ping_failures: number;
+  original_messages: number;
+  sent_messages: number;
+  saved_messages: number;
+  trimmed_messages: number;
+  dropped_messages: number;
+  rewritten_messages: number;
+  system_holds: number;
+}
+
+export interface CoworkerMetricsDay extends CoworkerMetricsTotals {
+  date: string;
+}
+
+export interface CoworkerMetricsSource extends CoworkerMetricsTotals {
+  source: string;
+}
+
+export interface CoworkerMetricsHistory {
+  days: CoworkerMetricsDay[];
+  total_turns_30d: number;
+  total_pings_30d: number;
+  input_tokens_30d: number;
+  output_tokens_30d: number;
+  cache_read_tokens_30d: number;
+  cache_write_tokens_30d: number;
+  observed_input_tokens_30d: number;
+  cache_read_rate_30d: number | null;
+  ping_input_tokens_30d: number;
+  ping_output_tokens_30d: number;
+  ping_cache_read_tokens_30d: number;
+  ping_cache_write_tokens_30d: number;
+  warm_turns_30d: number;
+  warm_hits_30d: number;
+  ping_failures_30d: number;
+  original_messages_30d: number;
+  sent_messages_30d: number;
+  saved_messages_30d: number;
+  trimmed_messages_30d: number;
+  dropped_messages_30d: number;
+  rewritten_messages_30d: number;
+  system_holds_30d: number;
+  sources_30d: CoworkerMetricsSource[];
+  updated_at: string | null;
+}
+
 export interface CoworkerLastConsult {
   at: number;
   model: string;

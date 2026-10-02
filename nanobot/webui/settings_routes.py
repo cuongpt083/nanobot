@@ -154,6 +154,7 @@ _SYSTEM_ROUTES = {
 
 _COWORKER_SETTINGS_PATH = "/api/settings/coworker"
 _COWORKER_SETTINGS_UPDATE_PATH = "/api/settings/coworker/update"
+_COWORKER_METRICS_PATH = "/api/settings/coworker/metrics"
 
 _SETTINGS_MUTATION_PATHS = frozenset({
     _COWORKER_SETTINGS_UPDATE_PATH,
@@ -299,6 +300,10 @@ class WebUISettingsRouter:
             if not self._authorized(request):
                 return self._unauthorized()
             return await self._handle_coworker_settings(request, update=path.endswith("/update"))
+        if path == _COWORKER_METRICS_PATH:
+            if not self._authorized(request):
+                return self._unauthorized()
+            return await self._handle_coworker_metrics()
 
         route = self._route(path)
         if route is None:
@@ -506,6 +511,21 @@ class WebUISettingsRouter:
         except Exception:
             self.logger.exception("coworker settings request failed")
             return self._error_response(500, "coworker settings request failed")
+        return self._json_response(payload)
+
+    async def _handle_coworker_metrics(self) -> Response:
+        """Read-only 30-day cache / keep-warm / optimize history for the settings Cache tab."""
+        from nanobot.coworker.settings_api import coworker_metrics_payload
+
+        def run() -> dict[str, Any]:
+            timezone_name = self.settings.config.load().agents.defaults.timezone
+            return coworker_metrics_payload(timezone_name=timezone_name)
+
+        try:
+            payload = await asyncio.to_thread(run)
+        except Exception:
+            self.logger.exception("coworker metrics request failed")
+            return self._error_response(500, "coworker metrics request failed")
         return self._json_response(payload)
 
     def _model_operations(self) -> model_domain.ModelSettingsOperations:

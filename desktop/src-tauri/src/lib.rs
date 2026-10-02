@@ -2,9 +2,14 @@ pub mod runtime;
 
 use std::path::PathBuf;
 use std::process::Child;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{Manager, RunEvent, Url, WebviewUrl, WebviewWindowBuilder};
+
+/// Set once the exit sequence starts, so a re-entrant `ExitRequested` (from our own `exit()`)
+/// is allowed through instead of being prevented again.
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
 pub struct AppState {
     pub sidecar: Arc<Mutex<Option<Child>>>,
@@ -223,14 +228,34 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(move |_app_handle, event| {
-        if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-            if let Ok(mut guard) = sidecar_cleanup.lock() {
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
+    app.run(move |app_handle, event| match event {
+        RunEvent::ExitRequested { api, .. } => {
+            if SHUTTING_DOWN.swap(true, Ordering::SeqCst) {
+                // Our own `exit()` after cleanup: let the app close now.
+                return;
             }
+            // Hold the process open until the gateway is stopped (bounded by the watchdog).
+            api.prevent_exit();
+
+            let resource_dir = app_handle.path().resource_dir().ok();
+            let handle = app_handle.clone();
+            let sidecar = sidecar_cleanup.clone();
+
+            std::thread::spawn(move || {
+                if let Ok(python) = runtime::resolve_python(resource_dir.as_deref()) {
+                    runtime::shutdown_gateway(&python, resource_dir.as_deref());
+                }
+                if let Ok(mut guard) = sidecar.lock() {
+                    if let Some(mut child) = guard.take() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                }
+                handle.exit(0);
+            });
         }
+        // Final teardown is handled by the worker above.
+        RunEvent::Exit => {}
+        _ => {}
     });
 }

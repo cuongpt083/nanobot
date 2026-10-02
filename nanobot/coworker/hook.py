@@ -23,7 +23,7 @@ from nanobot.agent.hook import (
     AgentTurnHookContext,
 )
 from nanobot.agent.tools.context import current_request_context
-from nanobot.coworker import directives
+from nanobot.coworker import directives, metrics_store
 from nanobot.coworker.advisor import policy
 from nanobot.coworker.advisor import state as advisor_state
 from nanobot.coworker.advisor.consult import breaker_open_seconds
@@ -54,6 +54,7 @@ from nanobot.coworker.transcript import as_dict, as_list, content_text, is_auto_
 from nanobot.coworker.workflows import drive
 from nanobot.coworker.workflows.registry import list_workflows
 from nanobot.coworker.workflows.tools import WORKFLOW_TOOLS
+from nanobot.llm_usage.context import current_llm_usage_source
 from nanobot.providers.base import ProviderCallContext, ToolCallRequest
 
 KIND_CODING_RESULT = "coding_result"
@@ -315,6 +316,17 @@ class CoworkerHook(AgentHook):
                     "model": model,
                     "ttl1h_armed": ttl1h_armed,
                 }
+                kw_status = keepalive.status_for(session)
+                expires_at = kw_status.get("expires_at")
+                metrics_store.record_turn(
+                    session_key=self._key,
+                    provider=provider_name,
+                    model=model,
+                    usage=context.usage,
+                    optimize=optimizer.describe(self._key),
+                    warm=bool(expires_at is not None and float(expires_at) > time.time()),
+                    source=current_llm_usage_source(),
+                )
 
     async def on_finally(self, context: AgentRunHookContext) -> None:
         forget_live_messages(self._key)

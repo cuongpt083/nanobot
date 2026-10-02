@@ -206,28 +206,7 @@ pub fn spawn_sidecar(
     }
 
     cmd.env("PYTHONUNBUFFERED", "1");
-
-    // In production, configure PYTHONPATH to point to bundled site-packages
-    let mut site_packages_opt: Option<PathBuf> = None;
-    if let Some(res_dir) = resource_dir {
-        let p = res_dir.join("runtime").join("site-packages");
-        if p.is_dir() {
-            site_packages_opt = Some(p);
-        }
-    }
-    if site_packages_opt.is_none() {
-        if let Some(parent) = python.parent() {
-            if let Some(grandparent) = parent.parent() {
-                let p = grandparent.join("site-packages");
-                if p.is_dir() {
-                    site_packages_opt = Some(p);
-                }
-            }
-        }
-    }
-    if let Some(sp) = site_packages_opt {
-        cmd.env("PYTHONPATH", sp);
-    }
+    apply_site_packages(&mut cmd, python, resource_dir);
 
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::from(out_file));
@@ -238,6 +217,163 @@ pub fn spawn_sidecar(
 
     cmd.spawn()
         .map_err(|e| format!("Failed to spawn Nanobot sidecar process: {e}"))
+}
+
+/// Point a child process at the bundled site-packages so it can import `nanobot`.
+pub fn apply_site_packages(cmd: &mut Command, python: &Path, resource_dir: Option<&Path>) {
+    let mut site_packages: Option<PathBuf> = None;
+    if let Some(res_dir) = resource_dir {
+        let candidate = res_dir.join("runtime").join("site-packages");
+        if candidate.is_dir() {
+            site_packages = Some(candidate);
+        }
+    }
+    if site_packages.is_none() {
+        if let Some(parent) = python.parent() {
+            if let Some(grandparent) = parent.parent() {
+                let candidate = grandparent.join("site-packages");
+                if candidate.is_dir() {
+                    site_packages = Some(candidate);
+                }
+            }
+        }
+    }
+    if let Some(sp) = site_packages {
+        cmd.env("PYTHONPATH", sp);
+    }
+}
+
+/// Graceful stop timeout handed to `nanobot gateway stop`.
+pub const GATEWAY_STOP_TIMEOUT_S: u64 = 25;
+/// Outer wait before the shell force-kills a gateway that ignored the stop command.
+pub const SHUTDOWN_WATCHDOG_S: u64 = 30;
+
+/// nanobot's default data directory (parent of the default `config.json`).
+///
+/// The desktop sidecar is started without `--config`/`--workspace`, so the gateway it owns
+/// always uses this default instance.
+pub fn gateway_data_dir() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".nanobot")
+}
+
+pub fn gateway_state_path() -> PathBuf {
+    gateway_data_dir().join("run").join("gateway.json")
+}
+
+pub fn gateway_lease_path() -> PathBuf {
+    gateway_data_dir().join("run").join("gateway.clients.json")
+}
+
+/// Whether a lease file marks the gateway as on-demand (`auto_stop = true`).
+///
+/// Any read/parse failure is treated as "not on-demand" so a persistent gateway is never stopped.
+pub fn lease_is_on_demand(lease_path: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(lease_path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    value
+        .get("auto_stop")
+        .and_then(|flag| flag.as_bool())
+        .unwrap_or(false)
+}
+
+/// The PID recorded in a gateway state file, if any.
+pub fn pid_from_state(state_path: &Path) -> Option<u32> {
+    let text = fs::read_to_string(state_path).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+    value.get("pid").and_then(|pid| pid.as_u64()).map(|pid| pid as u32)
+}
+
+pub fn gateway_is_on_demand() -> bool {
+    lease_is_on_demand(&gateway_lease_path())
+}
+
+pub fn read_gateway_pid() -> Option<u32> {
+    pid_from_state(&gateway_state_path())
+}
+
+/// Build `python -m nanobot gateway stop --timeout <N>` matching how the sidecar was launched.
+pub fn gateway_stop_command(python: &Path, resource_dir: Option<&Path>) -> Command {
+    let mut cmd = Command::new(python);
+    cmd.args(["-m", "nanobot", "gateway", "stop", "--timeout"]);
+    cmd.arg(GATEWAY_STOP_TIMEOUT_S.to_string());
+    if let Ok(val) = std::env::var("NANOBOT_DESKTOP_WORKSPACE") {
+        let trimmed = val.trim();
+        if !trimmed.is_empty() {
+            cmd.args(["--workspace", trimmed]);
+        }
+    }
+    cmd.env("PYTHONUNBUFFERED", "1");
+    apply_site_packages(&mut cmd, python, resource_dir);
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+/// Last-resort termination of a recorded gateway PID (never used on a persistent gateway).
+pub fn force_kill_pid(pid: u32) {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("taskkill");
+        cmd.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+/// Stop the on-demand gateway this app started: `gateway stop`, then force-kill on timeout.
+///
+/// Blocking; call from a worker thread. No-op when the gateway is persistent or absent.
+pub fn shutdown_gateway(python: &Path, resource_dir: Option<&Path>) {
+    if !gateway_is_on_demand() {
+        return;
+    }
+
+    let mut cmd = gateway_stop_command(python, resource_dir);
+    let Ok(mut child) = cmd.spawn() else {
+        return;
+    };
+
+    let start = Instant::now();
+    let watchdog = Duration::from_secs(SHUTDOWN_WATCHDOG_S);
+    loop {
+        match child.try_wait() {
+            Ok(None) => {}
+            // Exited (success or failure) or the handle is unusable: the CLI already forced on timeout.
+            Ok(Some(_)) | Err(_) => return,
+        }
+        if start.elapsed() >= watchdog {
+            let _ = child.kill();
+            let _ = child.wait();
+            if let Some(pid) = read_gateway_pid() {
+                force_kill_pid(pid);
+            }
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 use std::sync::{Arc, Mutex};
@@ -494,6 +630,53 @@ mod tests {
 
         let _ = fs::remove_file(log_file);
         let _ = fs::remove_file(config_file);
+    }
+
+    #[test]
+    fn test_gateway_stop_command_targets_stop_with_timeout() {
+        let cmd = gateway_stop_command(Path::new("python"), None);
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert!(args.windows(2).any(|pair| pair == ["gateway", "stop"]));
+        let timeout_index = args
+            .iter()
+            .position(|arg| arg == "--timeout")
+            .expect("--timeout present");
+        assert_eq!(args[timeout_index + 1], GATEWAY_STOP_TIMEOUT_S.to_string());
+    }
+
+    #[test]
+    fn test_lease_is_on_demand_reads_auto_stop() {
+        let dir = std::env::temp_dir();
+
+        let on_demand = dir.join("test_lease_on_demand.json");
+        fs::write(&on_demand, r#"{"auto_stop": true, "clients": {"a": {}}}"#).unwrap();
+        assert!(lease_is_on_demand(&on_demand));
+
+        let persistent = dir.join("test_lease_persistent.json");
+        fs::write(&persistent, r#"{"auto_stop": false, "clients": {}}"#).unwrap();
+        assert!(!lease_is_on_demand(&persistent));
+
+        let missing = dir.join("test_lease_missing_never.json");
+        assert!(!lease_is_on_demand(&missing));
+
+        let _ = fs::remove_file(on_demand);
+        let _ = fs::remove_file(persistent);
+    }
+
+    #[test]
+    fn test_pid_from_state_reads_pid() {
+        let dir = std::env::temp_dir();
+        let state = dir.join("test_gateway_state.json");
+        fs::write(&state, r#"{"pid": 4242, "port": 8765}"#).unwrap();
+        assert_eq!(pid_from_state(&state), Some(4242));
+
+        let missing = dir.join("test_gateway_state_missing.json");
+        assert_eq!(pid_from_state(&missing), None);
+
+        let _ = fs::remove_file(state);
     }
 }
 

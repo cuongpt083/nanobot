@@ -2,6 +2,7 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { CoworkerMetricsCard } from "@/components/coworker/CoworkerMetricsCard";
 import {
   NumberInput,
   SettingsGroup,
@@ -971,6 +972,8 @@ function CacheTab({ state }: { state: CoworkerSettingsState }) {
           </div>
         </Field>
       </SettingsGroup>
+
+      <CoworkerMetricsCard />
     </div>
   );
 }
