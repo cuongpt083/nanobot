@@ -1,7 +1,7 @@
 [package]
 name = "nanobot-desktop"
 version = "0.1.0"
-description = "Nanobot Desktop Application"
+description = "NextTutorBot Desktop Application"
 authors = ["nanobot contributors"]
 edition = "2021"
 

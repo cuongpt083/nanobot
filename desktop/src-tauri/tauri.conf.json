@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Nanobot",
+  "productName": "NextTutorBot",
   "version": "0.1.0",
-  "identifier": "ai.nanobot.desktop",
+  "identifier": "ai.nexttutorbot.desktop",
   "build": {
     "frontendDist": "../frontend"
   },

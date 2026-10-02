@@ -135,7 +135,7 @@ pub fn run() {
                 "main",
                 WebviewUrl::App("index.html".into()),
             )
-            .title("Nanobot")
+            .title("NextTutorBot")
             .inner_size(1100.0, 760.0)
             .center()
             .build()?;
