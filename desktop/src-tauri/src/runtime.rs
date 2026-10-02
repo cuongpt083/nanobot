@@ -42,9 +42,11 @@ pub fn bootstrap_url(host: &str, port: u16, secret: &str) -> String {
 
 /// Resolves the Python executable to run.
 ///
+/// Resolves the Python executable to run.
+///
 /// Priority:
 /// 1. `NANOBOT_DESKTOP_PYTHON` environment variable (used during development).
-/// 2. Bundled python in `<resource_dir>/runtime/python/...` (used in production).
+/// 2. Bundled python in `<resource_dir>/runtime/python/...` or adjacent runtime directories.
 pub fn resolve_python(resource_dir: Option<&Path>) -> Result<PathBuf, String> {
     if let Ok(val) = std::env::var("NANOBOT_DESKTOP_PYTHON") {
         let trimmed = val.trim();
@@ -59,19 +61,46 @@ pub fn resolve_python(resource_dir: Option<&Path>) -> Result<PathBuf, String> {
         }
     }
 
+    let mut candidate_bases: Vec<PathBuf> = Vec::new();
+
     if let Some(res_dir) = resource_dir {
-        #[cfg(windows)]
-        let bundled = res_dir.join("runtime").join("python").join("python.exe");
+        candidate_bases.push(res_dir.to_path_buf());
+    }
 
-        #[cfg(not(windows))]
-        let bundled = res_dir
-            .join("runtime")
-            .join("python")
-            .join("bin")
-            .join("python3");
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidate_bases.push(parent.to_path_buf());
+            if let Some(grandparent) = parent.parent() {
+                candidate_bases.push(grandparent.to_path_buf());
+            }
+        }
+    }
 
-        if bundled.is_file() {
-            return Ok(bundled);
+    if let Ok(cwd) = std::env::current_dir() {
+        candidate_bases.push(cwd.join("desktop"));
+        candidate_bases.push(cwd);
+    }
+
+    #[cfg(windows)]
+    let rel_paths = [
+        "runtime/python/python.exe",
+        "python/python.exe",
+        "resources/runtime/python/python.exe",
+    ];
+
+    #[cfg(not(windows))]
+    let rel_paths = [
+        "runtime/python/bin/python3",
+        "python/bin/python3",
+        "resources/runtime/python/bin/python3",
+    ];
+
+    for base in candidate_bases {
+        for rel in &rel_paths {
+            let candidate = base.join(rel);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
         }
     }
 
@@ -179,11 +208,25 @@ pub fn spawn_sidecar(
     cmd.env("PYTHONUNBUFFERED", "1");
 
     // In production, configure PYTHONPATH to point to bundled site-packages
+    let mut site_packages_opt: Option<PathBuf> = None;
     if let Some(res_dir) = resource_dir {
-        let site_packages = res_dir.join("runtime").join("site-packages");
-        if site_packages.is_dir() {
-            cmd.env("PYTHONPATH", site_packages);
+        let p = res_dir.join("runtime").join("site-packages");
+        if p.is_dir() {
+            site_packages_opt = Some(p);
         }
+    }
+    if site_packages_opt.is_none() {
+        if let Some(parent) = python.parent() {
+            if let Some(grandparent) = parent.parent() {
+                let p = grandparent.join("site-packages");
+                if p.is_dir() {
+                    site_packages_opt = Some(p);
+                }
+            }
+        }
+    }
+    if let Some(sp) = site_packages_opt {
+        cmd.env("PYTHONPATH", sp);
     }
 
     cmd.stdin(Stdio::null());

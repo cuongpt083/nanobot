@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "python scripts/build_runtime.py && tauri build",
     "runtime": "python scripts/build_runtime.py"
   },
   "devDependencies": {

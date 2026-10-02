@@ -407,10 +407,10 @@ loading the SPA as a plain browser page.
 - [x] T1.2 `runtime.rs`
 - [x] T1.3 `lib.rs`
 - [x] T1.4 Dev smoke test (Windows)
-- [ ] T2.1 `fetch_python_runtime.py`
-- [ ] T2.2 `build_python_runtime.py`
-- [ ] T2.3 `build_runtime.py` + scripts
-- [ ] T2.4 Production resolution + package-data
+- [x] T2.1 `fetch_python_runtime.py`
+- [x] T2.2 `build_python_runtime.py`
+- [x] T2.3 `build_runtime.py` + scripts
+- [x] T2.4 Production resolution + package-data
 - [ ] T3.1 Bundle config
 - [ ] T3.2 One-command build + docs
 - [ ] T3.3 macOS signing (when building on macOS)
@@ -424,3 +424,4 @@ loading the SPA as a plain browser page.
 Append a dated line per work session: who/what, result, blockers.
 
 - 2026-10-02: Completed Phase 0 (toolchain verified) and Phase 1 (scaffolded `desktop/`, implemented `runtime.rs` and `lib.rs`, verified unit tests and end-to-end dev smoke test on Windows). Gateway auto-start, bootstrap response, and cleanup on exit verified. No blockers.
+- 2026-10-02: Completed Phase 2 (Python runtime bundling). Created `fetch_python_runtime.py` (downloading python-build-standalone with caching), `build_python_runtime.py` (uv wheel build + pip install into site-packages + sitecustomize.py for .pth handling), `build_runtime.py` orchestrator with `bun run runtime`. Verified production resolution and gateway bootstrap in standalone mode without `NANOBOT_DESKTOP_PYTHON`. All tests passing. No blockers.
