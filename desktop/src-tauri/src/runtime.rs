@@ -219,6 +219,26 @@ pub fn spawn_sidecar(
         .map_err(|e| format!("Failed to spawn Nanobot sidecar process: {e}"))
 }
 
+/// Strip Windows extended-length verbatim prefix (`\\?\` or `\\?\UNC\`) from paths.
+/// Standard Win32 tools and Python libraries (e.g. Jinja2) can fail when path separators
+/// are mixed with the verbatim prefix.
+#[cfg(windows)]
+pub fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{stripped}"))
+    } else if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+#[cfg(not(windows))]
+pub fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
 /// Point a child process at the bundled site-packages so it can import `nanobot`.
 pub fn apply_site_packages(cmd: &mut Command, python: &Path, resource_dir: Option<&Path>) {
     let mut site_packages: Option<PathBuf> = None;
@@ -239,7 +259,7 @@ pub fn apply_site_packages(cmd: &mut Command, python: &Path, resource_dir: Optio
         }
     }
     if let Some(sp) = site_packages {
-        cmd.env("PYTHONPATH", sp);
+        cmd.env("PYTHONPATH", strip_verbatim_prefix(&sp));
     }
 }
 
@@ -343,36 +363,63 @@ pub fn force_kill_pid(pid: u32) {
     }
 }
 
+/// Check if a process with the given PID is currently alive.
+pub fn is_pid_alive(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            return text.contains(&pid.to_string());
+        }
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+}
+
 /// Stop the on-demand gateway this app started: `gateway stop`, then force-kill on timeout.
 ///
 /// Blocking; call from a worker thread. No-op when the gateway is persistent or absent.
 pub fn shutdown_gateway(python: &Path, resource_dir: Option<&Path>) {
-    if !gateway_is_on_demand() {
+    let recorded_pid = read_gateway_pid();
+    if !gateway_is_on_demand() && recorded_pid.is_none() {
         return;
     }
 
     let mut cmd = gateway_stop_command(python, resource_dir);
-    let Ok(mut child) = cmd.spawn() else {
-        return;
-    };
-
-    let start = Instant::now();
-    let watchdog = Duration::from_secs(SHUTDOWN_WATCHDOG_S);
-    loop {
-        match child.try_wait() {
-            Ok(None) => {}
-            // Exited (success or failure) or the handle is unusable: the CLI already forced on timeout.
-            Ok(Some(_)) | Err(_) => return,
-        }
-        if start.elapsed() >= watchdog {
-            let _ = child.kill();
-            let _ = child.wait();
-            if let Some(pid) = read_gateway_pid() {
-                force_kill_pid(pid);
+    if let Ok(mut child) = cmd.spawn() {
+        let start = Instant::now();
+        let watchdog = Duration::from_secs(SHUTDOWN_WATCHDOG_S);
+        loop {
+            match child.try_wait() {
+                Ok(None) => {}
+                // Exited or the handle is unusable
+                Ok(Some(_)) | Err(_) => break,
             }
-            return;
+            if start.elapsed() >= watchdog {
+                let _ = child.kill();
+                let _ = child.wait();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(200));
         }
-        std::thread::sleep(Duration::from_millis(200));
+    }
+
+    // Guarantee: If recorded gateway PID is still active after stop, force kill it
+    if let Some(pid) = recorded_pid.or_else(read_gateway_pid) {
+        if is_pid_alive(pid) {
+            force_kill_pid(pid);
+        }
     }
 }
 
