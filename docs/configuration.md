@@ -810,6 +810,50 @@ a nanobot update.
 
 
 <details>
+<summary><b>Google Antigravity (OAuth, experimental)</b></summary>
+
+Google Antigravity authenticates with a Google OAuth subscription instead of an
+API key, impersonating Google's `agy` client. That may violate Google's terms of
+service and risks account action; prefer Google AI Studio / Vertex AI API keys.
+Disabled by default.
+
+The OAuth **client id and secret are not shipped in source** (a bundled client
+secret trips secret scanners and cannot be rotated without a release). Provide
+them per provider in `config.json`:
+
+```json
+{
+  "providers": {
+    "googleAntigravity": {
+      "antigravity": {
+        "enabled": true,
+        "clientId": "your-google-oauth-client-id",
+        "clientSecret": "your-google-oauth-client-secret"
+      }
+    }
+  }
+}
+```
+
+Or export the environment variables (see `.env.example`):
+
+```bash
+export NANOBOT_ANTIGRAVITY_CLIENT_ID="your-google-oauth-client-id"
+export NANOBOT_ANTIGRAVITY_CLIENT_SECRET="your-google-oauth-client-secret"
+```
+
+Explicit config wins over the environment. If neither is set, login and token
+refresh fail with an actionable error.
+
+**1. Login:**
+```bash
+nanobot provider login google-antigravity
+```
+
+</details>
+
+
+<details>
 <summary><b>GitHub Copilot (OAuth)</b></summary>
 
 GitHub Copilot uses OAuth instead of API keys. Requires a [GitHub account with a plan](https://github.com/features/copilot/plans) configured. No `providers.github_copilot` block is needed in `config.json`; `nanobot provider login` stores the OAuth session outside config.
