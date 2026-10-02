@@ -834,3 +834,12 @@ def test_large_json_error_body_redacts_camel_case_credentials_before_bounding() 
 
 async def _append(target: list[Any], value: Any) -> None:
     target.append(value)
+
+
+def test_build_headers_advertises_a_supported_grok_client_version() -> None:
+    from nanobot.providers.xai_oauth import XAI_CLIENT_VERSION
+
+    headers = _build_headers("secret", "grok-4.6")
+    assert headers["x-grok-client-version"] == XAI_CLIENT_VERSION
+    # xAI's CLI chat proxy returns HTTP 426 below this floor.
+    assert tuple(int(part) for part in XAI_CLIENT_VERSION.split(".")) >= (1, 0, 13)

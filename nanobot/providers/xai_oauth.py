@@ -35,7 +35,11 @@ from nanobot.utils.helpers import _write_text_atomic  # pyright: ignore[reportPr
 
 XAI_OAUTH_ISSUER = "https://auth.x.ai"
 XAI_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
-XAI_CLIENT_VERSION = "0.2.109"
+#: Grok CLI version advertised to xAI's CLI chat proxy. The proxy gates on this
+#: header (missing/older versions get HTTP 426), so bump it when a release starts
+#: rejecting the current value. Tracks the stable Grok CLI (1.0.40 as of
+#: 2026-09-23); the proxy still accepts >= 0.1.202 but we stay in step.
+XAI_CLIENT_VERSION = "1.0.40"
 XAI_ALLOWED_CALLBACK_ORIGIN = "https://accounts.x.ai"
 XAI_OAUTH_SCOPES = (
     "openid",
