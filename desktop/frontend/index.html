@@ -158,12 +158,42 @@
           <div id="log-path" class="log-path"></div>
         </div>
         <div style="display: flex; gap: 8px; justify-content: flex-end;">
-          <button class="btn" onclick="location.reload()">Retry</button>
+          <button id="btn-open-log" class="btn" onclick="handleOpenLog()">Open log</button>
+          <button id="btn-retry" class="btn" onclick="handleRetry()">Retry</button>
         </div>
       </div>
     </div>
 
     <script>
+      function handleOpenLog() {
+        if (window.__TAURI__ && window.__TAURI__.core) {
+          window.__TAURI__.core.invoke("open_log_file").catch(function (e) {
+            console.error("Failed to open log:", e);
+          });
+        }
+      }
+
+      function handleRetry() {
+        window.__resetSplash();
+        if (window.__TAURI__ && window.__TAURI__.core) {
+          window.__TAURI__.core.invoke("retry_gateway").catch(function (e) {
+            window.__showError(e);
+          });
+        } else {
+          location.reload();
+        }
+      }
+
+      window.__resetSplash = function () {
+        var loader = document.getElementById("loader");
+        var statusMsg = document.getElementById("status-message");
+        var errorCard = document.getElementById("error-card");
+
+        if (loader) loader.style.display = "block";
+        if (statusMsg) statusMsg.textContent = "Starting Nanobot gateway…";
+        if (errorCard) errorCard.style.display = "none";
+      };
+
       window.__showError = function (message, logPath) {
         var loader = document.getElementById("loader");
         var statusMsg = document.getElementById("status-message");

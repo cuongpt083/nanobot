@@ -259,6 +259,19 @@ pub fn wait_ready(
             if let Some(proc) = guard.as_mut() {
                 match proc.try_wait() {
                     Ok(Some(status)) => {
+                        // Check if the launch log contains a known port conflict
+                        if let Ok(log_text) = fs::read_to_string(log_path) {
+                            let lower = log_text.to_lowercase();
+                            if lower.contains("conflict") || lower.contains("already in use") {
+                                return Err(format!(
+                                    "Port conflict detected: Another process is already using the configured WebUI port.\n\
+                                     Try running 'nanobot gateway status' or 'nanobot gateway stop' to stop conflicting instances.\n\
+                                     Details in log: {}",
+                                    log_path.display()
+                                ));
+                            }
+                        }
+
                         return Err(format!(
                             "Nanobot sidecar exited unexpectedly with status: {status}.\n\
                              Please inspect the launch log for details:\n{}",
@@ -296,6 +309,41 @@ pub fn wait_ready(
         }
 
         std::thread::sleep(poll_interval);
+    }
+
+    // Check if the port was open but rejected auth (port conflict or wrong gateway)
+    if let Some((host, port, _)) = read_webui_endpoint(config_path) {
+        let clean_host = format_local_host(&host);
+        use std::net::ToSocketAddrs;
+        let is_port_open = format!("{clean_host}:{port}")
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut addrs| addrs.next())
+            .map(|addr| std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok())
+            .unwrap_or(false);
+
+        if is_port_open {
+            return Err(format!(
+                "Port conflict detected on port {port}: The port is open, but did not respond with valid bootstrap credentials.\n\
+                 Another process or older gateway may be occupying this port.\n\
+                 Try running 'nanobot gateway status' or 'nanobot gateway stop'.\n\
+                 Details in log: {}",
+                log_path.display()
+            ));
+        }
+    }
+
+    // Also check if launch log recorded a port conflict before timeout
+    if let Ok(log_text) = fs::read_to_string(log_path) {
+        let lower = log_text.to_lowercase();
+        if lower.contains("conflict") || lower.contains("already in use") {
+            return Err(format!(
+                "Port conflict detected: The configured port is already occupied.\n\
+                 Try running 'nanobot gateway status' or 'nanobot gateway stop'.\n\
+                 Details in log: {}",
+                log_path.display()
+            ));
+        }
     }
 
     Err(format!(
@@ -384,4 +432,68 @@ mod tests {
 
         let _ = fs::remove_file(test_file);
     }
+
+    #[test]
+    fn test_wait_ready_port_conflict_in_log() {
+        let temp_dir = std::env::temp_dir();
+        let log_file = temp_dir.join("test_conflict.log");
+        fs::write(&log_file, "ERROR: address already in use on port 18790").unwrap();
+        let config_file = temp_dir.join("test_nonexistent_config.json");
+
+        let sidecar_state = Arc::new(Mutex::new(None));
+        let res = wait_ready(
+            &config_file,
+            &log_file,
+            &sidecar_state,
+            Duration::from_millis(100),
+        );
+
+        assert!(res.is_err());
+        let err_msg = res.unwrap_err();
+        assert!(err_msg.contains("Port conflict detected"));
+
+        let _ = fs::remove_file(log_file);
+    }
+
+    #[test]
+    fn test_wait_ready_open_port_without_auth() {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let temp_dir = std::env::temp_dir();
+        let log_file = temp_dir.join("test_open_port.log");
+        fs::write(&log_file, "Starting...").unwrap();
+
+        let config_file = temp_dir.join("test_open_port_config.json");
+        let content = format!(
+            r#"{{
+                "channels": {{
+                    "websocket": {{
+                        "enabled": true,
+                        "host": "127.0.0.1",
+                        "port": {port},
+                        "tokenIssueSecret": "secret"
+                    }}
+                }}
+            }}"#
+        );
+        fs::write(&config_file, content).unwrap();
+
+        let sidecar_state = Arc::new(Mutex::new(None));
+        let res = wait_ready(
+            &config_file,
+            &log_file,
+            &sidecar_state,
+            Duration::from_millis(150),
+        );
+
+        assert!(res.is_err());
+        let err_msg = res.unwrap_err();
+        assert!(err_msg.contains("Port conflict detected on port"));
+
+        let _ = fs::remove_file(log_file);
+        let _ = fs::remove_file(config_file);
+    }
 }
+
