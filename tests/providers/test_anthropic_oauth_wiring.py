@@ -253,3 +253,27 @@ def test_default_oauth_patcher_config_resolves_env_vars() -> None:
     patcher = resolved.providers.anthropic_oauth.patcher
     assert patcher is not None
     assert "{{version}}" in patcher.attribution_template
+
+
+def test_anthropic_provider_maps_reauth_cause_to_oauth_auth_required() -> None:
+    from nanobot.providers.anthropic_oauth import AnthropicOAuthReauthRequiredError
+    from nanobot.providers.anthropic_provider import AnthropicProvider
+
+    class _FakeSDKConnectionError(Exception):
+        pass
+
+    def _raise() -> None:
+        try:
+            raise AnthropicOAuthReauthRequiredError("expired")
+        except AnthropicOAuthReauthRequiredError as cause:
+            # The SDK wraps the credentials failure as a generic connection error.
+            raise _FakeSDKConnectionError("Connection error.") from cause
+
+    try:
+        _raise()
+    except _FakeSDKConnectionError as outgoing:
+        response = AnthropicProvider._handle_error(outgoing)
+
+    assert response.error_kind == "oauth_auth_required"
+    assert response.error_should_retry is False
+    assert "sign in again" in (response.content or "")

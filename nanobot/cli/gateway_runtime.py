@@ -347,14 +347,19 @@ async def _close_gateway_runtime(
 
 def _start_anthropic_proactive_refresher(
     config: Config,
-) -> "ProactiveRefresher | None":
-    """Start Anthropic OAuth proactive refresh when a token exists.
+    channels: Any,
+) -> "tuple[ProactiveRefresher, Callable[[], None]]":
+    """Start Anthropic OAuth proactive refresh and forward status to the WebUI.
 
-    Returns the refresher (or ``None``). The refresher runs on the current event
-    loop and must be stopped during shutdown.
+    Returns ``(refresher, unregister)``. The refresher runs on the current event
+    loop and must be stopped during shutdown; ``unregister`` detaches the status
+    listener that broadcasts ``oauth_status_updated`` to WebUI clients.
     """
 
-    from nanobot.providers.anthropic_oauth import start_proactive_refresher
+    from nanobot.providers.anthropic_oauth import (
+        add_anthropic_oauth_status_listener,
+        start_proactive_refresher,
+    )
 
     def _on_error(exc: BaseException) -> None:
         logger.warning("Anthropic OAuth refresh: {}", exc)
@@ -363,7 +368,34 @@ def _start_anthropic_proactive_refresher(
         proxy = config.providers.anthropic_oauth.proxy or config.providers.anthropic.proxy
     except AttributeError:
         proxy = None
-    return start_proactive_refresher(proxy=proxy, on_error=_on_error)
+
+    loop = asyncio.get_running_loop()
+
+    def _on_status(status: str, token: Any) -> None:
+        channel = channels.get_channel("websocket")
+        send = getattr(channel, "send_oauth_status_updated", None)
+        if send is None:
+            return
+        expires_at = getattr(token, "expires", None) if token is not None else None
+        coro = send(provider="anthropic_oauth", status=status, expires_at=expires_at)
+
+        def _dispatch() -> None:
+            asyncio.ensure_future(coro, loop=loop)
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # A catalog fetch runs the refresh in a worker thread; hop back to the loop.
+            try:
+                loop.call_soon_threadsafe(_dispatch)
+            except RuntimeError:
+                coro.close()
+        else:
+            _dispatch()
+
+    unregister = add_anthropic_oauth_status_listener(_on_status)
+    refresher = start_proactive_refresher(proxy=proxy, on_error=_on_error)
+    return refresher, unregister
 
 
 def _run_gateway(
@@ -937,9 +969,12 @@ def _run_gateway(
             console.print,
         )
         refresher: ProactiveRefresher | None = None
+        unregister_oauth_status: Callable[[], None] | None = None
         try:
             await cron.start()
-            refresher = _start_anthropic_proactive_refresher(config)
+            refresher, unregister_oauth_status = _start_anthropic_proactive_refresher(
+                config, channels
+            )
             # Re-read once on first admission to close the watcher subscription window.
             agent.runtime_resolver.invalidate()
             # Recovery must finish before WebSocket and other channels begin
@@ -1035,6 +1070,8 @@ def _run_gateway(
                 cron.stop()
                 if refresher is not None:
                     await refresher.stop()
+                if unregister_oauth_status is not None:
+                    unregister_oauth_status()
                 from nanobot.providers.patcher.proxy import stop_anthropic_patcher_proxy
 
                 with suppress(Exception):

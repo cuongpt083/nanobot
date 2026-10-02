@@ -251,10 +251,56 @@ async def test_proactive_refresher_refreshes_when_due(
     assert refreshed and refreshed[0].access == "new"
 
 
-def test_start_proactive_refresher_returns_none_without_token(
+async def test_start_proactive_refresher_starts_even_without_token(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
         oauth, "get_anthropic_oauth_storage_path", lambda: tmp_path / "missing.json"
     )
-    assert oauth.start_proactive_refresher() is None
+    refresher = oauth.start_proactive_refresher()
+    try:
+        # Started unconditionally so a sign-in after gateway start is still picked up.
+        assert refresher.is_running
+    finally:
+        await refresher.stop()
+
+
+def test_get_anthropic_oauth_token_emits_refreshed_and_reauth(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    storage = tmp_path / "anthropic.json"
+    monkeypatch.setattr(oauth, "get_anthropic_oauth_storage_path", lambda: storage)
+    events: list[tuple[str, object]] = []
+    unregister = oauth.add_anthropic_oauth_status_listener(
+        lambda status, token: events.append((status, token))
+    )
+    try:
+        oauth.write_anthropic_token(
+            AnthropicToken(access="old", refresh="r1", expires=oauth._now_ms() - 1)
+        )
+        monkeypatch.setattr(
+            oauth,
+            "refresh_anthropic_token",
+            lambda refresh, proxy=None: AnthropicToken(
+                access="new", refresh="r2", expires=oauth._now_ms() + 3_600_000
+            ),
+        )
+        assert oauth.get_anthropic_oauth_token().access == "new"
+        assert [status for status, _ in events] == ["refreshed"]
+
+        events.clear()
+        oauth.write_anthropic_token(
+            AnthropicToken(access="old", refresh="r3", expires=oauth._now_ms() - 1)
+        )
+
+        def _fail(refresh: str, proxy: object = None) -> AnthropicToken:
+            raise oauth.AnthropicOAuthReauthRequiredError("expired")
+
+        monkeypatch.setattr(oauth, "refresh_anthropic_token", _fail)
+        for _ in range(2):
+            with pytest.raises(oauth.AnthropicOAuthReauthRequiredError):
+                oauth.get_anthropic_oauth_token(force_refresh=True)
+        # Repeated failures for the same dead refresh token notify only once.
+        assert [status for status, _ in events] == ["reauth_required"]
+    finally:
+        unregister()

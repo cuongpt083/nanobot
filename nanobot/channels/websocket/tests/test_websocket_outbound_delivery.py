@@ -442,3 +442,35 @@ async def test_normal_cleanup_can_overlap_connection_retirement(monkeypatch) -> 
     assert connection not in channel._connection_outbound
     assert connection not in channel._conn_chats
     assert channel._subs == {}
+
+
+@pytest.mark.asyncio
+async def test_send_oauth_status_updated_broadcasts_to_authenticated_webui() -> None:
+    channel = _channel()
+    connection = _RecordingConnection()
+    assert channel._register_connection_outbound(cast(Any, connection)) is True
+    channel._webui_connections.add(cast(Any, connection))
+
+    await channel.send_oauth_status_updated(
+        provider="anthropic_oauth", status="refreshed", expires_at=123
+    )
+
+    raw = await asyncio.wait_for(connection.sent.get(), timeout=1)
+    assert json.loads(raw) == {
+        "event": "oauth_status_updated",
+        "provider": "anthropic_oauth",
+        "status": "refreshed",
+        "expires_at": 123,
+    }
+
+
+@pytest.mark.asyncio
+async def test_send_oauth_status_updated_ignores_unknown_status() -> None:
+    channel = _channel()
+    connection = _RecordingConnection()
+    assert channel._register_connection_outbound(cast(Any, connection)) is True
+    channel._webui_connections.add(cast(Any, connection))
+
+    await channel.send_oauth_status_updated(provider="anthropic_oauth", status="bogus")
+
+    assert connection.sent.empty()

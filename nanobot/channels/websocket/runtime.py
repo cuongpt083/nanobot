@@ -1557,3 +1557,36 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" turn_model_updated ")
+
+    async def send_oauth_status_updated(
+        self,
+        *,
+        provider: Any,
+        status: Any,
+        expires_at: Any = None,
+        message: Any = None,
+    ) -> None:
+        """Broadcast an OAuth token status change to every authenticated WebUI client.
+
+        A process-level notice (token refreshed / sign-in required), not tied to a
+        chat, so it fans out to the whole authenticated WebUI surface.
+        """
+        if not isinstance(provider, str) or not provider.strip():
+            return
+        if status not in ("refreshed", "reauth_required"):
+            return
+        conns = list(self._webui_connections)
+        if not conns:
+            return
+        body: dict[str, Any] = {
+            "event": "oauth_status_updated",
+            "provider": provider.strip(),
+            "status": status,
+        }
+        if isinstance(expires_at, int) and expires_at > 0:
+            body["expires_at"] = expires_at
+        if isinstance(message, str) and message.strip():
+            body["message"] = message.strip()
+        raw = json.dumps(body, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" oauth_status_updated ")

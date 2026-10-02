@@ -242,9 +242,19 @@ class AnthropicProvider(LLMProvider):
                 elif lowered == "false":
                     should_retry = False
 
+        reauth_required = cls._caused_by_reauth(e)
+        if reauth_required:
+            # The SDK wraps a failing OAuth credentials callable as a generic
+            # connection error; surface the real cause so fallback/reauth logic
+            # (and the WebUI) can react instead of retrying forever.
+            msg = "The Anthropic (OAuth) login has expired. Please sign in again."
+            should_retry = False
+
         error_kind: str | None = None
         error_name = e.__class__.__name__.lower()
-        if "timeout" in error_name:
+        if reauth_required:
+            error_kind = "oauth_auth_required"
+        elif "timeout" in error_name:
             error_kind = "timeout"
         elif "connection" in error_name:
             error_kind = "connection"
@@ -261,6 +271,26 @@ class AnthropicProvider(LLMProvider):
             error_retry_after_s=retry_after,
             error_should_retry=should_retry,
         )
+
+    @staticmethod
+    def _caused_by_reauth(e: BaseException) -> bool:
+        """True when the failure chain carries an Anthropic OAuth reauth error.
+
+        The SDK turns any exception from the credentials callable into an
+        ``APIConnectionError`` (via ``raise ... from err``), so the actionable
+        cause is found by walking ``__cause__``/``__context__``.
+        """
+
+        from nanobot.providers.anthropic_oauth import AnthropicOAuthReauthRequiredError
+
+        seen: set[int] = set()
+        current: BaseException | None = e
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, AnthropicOAuthReauthRequiredError):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
 
     @staticmethod
     def _strip_prefix(model: str) -> str:

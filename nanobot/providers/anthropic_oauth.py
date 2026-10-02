@@ -35,7 +35,7 @@ from dataclasses import asdict, dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
@@ -231,6 +231,53 @@ def get_anthropic_oauth_login_status() -> AnthropicToken | None:
     return load_anthropic_token()
 
 
+# ── Status listeners ──
+
+#: "refreshed" after a successful refresh, "reauth_required" when the stored
+#: credentials can no longer be refreshed and a sign-in is needed.
+AnthropicOAuthStatus = Literal["refreshed", "reauth_required"]
+AnthropicOAuthStatusListener = Callable[[AnthropicOAuthStatus, "AnthropicToken | None"], None]
+
+_status_listeners: list[AnthropicOAuthStatusListener] = []
+_status_listeners_lock = threading.Lock()
+#: Last refresh-token value a reauth was reported for, so a still-dead token
+#: does not re-notify on every retry.
+_last_reauth_key: str | None = None
+
+
+def add_anthropic_oauth_status_listener(
+    listener: AnthropicOAuthStatusListener,
+) -> Callable[[], None]:
+    """Register ``listener(status, token)``; returns an unsubscribe callable."""
+
+    with _status_listeners_lock:
+        _status_listeners.append(listener)
+
+    def _remove() -> None:
+        with _status_listeners_lock, suppress(ValueError):
+            _status_listeners.remove(listener)
+
+    return _remove
+
+
+def _emit_oauth_status(status: AnthropicOAuthStatus, token: AnthropicToken | None) -> None:
+    global _last_reauth_key
+    dedup = (token.refresh if token is not None and token.refresh else None) or "__no_refresh__"
+    with _status_listeners_lock:
+        if status == "reauth_required":
+            if dedup == _last_reauth_key:
+                return
+            _last_reauth_key = dedup
+        else:
+            _last_reauth_key = None
+        listeners = list(_status_listeners)
+    for listener in listeners:
+        try:
+            listener(status, token)
+        except Exception as exc:  # noqa: BLE001 — a listener must never break the token path
+            logger.warning("Anthropic OAuth status listener failed: {}", type(exc).__name__)
+
+
 # ── Token endpoint ──
 
 
@@ -365,6 +412,7 @@ def get_anthropic_oauth_token(
     if not token.refresh:
         if not force_refresh and token_is_fresh(token):
             return token
+        _emit_oauth_status("reauth_required", token)
         raise AnthropicOAuthReauthRequiredError(
             "The Anthropic login has expired and cannot be refreshed. Sign in again."
         )
@@ -373,13 +421,19 @@ def get_anthropic_oauth_token(
         # Re-read under the lock: another process may have rotated while we waited.
         latest = load_anthropic_token()
         if latest is None:
+            _emit_oauth_status("reauth_required", token)
             raise AnthropicOAuthReauthRequiredError("Anthropic credentials disappeared.")
         if not force_refresh and token_is_fresh(latest, min_ttl_ms=min_ttl_ms):
             return latest
         if not latest.refresh:
             return latest
-        refreshed = refresh_anthropic_token(latest.refresh, proxy=proxy)
+        try:
+            refreshed = refresh_anthropic_token(latest.refresh, proxy=proxy)
+        except AnthropicOAuthReauthRequiredError:
+            _emit_oauth_status("reauth_required", latest)
+            raise
         write_anthropic_token(refreshed)
+        _emit_oauth_status("refreshed", refreshed)
         logger.info("Anthropic OAuth token refreshed")
         return refreshed
 
@@ -723,15 +777,14 @@ def start_proactive_refresher(
     proxy: str | None = None,
     on_refreshed: Callable[[AnthropicToken], None] | None = None,
     on_error: Callable[[BaseException], None] | None = None,
-) -> ProactiveRefresher | None:
-    """Start a proactive refresher when an Anthropic token exists.
+) -> ProactiveRefresher:
+    """Start a proactive refresher and return it.
 
-    Returns ``None`` (and does nothing) when no token is stored, so callers can
-    wire this unconditionally into a startup hook.
+    The loop tolerates a missing token (it polls until one appears), so callers
+    can start it unconditionally and a sign-in performed *after* the gateway
+    started is still refreshed proactively without a restart.
     """
 
-    if load_anthropic_token() is None:
-        return None
     refresher = ProactiveRefresher(
         proxy=proxy,
         on_refreshed=on_refreshed,
