@@ -346,7 +346,14 @@ async def _run_room(room: _Room) -> None:
             except Exception as exc:
                 room.outcome(agent.id, "error")
                 logger.opt(exception=exc).warning("room {}: guest @{} failed", room.session_key, agent.id)
-                await note(f"⚠️ {_label(agent)} failed: {type(exc).__name__}")
+                # ProjectError / RuntimeError from coding admission carry an actionable,
+                # user-facing reason (pick a project dir, make it a git repo, install backend...).
+                detail = (
+                    f"{type(exc).__name__}: {str(exc)[:400]}"
+                    if isinstance(exc, RuntimeError) and str(exc)
+                    else type(exc).__name__
+                )
+                await note(f"⚠️ {_label(agent)} failed: {detail}")
                 continue
             finally:
                 room.active.pop(agent.id, None)

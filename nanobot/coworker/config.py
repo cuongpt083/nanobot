@@ -152,7 +152,15 @@ class CodingAgentConfig(Base):
     agy: AgyBackendConfig = Field(default_factory=AgyBackendConfig)
     repos: list[RepoConfig] = Field(default_factory=list)
     worktree_root: str | None = None
-    sandbox: Literal["none", "bwrap"] = "none"
+    sandbox: Literal["none", "bwrap", "seatbelt", "wsl"] = "none"
+    # wsl (Windows): distro that runs the harness under bwrap; None = the default distro. The
+    # harness (agy / pi) must be installed and logged in inside it.
+    wsl_distro: str | None = None
+    # bwrap / seatbelt / wsl: extra paths the harness may read / write (its own state dir and the
+    # project are always mounted). E.g. a node install under $HOME that ``pi`` needs: ["~/.nvm"].
+    # With ``wsl`` these are Linux paths inside the distro (``~`` is the distro's home).
+    sandbox_ro_binds: list[str] = Field(default_factory=list)
+    sandbox_rw_binds: list[str] = Field(default_factory=list)
     timeout_minutes: int = Field(default=45, ge=1)
     idle_timeout_minutes: int = Field(default=10, ge=1)
     max_concurrent_per_session: int = Field(default=1, ge=1)
@@ -166,6 +174,12 @@ class CodingAgentConfig(Base):
     # directory, ``direct`` edits in place straight away, ``refuse`` never runs the harness there.
     non_git: Literal["ask", "direct", "refuse"] = "ask"
     snapshot_max_mb: int = Field(default=200, ge=1)
+    # Extra directories (and everything below) a coding task may never run in, on top of the
+    # built-in list (filesystem root, home, system and credential directories).
+    blocked_paths: list[str] = Field(default_factory=list)
+    # What to do when a task changed files outside its project (credentials, shell startup files,
+    # git hooks, the user's own checkout): ``warn`` reports it, ``fail`` also marks the task failed.
+    outside_writes: Literal["warn", "fail"] = "warn"
 
 
 class CoworkerConfig(Base):

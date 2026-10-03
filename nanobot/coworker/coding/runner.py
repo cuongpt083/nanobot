@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nanobot.coworker.coding import direct as direct_mod
+from nanobot.coworker.coding import guard
 from nanobot.coworker.coding.backends.base import (
     BackendEventDone,
     BackendEventError,
@@ -102,7 +103,12 @@ class CodingRunner:
             else self.config.coding.agy.command
         )
         binary = cmd_prefix[0] if cmd_prefix else resolved_backend_name
-        if not shutil.which(binary) and not Path(binary).exists():
+        # With coding.sandbox='wsl' the harness runs inside the distro; the sandbox checks it there.
+        if (
+            self.config.coding.sandbox != "wsl"
+            and not shutil.which(binary)
+            and not Path(binary).exists()
+        ):
             raise RuntimeError(
                 f"Backend '{resolved_backend_name}' binary '{binary}' is not installed or not found on PATH. "
                 f"Please install and log in to {resolved_backend_name} in a terminal first."
@@ -269,6 +275,17 @@ class CodingRunner:
         rounds = 1
         task.live = {"tool_count": 0, "last_tool": None, "last_event_at": start_time, "rounds": rounds}
 
+        watch: guard.WriteWatch | None = None
+        try:
+            watch = await asyncio.to_thread(
+                guard.WriteWatch,
+                run_dir,
+                Path(task.workdir if is_direct else task.repo),
+                direct=is_direct,
+            )
+        except Exception:
+            logger.exception(f"Task {task.id}: could not snapshot paths for outside-write detection")
+
         try:
             # Launch first round
             run = backend.start(
@@ -392,6 +409,8 @@ class CodingRunner:
             task.error = str(e)
         finally:
             self._active_backends.pop(task.id, None)
+            if watch is not None:
+                await self._check_outside_writes(task, watch)
             # Accumulate total stats
             total_stats = BackendStats()
             for r in task.round_stats:
@@ -401,6 +420,25 @@ class CodingRunner:
             self.registry.save(task)
 
         return await self._deliver(task, wait)
+
+    async def _check_outside_writes(self, task: CodingTask, watch: guard.WriteWatch) -> None:
+        """Record files the harness changed outside its project; optionally fail the task."""
+        try:
+            report = await asyncio.to_thread(watch.check)
+        except Exception:
+            logger.exception(f"Task {task.id}: outside-write check failed")
+            return
+        if not report:
+            return
+        task.outside_writes = report.lines()
+        logger.warning(
+            f"Task {task.id} changed files outside its project: {task.outside_writes}"
+        )
+        if report.critical and self.config.coding.outside_writes == "fail":
+            if task.status == "succeeded":
+                task.status = "error"
+            note = "The harness modified sensitive files outside the project directory."
+            task.error = f"{task.error} {note}" if task.error else note
 
     async def _deliver(self, task: CodingTask, wait: bool) -> str:
         # 3. Deliver result
@@ -442,6 +480,14 @@ class CodingRunner:
         ]
         if task.error:
             lines.append(f"**Error**: {task.error}")
+        if task.outside_writes:
+            lines.extend([
+                "⚠️ **Files changed outside the project while the task ran** (review them, "
+                "they are not covered by merge/discard):",
+                "```",
+                *task.outside_writes,
+                "```",
+            ])
         if is_direct:
             files = [
                 f"{mark} {path}"

@@ -30,6 +30,12 @@ from nanobot.coworker.coding.backends.jsonl import (
     spawn_process_group,
     terminate_process_group,
 )
+from nanobot.coworker.coding.sandbox import (
+    WINDOWS_ENV_KEYS,
+    SandboxPolicy,
+    check_available,
+    wrap_argv,
+)
 from nanobot.coworker.transcript import as_dict
 
 if TYPE_CHECKING:
@@ -38,7 +44,9 @@ if TYPE_CHECKING:
 
 def _make_child_env(pass_env: list[str], agent_dir: str | None = None) -> dict[str, str]:
     base_keys = ("PATH", "HOME", "USER", "LANG", "TERM")
-    env = {k: os.environ[k] for k in base_keys if k in os.environ}
+    if os.name == "nt":  # Windows tools cannot locate the profile / system dirs without these
+        base_keys += WINDOWS_ENV_KEYS
+    env ={k: os.environ[k] for k in base_keys if k in os.environ}
     env.setdefault("TERM", "dumb")
     if agent_dir:
         env["PI_CODING_AGENT_DIR"] = agent_dir
@@ -89,9 +97,11 @@ class PiBackend(CodingBackend):
         self,
         config: PiBackendConfig,
         global_sandbox: str = "none",
+        sandbox_policy: SandboxPolicy | None = None,
     ) -> None:
         self.config = config
         self.global_sandbox = global_sandbox
+        self.sandbox_policy = sandbox_policy or SandboxPolicy(mode=global_sandbox)
         self.proc: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
         self._pending_commands: dict[str, asyncio.Future[dict[str, Any]]] = {}
@@ -116,6 +126,21 @@ class PiBackend(CodingBackend):
                 "Unsandboxed Pi execution is refused because coding.sandbox is 'none' "
                 "and pi.allow_unsandboxed is False."
             )
+        check_available(self.sandbox_policy)
+
+    def _sandboxed(
+        self, args: list[str], cwd: Path, env: dict[str, str], session_dir: Path | None
+    ) -> list[str]:
+        """Wrap the harness in the OS sandbox: only its project and its own state are writable."""
+        state = Path(self.config.agent_dir).expanduser() if self.config.agent_dir else Path.home() / ".pi"
+        return wrap_argv(
+            args,
+            policy=self.sandbox_policy,
+            cwd=cwd,
+            env=env,
+            state_dirs=[state],
+            extra_rw=[session_dir],
+        )
 
     async def _send_command(
         self,
@@ -333,6 +358,7 @@ class PiBackend(CodingBackend):
             resume_session=None,
         )
         env = _make_child_env(self.config.pass_env, self.config.agent_dir)
+        args = self._sandboxed(args, cwd, env, session_dir)
         queue: asyncio.Queue[BackendEvent] = asyncio.Queue()
         self._current_queue = queue
 
@@ -373,6 +399,7 @@ class PiBackend(CodingBackend):
                 resume_session=run_ref,
             )
             env = _make_child_env(self.config.pass_env, self.config.agent_dir)
+            args = self._sandboxed(args, cwd, env, session_dir)
             self.proc = await spawn_process_group(args, cwd=cwd, env=env, stdin_pipe=True)
             self._reader_task = asyncio.create_task(self._read_loop())
             await self._send_command("prompt", {"message": message})

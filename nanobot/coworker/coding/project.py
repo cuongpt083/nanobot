@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from nanobot.coworker.coding.guard import blocked_reason
 from nanobot.coworker.config import RepoConfig
 from nanobot.coworker.runtime import session_state
 from nanobot.security.workspace_access import (
@@ -197,8 +198,24 @@ def resolve_project(
     """Pick the project for a coding task.
 
     Order: the session's chosen project directory, then the only configured repo. ``repo_arg``
-    (model-controlled) must equal the chosen directory or be one of ``cfg.repos``.
+    (model-controlled) must equal the chosen directory or be one of ``cfg.repos``. Whatever is
+    picked, even by the user, must not be a too-broad or sensitive directory (``guard``).
     """
+    target = _resolve(session, cfg, repo_arg)
+    reason = blocked_reason(target.path, cfg.blocked_paths)
+    if reason is not None:
+        raise ProjectError(
+            f"'{target.path}' cannot be used as a coding project: {reason}. "
+            "Choose a dedicated project directory."
+        )
+    return target
+
+
+def _resolve(
+    session: Any | None,
+    cfg: CodingAgentConfig,
+    repo_arg: str | None,
+) -> ProjectTarget:
     scope_path = session_project_path(session)
 
     if repo_arg:

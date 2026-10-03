@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
+from nanobot.coworker.coding.sandbox import SandboxPolicy
+
 if TYPE_CHECKING:
     from nanobot.coworker.config import CoworkerConfig
 
@@ -144,15 +146,37 @@ class CodingBackend(Protocol):
     async def stats(self) -> BackendStats: ...
 
 
+def _sandbox_policy(config: CoworkerConfig) -> SandboxPolicy:
+    coding = config.coding
+    # With WSL the paths are Linux paths in the distro: ``~`` must not become the Windows home.
+    def prep(path: str) -> str:
+        return path if coding.sandbox == "wsl" else str(Path(path).expanduser())
+
+    return SandboxPolicy(
+        mode=coding.sandbox,
+        ro_binds=tuple(prep(p) for p in coding.sandbox_ro_binds),
+        rw_binds=tuple(prep(p) for p in coding.sandbox_rw_binds),
+        distro=coding.wsl_distro,
+    )
+
+
 def backend_for(name: str, config: CoworkerConfig) -> CodingBackend:
     """Instantiate a coding backend by name."""
     clean = name.strip().lower()
     if clean == "pi":
         from nanobot.coworker.coding.backends.pi import PiBackend
 
-        return PiBackend(config=config.coding.pi, global_sandbox=config.coding.sandbox)
+        return PiBackend(
+            config=config.coding.pi,
+            global_sandbox=config.coding.sandbox,
+            sandbox_policy=_sandbox_policy(config),
+        )
     if clean == "agy":
         from nanobot.coworker.coding.backends.agy import AgyBackend
 
-        return AgyBackend(config=config.coding.agy, global_sandbox=config.coding.sandbox)
+        return AgyBackend(
+            config=config.coding.agy,
+            global_sandbox=config.coding.sandbox,
+            sandbox_policy=_sandbox_policy(config),
+        )
     raise ValueError(f"Unknown coding backend: {name!r}. Supported: 'pi', 'agy'.")

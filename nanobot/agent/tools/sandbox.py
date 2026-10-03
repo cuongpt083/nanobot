@@ -328,3 +328,11 @@ def wrap_command(
             sandbox_rw_binds=sandbox_rw_binds,
         )
     raise ValueError(f"Unknown sandbox backend {sandbox!r}. Available: {list(_BACKENDS)}")
+
+
+# Shared with the coding-agent sandbox (``nanobot.coworker.coding.sandbox``).
+SEATBELT_SYSTEM_READ_SUBPATHS = _SEATBELT_SYSTEM_READ_SUBPATHS
+SEATBELT_SYSTEM_READ_LITERALS = _SEATBELT_SYSTEM_READ_LITERALS
+SEATBELT_TRAVERSABLE_LITERALS = _SEATBELT_TRAVERSABLE_LITERALS
+sbpl_quote = _sbpl_quote
+seatbelt_ancestors = _seatbelt_ancestors

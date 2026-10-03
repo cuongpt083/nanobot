@@ -88,6 +88,17 @@ async def terminate_process_group(
     if proc.returncode is not None:
         return
 
+    if os.name == "nt":
+        # No process groups on Windows. Closing a ``wsl.exe`` relay ends the Linux side too
+        # (``bwrap --die-with-parent``); native children are killed with the tree below.
+        proc.terminate()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=timeout)
+        except (asyncio.TimeoutError, TimeoutError):
+            proc.kill()
+            await proc.wait()
+        return
+
     pid = proc.pid
     try:
         pgid = os.getpgid(pid)

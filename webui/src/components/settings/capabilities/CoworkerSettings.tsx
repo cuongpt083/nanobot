@@ -754,13 +754,15 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
         <SettingsGroup>
           <Field
             title={tx("coding.sandbox", "OS sandbox")}
-            description={tx("coding.sandboxHelp", "bwrap needs Linux; on other systems tasks run only when unsandboxed runs are allowed below.")}
+            description={tx("coding.sandboxHelp", "bwrap needs Linux, seatbelt macOS, wsl Windows with WSL2 (install the harness inside the distro); otherwise tasks run only when unsandboxed runs are allowed below.")}
           >
             <SegmentedControl
               value={coding.sandbox}
               options={[
                 { value: "none", label: tx("coding.sandboxNone", "None") },
                 { value: "bwrap", label: "bwrap" },
+                { value: "seatbelt", label: "seatbelt" },
+                { value: "wsl", label: "WSL" },
               ]}
               onChange={(sandbox) => set({ sandbox })}
             />

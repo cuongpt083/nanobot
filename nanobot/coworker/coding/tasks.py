@@ -69,6 +69,8 @@ class CodingTask:
     workdir: str = ""
     snapshot: str = ""
     changes: dict[str, list[str]] = field(default_factory=dict)
+    # Files changed outside the project while the task ran ("+ added", "~ modified", "- deleted").
+    outside_writes: list[str] = field(default_factory=list)
     finished_at: float = 0.0
 
     @property

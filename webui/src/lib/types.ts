@@ -2068,7 +2068,7 @@ export interface CoworkerCodingConfig {
   agy: CoworkerAgyBackendConfig;
   repos: CoworkerRepoConfig[];
   worktree_root: string | null;
-  sandbox: "none" | "bwrap";
+  sandbox: "none" | "bwrap" | "seatbelt" | "wsl";
   timeout_minutes: number;
   idle_timeout_minutes: number;
   max_concurrent_per_session: number;

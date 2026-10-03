@@ -29,6 +29,12 @@ from nanobot.coworker.coding.backends.jsonl import (
     spawn_process_group,
     terminate_process_group,
 )
+from nanobot.coworker.coding.sandbox import (
+    WINDOWS_ENV_KEYS,
+    SandboxPolicy,
+    check_available,
+    wrap_argv,
+)
 from nanobot.coworker.transcript import as_dict
 
 if TYPE_CHECKING:
@@ -37,7 +43,9 @@ if TYPE_CHECKING:
 
 def _make_child_env(pass_env: list[str]) -> dict[str, str]:
     base_keys = ("PATH", "HOME", "USER", "LANG", "TERM")
-    env = {k: os.environ[k] for k in base_keys if k in os.environ}
+    if os.name == "nt":  # Windows tools cannot locate the profile / system dirs without these
+        base_keys += WINDOWS_ENV_KEYS
+    env ={k: os.environ[k] for k in base_keys if k in os.environ}
     env.setdefault("TERM", "dumb")
     # Forward explicit pass_env vars (never forwarding LLM provider keys by default)
     for name in pass_env:
@@ -211,9 +219,11 @@ class AgyBackend(CodingBackend):
         self,
         config: AgyBackendConfig,
         global_sandbox: str = "none",
+        sandbox_policy: SandboxPolicy | None = None,
     ) -> None:
         self.config = config
         self.global_sandbox = global_sandbox
+        self.sandbox_policy = sandbox_policy or SandboxPolicy(mode=global_sandbox)
         self._current_run: AgyRun | None = None
         self._cumulative_stats: BackendStats = BackendStats()
 
@@ -231,6 +241,17 @@ class AgyBackend(CodingBackend):
                 "Unsandboxed agy execution is refused because coding.sandbox is 'none' "
                 "and agy.allow_unsandboxed is False."
             )
+        check_available(self.sandbox_policy)
+
+    def _sandboxed(self, args: list[str], cwd: Path, env: dict[str, str]) -> list[str]:
+        """Wrap the harness in the OS sandbox: only its project and its login state are writable."""
+        return wrap_argv(
+            args,
+            policy=self.sandbox_policy,
+            cwd=cwd,
+            env=env,
+            state_dirs=[Path.home() / ".gemini"],
+        )
 
     def _build_args(
         self,
@@ -252,8 +273,10 @@ class AgyBackend(CodingBackend):
         if conversation_id:
             args.extend(["--conversation", conversation_id])
 
-        # If prompt is larger than ~100 KB, feed via stream-json stdin
-        if len(prompt.encode("utf-8")) > 100_000:
+        # If prompt is larger than ~100 KB, feed via stream-json stdin. Through wsl.exe the whole
+        # command line must fit Windows' 32 K limit, so switch much earlier there.
+        limit = 20_000 if self.sandbox_policy.mode == "wsl" else 100_000
+        if len(prompt.encode("utf-8")) > limit:
             args.extend(["--input-format", "stream-json", "-p", ""])
             stdin_data = json.dumps({"event": "user", "message": {"content": prompt}}) + "\n"
             return args, stdin_data
@@ -274,6 +297,7 @@ class AgyBackend(CodingBackend):
         full_prompt = f"{rules}\n\n{brief}" if rules else brief
         args, stdin_data = self._build_args(prompt=full_prompt)
         env = _make_child_env(self.config.pass_env)
+        args = self._sandboxed(args, cwd, env)
 
         run = AgyRun(
             args=args,
@@ -298,6 +322,7 @@ class AgyBackend(CodingBackend):
         self._check_sandbox_admission()
         args, stdin_data = self._build_args(prompt=message, conversation_id=run_ref)
         env = _make_child_env(self.config.pass_env)
+        args = self._sandboxed(args, cwd, env)
 
         # Update base cumulative stats from last run if known
         if self._current_run:
