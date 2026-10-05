@@ -241,7 +241,7 @@ def _check_agents(cfg: CoworkerConfig, workspace: Path | None = None) -> list[st
     - Raises CoworkerSettingsError if `home` tries to escape workspace or non-glob pattern in tools.allow
       matches no known tools. (Patterns with '*' or '?' or 'mcp:*' are skipped if unmatched to allow dynamic tools).
     """
-    import fnmatch
+    from nanobot.coworker.agents.toolset import matches_any, matches_tool_name, pattern_to_glob
 
     warnings: list[str] = []
     known_tools = _known_tool_names()
@@ -262,13 +262,22 @@ def _check_agents(cfg: CoworkerConfig, workspace: Path | None = None) -> list[st
                     warnings.append(
                         f"room.agents[{i}] ({agent.id}): home directory '{agent.home}' does not exist"
                     )
-        # 2. tools.allow check against known tools
+        if matches_any("room_state", agent.tools.deny):
+            warnings.append(
+                f"room.agents[{i}] ({agent.id}): tools.deny removes room_state"
+            )
+        if not agent.home and (agent.tools.allow or agent.tools.deny):
+            warnings.append(
+                f"room.agents[{i}] ({agent.id}): tools.allow/deny apply only with home; "
+                "legacy guests keep the default subagent toolset"
+            )
+        # 2. tools.allow check against known tools (same matcher as guest toolset)
         if agent.tools.allow and known_tools:
             for pattern in agent.tools.allow:
-                # If pattern is a concrete name (no wildcard) and not in MCP format, require it to match
-                has_wildcard = any(ch in pattern for ch in ("*", "?", "[", "]"))
-                is_mcp = pattern.startswith("mcp:")
-                matches = any(fnmatch.fnmatch(t, pattern) for t in known_tools)
+                glob = pattern_to_glob(pattern)
+                has_wildcard = any(ch in glob for ch in ("*", "?", "[", "]"))
+                is_mcp = pattern.startswith(("mcp:", "mcp_"))
+                matches = any(matches_tool_name(t, pattern) for t in known_tools)
                 if not matches and not has_wildcard and not is_mcp:
                     raise CoworkerSettingsError(
                         f"room.agents[{i}].tools.allow: pattern {pattern!r} does not match any known tool"

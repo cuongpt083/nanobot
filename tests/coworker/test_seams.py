@@ -93,3 +93,19 @@ def test_tool_loader_discovers_coworker_tools() -> None:
         "AdvisorTool", "AgentNotesTool", "AgentsListTool", "RoomDelegateTool", "RoomStateTool",
         "MarkContextWastedTool", "WorkflowRunTool", "WorkflowDistillTool",
     } <= names
+
+
+def test_tool_context_exposes_main_registry(tmp_path) -> None:
+    from agent.conftest import make_loop
+
+    from nanobot.agent.tools.context import ToolContext
+    from nanobot.coworker import runtime
+
+    assert "tool_registry" in ToolContext.__dataclass_fields__
+    loop = make_loop(tmp_path)
+    try:
+        svc = runtime.services()
+        assert svc is not None
+        assert svc.main_tools is loop.tools
+    finally:
+        runtime.set_services(None)

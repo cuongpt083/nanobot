@@ -247,6 +247,43 @@ def test_update_room_rejects_unknown_tools_allow(cfg_file: Path) -> None:
         }, PRESETS, detect=False)
 
 
+def test_check_agents_accepts_mcp_colon_patterns_and_warns_on_room_state_deny() -> None:
+    from nanobot.coworker.config import CoworkerConfig, NamePolicy, RoomAgentConfig, RoomConfig
+
+    ok = settings_api._check_agents(
+        CoworkerConfig(
+            room=RoomConfig(
+                agents=[
+                    RoomAgentConfig(
+                        id="a1",
+                        home="agents/a1",
+                        tools=NamePolicy(allow=["mcp:crm:*", "mcp_crm_*"]),
+                    )
+                ]
+            )
+        )
+    )
+    assert ok == []
+
+    warned = settings_api._check_agents(
+        CoworkerConfig(
+            room=RoomConfig(
+                agents=[RoomAgentConfig(id="a1", tools=NamePolicy(deny=["room_state"]))]
+            )
+        )
+    )
+    assert any("room_state" in item for item in warned)
+
+    no_home = settings_api._check_agents(
+        CoworkerConfig(
+            room=RoomConfig(
+                agents=[RoomAgentConfig(id="a1", tools=NamePolicy(allow=["read_file"]))]
+            )
+        )
+    )
+    assert any("apply only with home" in item for item in no_home)
+
+
 def test_update_room_camel_vs_snake_premerge(cfg_file: Path) -> None:
     # 1. Stored has threadTurns: 3 in camelCase
     cfg_file.write_text(json.dumps({

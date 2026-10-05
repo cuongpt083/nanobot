@@ -46,7 +46,7 @@ class CoworkerServices:
     timezone: str = "UTC"
     tools_config: ToolsConfig | None = None
     workspace_sandbox: WorkspaceSandboxStatus | None = None
-    main_tools: ToolRegistry | None = None  # assigned in Phase 3
+    main_tools: ToolRegistry | None = None  # live main-loop registry (S6)
     max_tool_result_chars: int | None = None
 
 
@@ -69,6 +69,7 @@ def bind_services(ctx: ToolContext) -> None:
         timezone=ctx.timezone or "UTC",
         tools_config=ctx.config,
         workspace_sandbox=ctx.workspace_sandbox,
+        main_tools=ctx.tool_registry,
     )
 
 

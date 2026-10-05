@@ -16,6 +16,20 @@ def agent_home_path(workspace: Path, agent: RoomAgentConfig) -> Path | None:
     return (workspace / agent.home).resolve()
 
 
+def list_agent_skills(agent: RoomAgentConfig, workspace: Path) -> list[str]:
+    """Final skill names: inherit plus home skills, minus deny."""
+    names: set[str] = set(agent.skills.inherit)
+    home = agent_home_path(workspace, agent)
+    if home is not None:
+        skills_dir = home / "skills"
+        if skills_dir.is_dir():
+            for child in skills_dir.iterdir():
+                if child.is_dir() and (child / "SKILL.md").is_file():
+                    names.add(child.name)
+    deny = set(agent.skills.deny)
+    return sorted(name for name in names if name not in deny)
+
+
 def scaffold_agent_home(workspace: Path, agent: RoomAgentConfig) -> dict[str, Any]:
     """Scaffold an agent home directory if it does not already exist.
 

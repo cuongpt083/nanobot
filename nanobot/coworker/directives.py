@@ -96,11 +96,32 @@ ROOM_STATE = "\n".join([
 ])
 
 
+def agent_capability_highlights(agent: RoomAgentConfig, *, limit: int = 5) -> list[str]:
+    """Up to ``limit`` MCP-server / inherited-skill labels from config (not live MCP)."""
+    from nanobot.coworker.agents.toolset import mcp_server_from_allow_pattern
+
+    names: set[str] = set()
+    for pattern in agent.tools.allow:
+        server = mcp_server_from_allow_pattern(pattern)
+        if server:
+            names.add(server)
+    names.update(agent.skills.inherit)
+    return sorted(names)[:limit]
+
+
+def _roster_line(agent: RoomAgentConfig) -> str:
+    label = f"- `{agent.id}` — {agent.name or agent.id}"
+    if agent.bio:
+        label += f": {agent.bio}"
+    highlights = agent_capability_highlights(agent)
+    if highlights:
+        label += f" · {', '.join(highlights)}"
+    return label
+
+
 def room_owner(agents: list[RoomAgentConfig]) -> str:
     roster = (
-        "\n".join(
-            f"- `{a.id}` — {a.name or a.id}{': ' + a.bio if a.bio else ''}" for a in agents
-        )
+        "\n".join(_roster_line(a) for a in agents)
         if agents
         else "- _(no other teammates available)_"
     )

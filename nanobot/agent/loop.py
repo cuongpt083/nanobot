@@ -626,6 +626,7 @@ class AgentLoop:
             timezone=self.context.timezone or "UTC",
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_control=AgentRuntimeControl(self),
+            tool_registry=self.tools,
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)

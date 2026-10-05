@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.coworker.advisor import state as advisor_state
-from nanobot.coworker.agents.home import agent_home_path, init_agent
+from nanobot.coworker.agents.home import agent_home_path, init_agent, list_agent_skills
 from nanobot.coworker.coding.commands import cmd_code
 from nanobot.coworker.config import coworker_config_path, load_coworker_config
 from nanobot.coworker.context import keepalive, optimizer
@@ -210,6 +210,28 @@ async def cmd_agent(ctx: CommandContext) -> OutboundMessage:
         agent = next((a for a in cfg.room.agents if a.id == target_id), None)
         if agent is None:
             return _reply(ctx, f"⚠️ Agent `{target_id}` not found.")
+        from nanobot.coworker.agents.toolset import build_tools
+        from nanobot.coworker.room.scheduler import RoomActor, current_room_actor
+
+        token = current_room_actor.set(
+            RoomActor(room_id="show", session_key=ctx.key, agent_id=agent.id)
+        )
+        try:
+            registry = build_tools(agent, svc, project_root=workspace)
+            tool_names = sorted(registry.tool_names)
+        except Exception as exc:
+            tool_names = []
+            tools_error = str(exc)
+        else:
+            tools_error = None
+        finally:
+            current_room_actor.reset(token)
+        skill_names = list_agent_skills(agent, workspace)
+        tools_line = (
+            f"- **Tools:** {', '.join(f'`{n}`' for n in tool_names) or '(none)'}"
+            if tools_error is None
+            else f"- **Tools:** (unavailable: {tools_error})"
+        )
         details = [
             f"👤 **Agent:** `{agent.id}`",
             f"- **Name:** {agent.name or agent.id}",
@@ -221,9 +243,16 @@ async def cmd_agent(ctx: CommandContext) -> OutboundMessage:
             f"- **Memory:** {agent.memory} (thread turns: {agent.thread_turns})",
             f"- **Max Iterations:** {agent.max_iterations}",
             f"- **Tools Policy:** allow={agent.tools.allow}, deny={agent.tools.deny}",
+            tools_line,
             f"- **Skills Policy:** inherit={agent.skills.inherit}, deny={agent.skills.deny}",
+            f"- **Skills:** {', '.join(f'`{n}`' for n in skill_names) or '(none)'}",
             f"- **Instructions:**\n{agent.instructions or '(none)'}",
         ]
+        if not agent.home:
+            details.append(
+                "- **Note:** tool/skill policy applies only with `home`; "
+                "legacy guests keep the default subagent toolset."
+            )
         return _reply(ctx, "\n".join(details))
 
     return _reply(ctx, "Usage: /agent list | init <id> | show <id>")

@@ -19,7 +19,7 @@ wikilink edges, `## Next`, `## Output` JSON-Schema).
 
 ## How it plugs in (merge-safety design)
 
-All logic lives in files upstream never touches. The core is reached through **five
+All logic lives in files upstream never touches. The core is reached through **six
 small seams**; each is generic (not coworker-specific) and guarded by
 `tests/coworker/test_seams.py`, so a merge that drops one fails CI loudly.
 
@@ -30,6 +30,7 @@ small seams**; each is generic (not coworker-specific) and guarded by
 | S3 | `nanobot/agent/turn_hooks.py` | Turn hook chain appends `extension_hook_factories()`. |
 | S4 | `nanobot/command/builtin.py` | `register_builtin_commands` ends with `register_extension_commands(router)`. |
 | S5 | `nanobot/agent/tools/coworker.py` (new file) | Import shim so the existing pkgutil scan registers coworker tools. |
+| S6 | `nanobot/agent/tools/context.py`, `nanobot/agent/loop.py` | `ToolContext.tool_registry` is the live main-loop registry; `AgentLoop._register_default_tools` passes `self.tools`. |
 
 `nanobot/agent/extensions.py` (new file) discovers extensions: the built-in
 `nanobot.coworker` plus anything registered under the `nanobot.extensions` entry-point
@@ -42,7 +43,7 @@ Runtime services (bus, sessions, subagents, preset loader) are captured from the
 ### Merging upstream
 
 1. `git merge origin/main` (or the upstream remote). Conflicts, if any, can only be in
-   the S1–S4 files; each seam is a few lines — re-apply them as in the table above.
+   the S1–S4 and S6 files; each seam is a few lines — re-apply them as in the table above.
 2. `uv run --no-sync pytest tests/coworker -q` — seam guards + feature tests.
 3. `uv run --no-sync basedpyright` and `ruff check nanobot/` as usual.
 
@@ -156,11 +157,13 @@ any agent configured in `room.agents[]` — without starting a multi-agent room.
 - A session becomes a room with `/room on`, or automatically when the user @mentions a
   configured agent id. Room tools and the coordinator directive appear only then.
 - The session's agent is the **coordinator**. `room_delegate({agent, task})` queues a
-  teammate; when the coordinator's turn ends, teammates run as inline subagents (own preset,
-  persona `instructions`, subagent toolset + `room_state`/`room_delegate`), their replies are
-  posted to the chat with attribution, then an `[auto-room]` review turn re-summons the
-  coordinator. Teammates can delegate onward and `WAIT_FOR @id` on data dependencies.
-  Chained turns are budgeted per user message (`maxChainedTurns`).
+  teammate; when the coordinator's turn ends, teammates with a configured `home` run through
+  `AgentRuntime` (own prompt, thread, and tool/skill allowlist, including MCP wrappers
+  borrowed from the main loop). Agents without `home` (or with `legacyGuestRunner`) still run
+  as inline subagents with the default subagent toolset — `tools.allow`/`deny` is ignored until
+  they have a home. Replies are posted with attribution, then an `[auto-room]` review turn
+  re-summons the coordinator. Teammates can delegate onward and `WAIT_FOR @id` on data
+  dependencies. Chained turns are budgeted per user message (`maxChainedTurns`).
 - Storage: `<workspace>/.coworker/rooms/<room>.state.json` and `.transcript.jsonl`.
   `/room reset` clears them.
 - Differences from AICoworker: teammates are personas over nanobot presets (nanobot has no

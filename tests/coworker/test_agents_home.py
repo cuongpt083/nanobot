@@ -158,6 +158,9 @@ async def test_cmd_agent_list_init_show(test_env: tuple[Path, Path], monkeypatch
     assert "helper" in resp.content
     assert "none" in resp.content
 
+    resp_show_legacy = await cmd_agent(make_ctx("show helper"))
+    assert "legacy guests keep the default subagent toolset" in resp_show_legacy.content
+
     # 2. /agent init helper
     resp_init = await cmd_agent(make_ctx("init helper"))
     assert "Agent `helper` home initialized" in resp_init.content
@@ -171,6 +174,11 @@ async def test_cmd_agent_list_init_show(test_env: tuple[Path, Path], monkeypatch
     resp_show = await cmd_agent(make_ctx("show helper"))
     assert "Agent:** `helper`" in resp_show.content
     assert "Help people." in resp_show.content
+    assert "- **Tools:**" in resp_show.content
+    assert "`read_file`" in resp_show.content
+    assert "`room_state`" in resp_show.content
+    assert "- **Skills:**" in resp_show.content
+    assert "legacy guests keep the default subagent toolset" not in resp_show.content
 
     # 5. /agent show non-existent
     resp_show_missing = await cmd_agent(make_ctx("show nonexistent"))
