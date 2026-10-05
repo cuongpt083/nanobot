@@ -96,13 +96,15 @@ OpenRouter uses a chat-completions style image response. Configure:
 
 Use a model that supports image generation and image editing if you want reference-image edits.
 
-### Custom (OpenAI-compatible)
+### Custom and Named Custom Providers (OpenAI-compatible)
 
 The `custom` image provider fits services that implement the synchronous OpenAI Images API:
 
 ```text
 POST /v1/images/generations
 ```
+
+Any provider whose name starts with `custom` (e.g. `custom`, `custom-agy-17`, `custom-flux`) resolves to the custom image client. This allows configuring multiple custom endpoints in `providers` simultaneously.
 
 The response must include generated images in `data[].b64_json` or `data[].url`. Native prediction APIs, such as Replicate's `/v1/models/{owner}/{model}/predictions`, are not directly compatible unless you put an OpenAI-compatible gateway in front of them.
 
@@ -111,22 +113,25 @@ Configure:
 ```json
 {
   "providers": {
-    "custom": {
-      "apiKey": "${CUSTOM_IMAGE_API_KEY}",
-      "apiBase": "https://api.example.com/v1"
+    "custom-agy-17": {
+      "displayName": "Agy 17 Gateway",
+      "apiBase": "http://192.168.100.17:8000/v1",
+      "apiKey": "${CUSTOM_IMAGE_API_KEY}"
     }
   },
   "tools": {
     "imageGeneration": {
       "enabled": true,
-      "provider": "custom",
-      "model": "your-model-name"
+      "provider": "custom-agy-17",
+      "model": "gemini-3.8-flash-high"
     }
   }
 }
 ```
 
-The `apiBase` is required. The provider sends requests to `{apiBase}/images/generations` using the OpenAI Images API format with `response_format: "b64_json"`. The `apiKey` is optional for local or unauthenticated endpoints. Reference-image edits are not supported by the generic `custom` provider.
+The `apiBase` is required. The provider sends requests to `{apiBase}/images/generations` using the OpenAI Images API format with `response_format: "b64_json"`. The `apiKey` is optional for local or unauthenticated endpoints.
+
+Reference images (image-to-image) are supported: nanobot encodes local images as Base64 data URIs (`data:{mime};base64,...`) and sends them under `reference_images` in the request body (up to 3 images, 10 MiB per image).
 
 `extraBody` can adapt provider-specific quirks because it is merged last into the request body. Examples:
 
