@@ -228,3 +228,62 @@ async def test_generate_image_tool_rejects_reference_outside_workspace(tmp_path:
     result = await tool.execute(prompt="edit", reference_images=[str(outside)])
 
     assert "reference_images must be inside the workspace" in result
+
+
+@pytest.mark.asyncio
+async def test_generate_image_tool_resolves_named_custom_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    set_config_path(tmp_path / "config.json")
+    from nanobot.config.schema import Config
+    from nanobot.providers.image_generation import (
+        CustomImageGenerationClient,
+        get_image_gen_provider,
+        image_gen_provider_configs,
+    )
+
+    # 1. Resolver check
+    assert get_image_gen_provider("openrouter") is not None
+    assert get_image_gen_provider("customer") is None
+    assert get_image_gen_provider("unknown_provider") is None
+    resolved_cls = get_image_gen_provider("custom-agy-17")
+    assert resolved_cls is CustomImageGenerationClient
+
+    # 2. image_gen_provider_configs check
+    config = Config.model_validate({
+        "providers": {
+            "custom-agy-17": {
+                "apiBase": "http://192.168.100.17:8000/v1",
+                "apiKey": "sk-agy",
+            }
+        }
+    })
+    configs = image_gen_provider_configs(config)
+    assert "custom-agy-17" in configs
+    assert configs["custom-agy-17"].api_base == "http://192.168.100.17:8000/v1"
+
+    # 3. Tool execution check with named custom provider
+    tool = ImageGenerationTool(
+        workspace=tmp_path,
+        config=ImageGenerationToolConfig(enabled=True, provider="custom-agy-17", model="test-model"),
+        provider_configs=configs,
+    )
+
+    async def fake_post(self: Any, url: str, **kwargs: Any) -> Any:
+        assert url == "http://192.168.100.17:8000/v1/images/generations"
+        class FakeResponse:
+            status_code = 200
+            def raise_for_status(self) -> None:
+                pass
+            def json(self) -> dict[str, Any]:
+                return {"data": [{"b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="}]}
+        return FakeResponse()
+
+    monkeypatch.setattr(CustomImageGenerationClient, "_http_post", fake_post)
+    result = await tool.execute(prompt="a sunset")
+    parsed = json.loads(result)
+    assert "artifacts" in parsed
+    assert len(parsed["artifacts"]) == 1
+    assert parsed["artifacts"][0]["provider"] == "custom-agy-17"
+

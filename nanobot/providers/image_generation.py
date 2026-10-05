@@ -253,8 +253,16 @@ def register_image_gen_provider(cls: type[ImageGenerationProvider]) -> None:
     _IMAGE_GEN_PROVIDERS[name] = cls
 
 
+def _is_named_custom_image_provider(name: str) -> bool:
+    return name == "custom" or name.startswith("custom-")
+
+
 def get_image_gen_provider(name: str) -> type[ImageGenerationProvider] | None:
-    return _IMAGE_GEN_PROVIDERS.get(name)
+    if name in _IMAGE_GEN_PROVIDERS:
+        return _IMAGE_GEN_PROVIDERS[name]
+    if _is_named_custom_image_provider(name):
+        return _IMAGE_GEN_PROVIDERS.get("custom")
+    return None
 
 
 def image_gen_provider_names() -> tuple[str, ...]:
@@ -264,11 +272,16 @@ def image_gen_provider_names() -> tuple[str, ...]:
 
 def image_gen_provider_configs(config: Config) -> dict[str, ProviderConfig]:
     providers_cfg = config.providers
-    return {
+    configs = {
         name: pc
         for name in _IMAGE_GEN_PROVIDERS
         if (pc := getattr(providers_cfg, name, None)) is not None
     }
+    # Include custom providers defined as extra fields in providers (e.g. custom-agy-17)
+    for extra_name, extra_pc in (providers_cfg.model_extra or {}).items():
+        if isinstance(extra_pc, ProviderConfig) and _is_named_custom_image_provider(extra_name):
+            configs[extra_name] = extra_pc
+    return configs
 
 
 # ---------------------------------------------------------------------------
