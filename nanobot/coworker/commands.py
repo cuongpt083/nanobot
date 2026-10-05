@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.coworker.advisor import state as advisor_state
+from nanobot.coworker.agents.home import agent_home_path, init_agent
 from nanobot.coworker.coding.commands import cmd_code
 from nanobot.coworker.config import coworker_config_path, load_coworker_config
 from nanobot.coworker.context import keepalive, optimizer
@@ -160,10 +161,77 @@ async def cmd_ctx(ctx: CommandContext) -> OutboundMessage:
     return _reply(ctx, "🧠 Context cache state:\n" + json.dumps(info, ensure_ascii=False, indent=2))
 
 
+async def cmd_agent(ctx: CommandContext) -> OutboundMessage:
+    svc = services()
+    if svc is None:
+        return _reply(ctx, "Coworker runtime services not bound yet — send a normal message first.")
+    workspace = svc.workspace
+    cfg = load_coworker_config()
+    head, _, rest = ctx.args.strip().partition(" ")
+    action = head.lower() or "list"
+    target_id = rest.strip()
+
+    if action == "list":
+        if not cfg.room.agents:
+            return _reply(ctx, f"👥 No room agents configured — check {coworker_config_path()}.")
+        lines: list[str] = ["👥 Configured room agents:"]
+        for a in cfg.room.agents:
+            h_status = "configured" if a.home else "none"
+            if a.home:
+                hp = agent_home_path(workspace, a)
+                h_status = f"`{a.home}` (exists)" if hp and hp.exists() else f"`{a.home}` (missing)"
+            preset_label = a.preset or "inherit"
+            skills_count = len(a.skills.inherit)
+            tools_label = f"{len(a.tools.allow)} allow patterns" if a.tools.allow else "all default"
+            lines.append(
+                f"- **{a.id}** ({a.name or a.id}): home={h_status}, preset=`{preset_label}`, skills={skills_count}, tools={tools_label}"
+            )
+        return _reply(ctx, "\n".join(lines) + "\n\nUsage: /agent list | init <id> | show <id>")
+
+    if action == "init":
+        if not target_id:
+            return _reply(ctx, "Usage: /agent init <id>")
+        try:
+            res = init_agent(workspace, target_id)
+            c_str = ", ".join(res["created_files"]) if res["created_files"] else "none"
+            s_str = ", ".join(res["skipped_files"]) if res["skipped_files"] else "none"
+            return _reply(
+                ctx,
+                f"🏠 Agent `{target_id}` home initialized at `{res['home']}`.\n- Created: {c_str}\n- Skipped: {s_str}",
+            )
+        except Exception as exc:
+            return _reply(ctx, f"⚠️ Failed to init agent `{target_id}`: {exc}")
+
+    if action == "show":
+        if not target_id:
+            return _reply(ctx, "Usage: /agent show <id>")
+        agent = next((a for a in cfg.room.agents if a.id == target_id), None)
+        if agent is None:
+            return _reply(ctx, f"⚠️ Agent `{target_id}` not found.")
+        details = [
+            f"👤 **Agent:** `{agent.id}`",
+            f"- **Name:** {agent.name or agent.id}",
+            f"- **Emoji:** {agent.emoji}",
+            f"- **Bio:** {agent.bio}",
+            f"- **Preset:** {agent.preset or 'inherit'}",
+            f"- **Backend:** {agent.backend or 'none'}",
+            f"- **Home:** {agent.home or 'none'}",
+            f"- **Memory:** {agent.memory} (thread turns: {agent.thread_turns})",
+            f"- **Max Iterations:** {agent.max_iterations}",
+            f"- **Tools Policy:** allow={agent.tools.allow}, deny={agent.tools.deny}",
+            f"- **Skills Policy:** inherit={agent.skills.inherit}, deny={agent.skills.deny}",
+            f"- **Instructions:**\n{agent.instructions or '(none)'}",
+        ]
+        return _reply(ctx, "\n".join(details))
+
+    return _reply(ctx, "Usage: /agent list | init <id> | show <id>")
+
+
 def register(router: CommandRouter) -> None:
     for name, handler in (
         ("/advisor", cmd_advisor),
         ("/room", cmd_room),
+        ("/agent", cmd_agent),
         ("/workflow", cmd_workflow),
         ("/ctx", cmd_ctx),
         ("/code", cmd_code),
