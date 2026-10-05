@@ -63,9 +63,13 @@ async def test_workspace_lifecycle_and_uncommitted_changes(tmp_path: Path) -> No
 
     # Symlink escape rejection
     symlink_dir = tmp_path / "sym_repo"
-    os.symlink(repo_dir, symlink_dir)
-    with pytest.raises(WorkspaceError):
-        mgr.validate_repo(tmp_path / "non_existent_repo")
+    try:
+        os.symlink(repo_dir, symlink_dir)
+        with pytest.raises(WorkspaceError):
+            mgr.validate_repo(tmp_path / "non_existent_repo")
+    except OSError:
+        # Symlink creation requires elevated privileges on Windows unless developer mode is enabled
+        pass
 
     # Create worktree
     wt_dir, branch = await mgr.create_worktree(repo=repo_cfg, task_id="test-wt-1", base_ref="main")
