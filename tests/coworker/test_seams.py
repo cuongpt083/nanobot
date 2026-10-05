@@ -90,6 +90,6 @@ def test_builtin_router_registers_coworker_commands() -> None:
 def test_tool_loader_discovers_coworker_tools() -> None:
     names = {cls.__name__ for cls in ToolLoader().discover()}
     assert {
-        "AdvisorTool", "AgentsListTool", "RoomDelegateTool", "RoomStateTool",
+        "AdvisorTool", "AgentNotesTool", "AgentsListTool", "RoomDelegateTool", "RoomStateTool",
         "MarkContextWastedTool", "WorkflowRunTool", "WorkflowDistillTool",
     } <= names
