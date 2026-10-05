@@ -85,16 +85,20 @@ def init_agent(workspace: Path, agent_id: str, preset_names: list[str] | None = 
     # If home was not set in coworker config, persist it
     if not target_agent.home:
         agents_data: list[dict[str, Any]] = []
+        all_presets: set[str] = {"default"}
+        if preset_names:
+            all_presets.update(preset_names)
         for a in cfg.room.agents:
             adump = a.model_dump(mode="json", by_alias=True)
+            if a.preset:
+                all_presets.add(a.preset)
             if a.id == agent_id:
                 adump["home"] = rel_home
             agents_data.append(adump)
 
-        valid_presets = preset_names or (["default", target_agent.preset] if target_agent.preset else ["default"])
         update_coworker_settings(
             {"room": {"agents": agents_data}},
-            valid_presets,
+            all_presets,
             detect=False,
             workspace=workspace,
         )

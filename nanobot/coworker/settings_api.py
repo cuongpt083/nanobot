@@ -23,6 +23,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, cast
 
+from loguru import logger
 from pydantic import ValidationError
 
 from nanobot.coworker import config as coworker_config
@@ -263,6 +264,10 @@ def _check_agents(cfg: CoworkerConfig, workspace: Path | None = None) -> list[st
                     raise CoworkerSettingsError(
                         f"room.agents[{i}].tools.allow: pattern {pattern!r} does not match any known tool"
                     )
+
+    if warnings:
+        for w in warnings:
+            logger.warning("Coworker room agent config warning: {}", w)
     return warnings
 
 

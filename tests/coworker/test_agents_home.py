@@ -80,6 +80,7 @@ def test_init_agent_updates_config(test_env: tuple[Path, Path]) -> None:
                     {
                         "id": "researcher",
                         "name": "Researcher",
+                        "preset": "fast",
                         "bio": "Fact checker and analyst.",
                         "instructions": "Be accurate.",
                     }
@@ -95,6 +96,7 @@ def test_init_agent_updates_config(test_env: tuple[Path, Path]) -> None:
     # Verify config was updated with home
     cfg = load_coworker_config()
     assert cfg.room.agents[0].home == "agents/researcher"
+    assert cfg.room.agents[0].preset == "fast"
 
     # Agent path
     hp = agent_home_path(workspace, cfg.room.agents[0])
