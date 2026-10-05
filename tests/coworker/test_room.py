@@ -199,4 +199,34 @@ async def test_room_snapshot_marks_waiting_and_failed_agents(env) -> None:
     scheduler.record_delegation(KEY, "researcher", "again", by="owner", runtime=OWNER_RUNTIME)
     scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
     await _drain(KEY)
-    assert scheduler.room_snapshot(KEY).recent[-1].state == "error"
+    last_outcome = scheduler.room_snapshot(KEY).recent[-1]
+    assert last_outcome.state == "error"
+    assert last_outcome.duration_s >= 0.0
+
+
+@pytest.mark.asyncio
+async def test_guest_outcome_records_duration(env) -> None:
+    import asyncio
+
+    env.configure(_config())
+
+    class SleepySubagents(FakeSubagents):
+        async def run_inline(self, **kwargs: Any) -> str:
+            await asyncio.sleep(0.05)
+            return "done sleeping"
+
+    env.subagents = SleepySubagents({"researcher": ["done"]})
+    env.bind()
+    scheduler.record_delegation(KEY, "researcher", "work", by="owner", runtime=OWNER_RUNTIME)
+    scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
+    await _drain(KEY)
+
+    snap = scheduler.room_snapshot(KEY)
+    assert len(snap.recent) == 1
+    outcome = snap.recent[0]
+    assert outcome.agent_id == "researcher"
+    assert outcome.state == "done"
+    assert outcome.duration_s >= 0.04
+    assert outcome.tokens_in is None
+    assert outcome.tokens_out is None
+

@@ -78,6 +78,9 @@ class GuestOutcome:
     agent_id: str
     state: str  # done | error | timeout
     finished_at: float
+    duration_s: float = 0.0
+    tokens_in: int | None = None
+    tokens_out: int | None = None
 
 
 RECENT_OUTCOMES = 5
@@ -98,9 +101,35 @@ class _Room:
     waiting: dict[str, str] = field(default_factory=dict)  # agent id -> agent it waits for
     recent: list[GuestOutcome] = field(default_factory=list)
 
-    def outcome(self, agent_id: str, state: str) -> None:
-        self.recent.append(GuestOutcome(agent_id=agent_id, state=state, finished_at=time.time()))
+    def outcome(
+        self,
+        agent_id: str,
+        state: str,
+        *,
+        duration_s: float = 0.0,
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
+    ) -> None:
+        self.recent.append(
+            GuestOutcome(
+                agent_id=agent_id,
+                state=state,
+                finished_at=time.time(),
+                duration_s=duration_s,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+            )
+        )
         del self.recent[:-RECENT_OUTCOMES]
+        logger.info(
+            "room guest finished: room={} agent={} state={} duration_s={:.2f} tokens_in={} tokens_out={}",
+            self.session_key,
+            agent_id,
+            state,
+            duration_s,
+            tokens_in,
+            tokens_out,
+        )
 
 
 @dataclass(frozen=True)
@@ -337,14 +366,17 @@ async def _run_room(room: _Room) -> None:
             await note(f"⏳ {_label(agent)} is working on: {delegation.task[:200]}")
             room.waiting.pop(agent.id, None)
             room.active[agent.id] = ActiveGuest(agent.id, delegation.task, time.time())
+            guest_t0 = time.monotonic()
             try:
                 reply = await _run_guest(room, agent, delegation)
             except TimeoutError:
-                room.outcome(agent.id, "timeout")
+                duration_s = time.monotonic() - guest_t0
+                room.outcome(agent.id, "timeout", duration_s=duration_s)
                 await note(f"⚠️ {_label(agent)} did not finish within {cfg.room.guest_timeout_seconds}s — stopped.")
                 continue
             except Exception as exc:
-                room.outcome(agent.id, "error")
+                duration_s = time.monotonic() - guest_t0
+                room.outcome(agent.id, "error", duration_s=duration_s)
                 logger.opt(exception=exc).warning("room {}: guest @{} failed", room.session_key, agent.id)
                 # ProjectError / RuntimeError from coding admission carry an actionable,
                 # user-facing reason (pick a project dir, make it a git repo, install backend...).
@@ -357,12 +389,13 @@ async def _run_room(room: _Room) -> None:
                 continue
             finally:
                 room.active.pop(agent.id, None)
+            duration_s = time.monotonic() - guest_t0
             # Delegations the teammate made during its turn join the queue in order.
             queue.extend(room.pending)
             room.pending = []
             room.queued = list(queue)
             if not reply or reply.strip() == REPLY_SKIP:
-                room.outcome(agent.id, "done")
+                room.outcome(agent.id, "done", duration_s=duration_s)
                 continue
             wait = _WAIT_FOR.search(reply)
             if wait and agent.id not in waited:
@@ -374,7 +407,7 @@ async def _run_room(room: _Room) -> None:
                     room.waiting[agent.id] = target
                     await note(f"⏳ {_label(agent)} waits for @{target} first (data dependency).")
                     continue
-            room.outcome(agent.id, "done")
+            room.outcome(agent.id, "done", duration_s=duration_s)
             transcript.append(f"@{agent.id}", reply)
             await note(f"{_label(agent)}:\n{reply}")
             results.append((agent, reply))
