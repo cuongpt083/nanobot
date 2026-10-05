@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -21,9 +23,11 @@ from nanobot.coworker.coding.pi.protocol import (
     Response,
     parse_rpc_event,
 )
+from nanobot.coworker.coding.pi.questions import QuestionRouter
 from nanobot.coworker.coding.pi.transport import JsonlChannel
+from nanobot.coworker.coding.pi.version import check_pi_version, resolve_pi_binary
 from nanobot.coworker.coding.runtime import CodingRuntime, ModelSpec, RunOutcome, SessionSpec
-from nanobot.coworker.coding.sandbox import SandboxPolicy, wrap_argv
+from nanobot.coworker.coding.sandbox import WINDOWS_ENV_KEYS, SandboxPolicy, wrap_argv
 from nanobot.coworker.config import PiBackendConfig
 from nanobot.coworker.transcript import as_dict
 
@@ -62,15 +66,18 @@ class PiClient(CodingRuntime):
         sandbox_policy: SandboxPolicy | None = None,
         timeout_minutes: float = 45,
         idle_timeout_minutes: float = 10,
+        question_router: QuestionRouter | None = None,
     ) -> None:
         self.config = config
         self.sandbox_policy = sandbox_policy or SandboxPolicy(mode="none")
         self.timeout_minutes = timeout_minutes
         self.idle_timeout_minutes = idle_timeout_minutes
+        self.question_router = question_router
         self.channel = JsonlChannel()
         self._pending_requests: dict[str, asyncio.Future[Response]] = {}
         self._subscriptions: list[EventSubscription] = []
         self._reader_task: asyncio.Task[None] | None = None
+        self._ui_tasks: set[asyncio.Task[None]] = set()
         self._last_stats = BackendStats()
         self._last_response_text = ""
         self._cwd: Path | None = None
@@ -88,7 +95,9 @@ class PiClient(CodingRuntime):
         self._cwd = cwd
         self._session_spec = session
 
-        args = list(self.config.command)
+        await self._preflight()
+
+        args = resolve_pi_binary(list(self.config.command))
         args.extend(["--mode", "rpc"])
         if session.task_id:
             args.extend(["--name", session.task_id])
@@ -100,7 +109,7 @@ class PiClient(CodingRuntime):
             args.append("--no-session")
 
         if extension:
-            args.extend(["--extension", str(extension)])
+            args.extend(["--no-extensions", "--extension", str(extension)])
         elif not self.config.extensions:
             args.append("--no-extensions")
 
@@ -118,7 +127,15 @@ class PiClient(CodingRuntime):
                     target_model = f"{target_model}:{model.thinking}"
                 args.extend(["--model", target_model])
 
-        env = dict()
+        base_keys = ("PATH", "HOME", "USER", "LANG", "TERM")
+        if os.name == "nt":
+            base_keys += WINDOWS_ENV_KEYS
+        env = {k: os.environ[k] for k in base_keys if k in os.environ}
+        env.setdefault("TERM", "dumb")
+        for k in self.config.pass_env:
+            if k in os.environ:
+                env[k] = os.environ[k]
+
         if self.config.agent_dir:
             env["PI_CODING_AGENT_DIR"] = self.config.agent_dir
         if contract_file:
@@ -131,6 +148,36 @@ class PiClient(CodingRuntime):
         await self.channel.start(argv, cwd=cwd, env=env)
         self._reader_task = asyncio.create_task(self._read_loop())
 
+        await self._handshake(extension=extension, model=model)
+
+    async def _preflight(self) -> None:
+        min_ver = self.config.min_version or "1.0.0"
+        if not check_pi_version(min_ver, pi_command=self.config.command):
+            raise RuntimeError(
+                f"Pi executable version does not satisfy minimum required version {min_ver}"
+            )
+
+    async def _handshake(self, extension: Path | None = None, model: ModelSpec | None = None) -> None:
+        try:
+            state_resp = await self.request("get_state", timeout=10.0)
+            if not state_resp.success:
+                raise RuntimeError(f"Pi get_state failed: {state_resp.error}")
+            state_data = as_dict(state_resp.data) or {}
+            if "model" in state_data and not state_data.get("model") and model and model.model:
+                raise RuntimeError("Pi reported empty or invalid model state")
+
+            if extension:
+                cmds_resp = await self.request("get_commands", timeout=10.0)
+                if not cmds_resp.success:
+                    raise RuntimeError(f"Pi get_commands failed: {cmds_resp.error}")
+                cmds_data = as_dict(cmds_resp.data) or {}
+                cmd_list = [c.get("name") for c in cmds_data.get("commands", []) if isinstance(c, dict)]
+                if "nanobot-mode" not in cmd_list:
+                    raise RuntimeError("Pi extension failed to load: nanobot-mode command missing")
+        except Exception as e:
+            await self.close()
+            raise RuntimeError(f"Pi post-spawn handshake failed: {e}") from e
+
     async def _read_loop(self) -> None:
         try:
             async for raw in self.channel.records():
@@ -140,6 +187,54 @@ class PiClient(CodingRuntime):
                     if fut and not fut.done():
                         fut.set_result(resp)
                     continue
+
+                # Handle extension UI requests (ask_coordinator dialogs & fire-and-forget notifications)
+                if raw.get("type") == "extension_ui_request":
+                    req_id = raw.get("id", "")
+                    method = raw.get("method", "")
+                    title = raw.get("title", "")
+                    # Dialog methods need response back to Pi
+                    if method in ("select", "confirm", "input", "editor") and req_id:
+                        if self.question_router:
+                            task_id = self._session_spec.task_id if self._session_spec else "unknown"
+
+                            async def _handle_and_reply(rid: str, meth: str, tit: str, m_raw: dict[str, Any]):
+                                try:
+                                    res = await self.question_router.handle_extension_ui_request(
+                                        request_id=rid,
+                                        task_id=task_id,
+                                        method=meth,
+                                        title=tit,
+                                        message=m_raw.get("message", ""),
+                                        options=m_raw.get("options"),
+                                    )
+                                    reply = {"type": "extension_ui_response", "id": rid}
+                                    if res.get("cancelled"):
+                                        reply["cancelled"] = True
+                                    elif "confirmed" in res and meth == "confirm":
+                                        reply["confirmed"] = res["confirmed"]
+                                    elif "value" in res:
+                                        reply["value"] = res["value"]
+                                    else:
+                                        reply["cancelled"] = True
+                                    await self.channel.send(reply)
+                                except Exception as exc:
+                                    logger.error(f"Failed handling extension_ui_request {rid}: {exc}")
+                                    try:
+                                        await self.channel.send({"type": "extension_ui_response", "id": rid, "cancelled": True})
+                                    except Exception:
+                                        pass
+
+                            t = asyncio.create_task(_handle_and_reply(req_id, method, title, raw))
+                            self._ui_tasks.add(t)
+                            t.add_done_callback(self._ui_tasks.discard)
+                        else:
+                            # Auto-cancel if no question router configured
+                            t = asyncio.create_task(
+                                self.channel.send({"type": "extension_ui_response", "id": req_id, "cancelled": True})
+                            )
+                            self._ui_tasks.add(t)
+                            t.add_done_callback(self._ui_tasks.discard)
 
                 event = parse_rpc_event(raw)
                 for sub in list(self._subscriptions):
@@ -203,7 +298,12 @@ class PiClient(CodingRuntime):
                     event = await asyncio.wait_for(sub.__anext__(), timeout=1.0)
                 except asyncio.TimeoutError:
                     now = time.time()
-                    if active_tools == 0 and (now - last_event_time) > (self.idle_timeout_minutes * 60):
+                    task_id = self._session_spec.task_id if self._session_spec else ""
+                    has_pending_q = bool(
+                        self.question_router and self.question_router.list_pending_for_task(task_id)
+                    )
+                    # Watchdog idle timeout is suspended while waiting for coordinator/user dialog
+                    if not has_pending_q and active_tools == 0 and (now - last_event_time) > (self.idle_timeout_minutes * 60):
                         await self.abort()
                         return RunOutcome(status="timed_out", error="Idle timeout exceeded")
                     continue
@@ -265,6 +365,18 @@ class PiClient(CodingRuntime):
         await self.channel.close(grace=3.0)
 
     async def close(self) -> None:
-        if self._reader_task and not self._reader_task.done():
-            self._reader_task.cancel()
+        for t in list(self._ui_tasks):
+            if not t.done():
+                t.cancel()
+        task = self._reader_task
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                cur = asyncio.current_task()
+                if cur is not None and hasattr(cur, "cancelling") and cur.cancelling():
+                    raise
+            except Exception:
+                logger.debug("PiClient reader task error on close", exc_info=True)
         await self.channel.close(grace=2.0)
