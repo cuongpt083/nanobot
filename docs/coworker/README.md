@@ -138,7 +138,7 @@ any agent configured in `room.agents[]` — without starting a multi-agent room.
   with their emoji, name, and bio. Select one to adopt that persona for the session.
 - **What it does when activated**:
   - `session_state["persona"]` stores the chosen `agent_id`.
-  - `transform_request` prepends a `## Persona` section to the system prompt, sourced from
+  - `transform_request` appends a `## Persona` section to the system prompt (current behavior; will transition to a dedicated direct system prompt in Phase 5), sourced from
     the agent's `instructions` field — this is part of the cacheable prefix.
   - The session's model preset is set to the persona's `preset` (if configured).
   - The coordinator participant in the header shows the persona's emoji + name.
