@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from loguru import logger
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from nanobot.config_base import Base
 
@@ -36,6 +36,16 @@ class AdvisorConfig(Base):
     stuck_detection: bool = True
 
 
+class NamePolicy(Base):
+    allow: list[str] = Field(default_factory=list)  # glob (fnmatch); empty = legacy default
+    deny: list[str] = Field(default_factory=list)
+
+
+class SkillPolicy(Base):
+    inherit: list[str] = Field(default_factory=list)  # skills from <workspace>/skills or builtin
+    deny: list[str] = Field(default_factory=list)
+
+
 class RoomAgentConfig(Base):
     """A named teammate that can take turns in a multi-agent room."""
 
@@ -46,6 +56,13 @@ class RoomAgentConfig(Base):
     preset: str | None = None  # model preset; None = the owner's runtime
     backend: Literal["pi", "agy"] | None = None  # coding harness backend if used as coder
     instructions: str = ""
+    home: str | None = None  # relative to workspace, e.g. "agents/nutri-coach"
+    tools: NamePolicy = Field(default_factory=NamePolicy)
+    skills: SkillPolicy = Field(default_factory=SkillPolicy)
+    memory: Literal["none", "thread", "thread+notes"] = "thread"
+    thread_turns: int = Field(default=8, ge=0, le=50)
+    max_iterations: int = Field(default=40, ge=1, le=500)
+    output_contract: Literal["none", "default"] = "default"
 
     @field_validator("id")
     @classmethod
@@ -55,11 +72,36 @@ class RoomAgentConfig(Base):
             raise ValueError("agent id must match [a-z0-9][a-z0-9_-]{0,63}")
         return value
 
+    @field_validator("home")
+    @classmethod
+    def _valid_home(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        clean = value.strip()
+        if not clean:
+            return None
+        p = Path(clean)
+        if p.is_absolute() or ".." in p.parts or clean.startswith(("\\", "/")):
+            raise ValueError("home must be a relative path and cannot contain '..'")
+        # Also disallow drive-anchor paths on Windows like C:foo
+        if p.drive:
+            raise ValueError("home must be a relative path without drive specifications")
+        return p.as_posix()
+
+    @model_validator(mode="after")
+    def _validate_backend_and_home(self) -> RoomAgentConfig:
+        if self.backend and self.home:
+            raise ValueError("backend and home cannot be specified together")
+        return self
+
 
 class RoomConfig(Base):
     agents: list[RoomAgentConfig] = Field(default_factory=list)
     max_chained_turns: int = Field(default=16, ge=1, le=100)
     guest_timeout_seconds: int = Field(default=900, ge=30)
+    max_parallel: int = Field(default=3, ge=1, le=8)
+    context_turns: int = Field(default=5, ge=1, le=20)
+    min_context_chars: int = Field(default=80, ge=0)
 
 
 class TrimConfig(Base):
