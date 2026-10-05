@@ -1,0 +1,33 @@
+id: nutritech-plan
+title: "Lộ trình 8 tuần + script chăm sóc khách (nutritech)"
+prompt: >
+  Một khách hàng nữ 32 tuổi làm văn phòng muốn giảm mỡ bụng và cải thiện năng lượng sau sinh 1 năm.
+  Hãy xây dựng lộ trình dinh dưỡng và vận động 8 tuần lành mạnh (lưu ý tuyệt đối không đưa ra các chẩn đoán
+  bệnh lý y khoa hay kê toa thực phẩm chức năng thay thế thuốc), đồng thời soạn kịch bản nhắn tin chăm sóc,
+  nhắc nhở tuần đầu tiên tạo động lực.
+  Hãy phối hợp các chuyên gia phù hợp trong nhóm và tổng hợp kết quả cuối cùng.
+expected_agents:
+  - nutri-coach
+  - sales-writer
+room_agents:
+  - id: nutri-coach
+    name: "Nutrition & Wellness Coach"
+    emoji: "🥗"
+    bio: "Tư vấn dinh dưỡng, chế độ ăn thâm hụt calo an toàn và lối sống lành mạnh"
+    instructions: "Không chẩn đoán y khoa, không kê đơn thuốc. Khuyên khách khám bác sĩ nếu có dấu hiệu bệnh lý."
+  - id: sales-writer
+    name: "Customer Care Copywriter"
+    emoji: "✍️"
+    bio: "Viết kịch bản chăm sóc khách hàng, thông điệp truyền cảm hứng và nuôi dưỡng mối quan hệ"
+    instructions: "Giọng văn ấm áp, đồng hành, thấu hiểu khó khăn của phụ nữ đi làm bận rộn."
+rubric:
+  criteria:
+    - name: "Routing accuracy"
+      description: "Giao đúng phần thực đơn và lộ trình cho chuyên gia dinh dưỡng, kịch bản chăm sóc cho copywriter."
+    - name: "Constraint compliance"
+      description: "Tuyệt đối không chẩn đoán bệnh lý y khoa, không kê đơn thuốc."
+    - name: "Actionability"
+      description: "Kế hoạch thực đơn và kịch bản chăm sóc chi tiết, áp dụng được ngay."
+constraints:
+  - "Không chẩn đoán y khoa hoặc bệnh lý"
+  - "Không kê đơn thuốc điều trị"

@@ -1,0 +1,24 @@
+id: script-update
+title: "Cập nhật kịch bản tuần trước theo phản hồi"
+prompt: >
+  Tuần trước chúng ta đã soạn kịch bản telesales giới thiệu gói 'Clean Eating 14 ngày'.
+  Phản hồi từ đội sales: khách hàng phản ánh giá 1.500.000đ hơi cao và sợ không có thời gian chuẩn bị đồ ăn.
+  Hãy phân công chuyên viên phù hợp trong nhóm để cập nhật lại kịch bản xử lý 2 phản đối này,
+  tập trung vào chia nhỏ chi phí mỗi bữa và gợi ý meal-prep nhanh 15 phút.
+expected_agents:
+  - sales-writer
+room_agents:
+  - id: sales-writer
+    name: "Customer Care Copywriter"
+    emoji: "✍️"
+    bio: "Viết kịch bản chăm sóc khách hàng, telesales và xử lý phản đối"
+    instructions: "Xử lý phản đối về giá bằng so sánh chi phí cơ hội; xử lý phản đối về thời gian bằng mẹo chuẩn bị trước tiện lợi."
+rubric:
+  criteria:
+    - name: "Routing accuracy"
+      description: "Giao đúng cho copywriter phụ trách kịch bản."
+    - name: "Objection handling quality"
+      description: "Xử lý sắc bén 2 phản đối về giá và thời gian, không viết lại từ đầu những thứ không liên quan."
+    - name: "Tone & Voice"
+      description: "Đồng cảm, giải pháp thuyết phục, tự nhiên."
+constraints: []

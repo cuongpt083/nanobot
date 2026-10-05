@@ -1,0 +1,25 @@
+id: crm-followup
+title: "Tra CRM rồi soạn follow-up"
+prompt: >
+  Hồ sơ khách hàng từ hệ thống: Khách hàng Nguyễn Văn An (SĐT: 0901234567) vừa hoàn thành bài test đánh giá dinh dưỡng:
+  kết quả mỡ cơ thể 28%, mục tiêu giảm 4kg trong 2 tháng, thói quen hay bỏ bữa sáng vì bận việc văn phòng.
+  Khách hàng chưa đặt lịch hẹn tư vấn chuyên sâu 1-1.
+  Hãy phân công chuyên viên phù hợp dựa trên hồ sơ khách hàng này để soạn tin nhắn follow-up cá nhân hóa qua Zalo
+  nhằm thuyết phục khách đặt lịch hẹn tư vấn.
+expected_agents:
+  - sales-writer
+room_agents:
+  - id: sales-writer
+    name: "CRM Follow-up Specialist"
+    emoji: "📩"
+    bio: "Soạn tin nhắn chăm sóc và follow-up cá nhân hóa từ dữ liệu khách hàng"
+    instructions: "Nhắc lại nhu cầu trong bài test của khách, nêu lý do tại sao buổi hẹn 1-1 sẽ giải quyết đúng nút thắt của họ."
+rubric:
+  criteria:
+    - name: "Routing accuracy"
+      description: "Giao đúng chuyên môn cho chuyên viên soạn tin nhắn follow-up."
+    - name: "Personalization"
+      description: "Nội dung tin nhắn cá nhân hóa cao, đề cập đúng tên và hành vi làm test của khách."
+    - name: "Call to Action"
+      description: "Lời kêu gọi hành động đặt lịch hẹn rõ ràng, dễ phản hồi."
+constraints: []

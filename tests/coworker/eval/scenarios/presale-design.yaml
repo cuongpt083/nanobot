@@ -1,0 +1,31 @@
+id: presale-design
+title: "Phân tích yêu cầu + thiết kế hệ thống (presale)"
+prompt: >
+  Khách hàng doanh nghiệp bán lẻ cần một hệ thống AI chatbot tích hợp đa kênh (Facebook, Zalo, Web)
+  có khả năng tra cứu tồn kho theo thời gian thực và tự động tạo đơn hàng trong ERP.
+  Hãy phân tích nghiệp vụ (user stories, acceptance criteria, rủi ro) và thiết kế kiến trúc kỹ thuật
+  (lựa chọn công nghệ, mô hình bảo mật, xử lý tải cao).
+  Hãy phối hợp các chuyên gia phù hợp trong nhóm và tổng hợp thành bản đề xuất kỹ thuật sơ bộ (Pre-sales Solution Brief).
+expected_agents:
+  - analyst
+  - architect
+room_agents:
+  - id: analyst
+    name: "Business Analyst"
+    emoji: "📊"
+    bio: "Phân tích yêu cầu nghiệp vụ, user stories, quy trình luồng công việc và rủi ro"
+    instructions: "Trình bày rõ ràng theo format nghiệp vụ, xác định rõ biên giới hệ thống và các ca ngoại lệ."
+  - id: architect
+    name: "Solutions Architect"
+    emoji: "🏗️"
+    bio: "Thiết kế kiến trúc hệ thống phân tán, bảo mật, tích hợp API và mở rộng quy mô"
+    instructions: "Đề xuất kiến trúc microservices/event-driven phù hợp tải cao, vẽ sơ đồ text/mermaid và nêu rủi ro chịu tải."
+rubric:
+  criteria:
+    - name: "Routing accuracy"
+      description: "Giao đúng phần nghiệp vụ cho Business Analyst và phần kiến trúc kỹ thuật cho Solutions Architect."
+    - name: "Feasibility & Depth"
+      description: "Đề xuất kiến trúc khả thi, giải quyết triệt để vấn đề thời gian thực và tích hợp ERP."
+    - name: "Clarity & Structure"
+      description: "Bản tài liệu presale ngắn gọn, thuyết phục, cấu trúc chuẩn mực."
+constraints: []

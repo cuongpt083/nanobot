@@ -1,0 +1,37 @@
+id: edutech-course
+title: "Khóa học ngắn + kịch bản tư vấn phụ huynh (edutech)"
+prompt: >
+  Chúng tôi chuẩn bị ra mắt khóa học trực tuyến 4 tuần 'Toán tư duy và Lập trình Scratch'
+  cho học sinh tiểu học (lớp 3-5). Hãy phân tích insight phụ huynh và xu hướng thị trường EdTech,
+  thiết kế khung chương trình 4 tuần theo mô hình Socratic thực hành, và soạn bộ kịch bản tư vấn
+  qua điện thoại/tin nhắn cho đội ngũ tuyển sinh.
+  Hãy phối hợp cùng các chuyên gia phù hợp trong nhóm để hoàn thành bản kế hoạch tổng thể.
+expected_agents:
+  - researcher
+  - curriculum
+  - sales-writer
+room_agents:
+  - id: researcher
+    name: "EdTech Market Researcher"
+    emoji: "🔎"
+    bio: "Phân tích thị trường EdTech, đối thủ cạnh tranh và insight phụ huynh học sinh"
+    instructions: "Tập trung vào phân tích dữ liệu, nỗi đau của phụ huynh và xu hướng học trực tuyến tại Việt Nam."
+  - id: curriculum
+    name: "Instructional Designer"
+    emoji: "📚"
+    bio: "Thiết kế chương trình đào tạo, sư phạm Socratic và bài tập thực hành"
+    instructions: "Xây dựng khung bài giảng chuẩn đầu ra rõ ràng, bài tập tương tác từng tuần."
+  - id: sales-writer
+    name: "Sales Script Specialist"
+    emoji: "✍️"
+    bio: "Soạn kịch bản tư vấn, xử lý từ chối và thông điệp tuyển sinh"
+    instructions: "Soạn kịch bản trò chuyện đồng cảm, xử lý các phản đối về học phí và thời gian."
+rubric:
+  criteria:
+    - name: "Routing accuracy"
+      description: "Coordinator giao đúng phần việc cho các chuyên gia chuyên trách theo đúng bio."
+    - name: "Pedagogical & Market Relevance"
+      description: "Nội dung chương trình và insight thực tế, phù hợp học sinh lớp 3-5."
+    - name: "Consolidation quality"
+      description: "Bản tổng hợp thống nhất, liên kết thông tin giữa các phần thay vì ghép dán vụn vặt."
+constraints: []
