@@ -45,12 +45,16 @@ class AgentNotesTool(CoworkerTool):
 
     @classmethod
     def enabled(cls, ctx: ToolContext) -> bool:
+        is_core = ctx.bus is not None and ctx.sessions is not None
+        if is_core:
+            return True
+        # In subagent scope, only allow when in an active room turn for a thread+notes teammate
         actor = current_room_actor.get()
-        if actor is not None:
-            cfg = load_coworker_config()
-            agent = cfg.agent(actor.agent_id)
-            return agent is not None and agent.memory == "thread+notes"
-        return True
+        if actor is None:
+            return False
+        cfg = load_coworker_config()
+        agent = cfg.agent(actor.agent_id)
+        return agent is not None and agent.memory == "thread+notes"
 
     @property
     def name(self) -> str:
@@ -67,8 +71,12 @@ class AgentNotesTool(CoworkerTool):
         actor = current_room_actor.get()
         if actor is not None:
             return actor.agent_id
+        # Persona direct fallback only applies to main-loop turns
         req = current_request_context()
         if req and req.session_key:
+            # Subagent runs from spawn have session_key prefixed with subagent:
+            if req.session_key.startswith("subagent:"):
+                return None
             session = get_session(req.session_key)
             if session is not None:
                 return get_persona_id(session)

@@ -148,10 +148,6 @@ def reset_states() -> None:
     _states.clear()
 
 
-def reset_session_state(session_key: str) -> None:
-    _states.pop(session_key, None)
-
-
 def reset(session_key: str | None = None) -> None:
     if session_key:
         _states.pop(session_key, None)

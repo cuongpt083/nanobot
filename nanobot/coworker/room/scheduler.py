@@ -808,7 +808,7 @@ def resume_room(
 
     room.pending = list(unfinished)
     room.queued = list(unfinished)
-    room.chained = int(doc.get("chained", 0))
+    room.chained = 0  # reset budget so resumed room can proceed
     saved_channel = channel or str(doc.get("channel") or "")
     saved_chat_id = chat_id or str(doc.get("chat_id") or "")
     if saved_channel and saved_chat_id:

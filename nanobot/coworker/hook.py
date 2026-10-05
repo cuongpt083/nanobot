@@ -363,12 +363,12 @@ class CoworkerHook(AgentHook):
         home = resolve_home(persona_agent, svc.workspace) if persona_agent else None
         is_direct = persona_agent is not None and home is not None
 
-        if is_direct and messages and messages[0].get("role") == "system":
+        if is_direct and persona_agent is not None and messages and messages[0].get("role") == "system":
             old_content = messages[0].get("content")
             archived_summary = ""
             archived_marker = "[Archived Context Summary]"
             if isinstance(old_content, str) and archived_marker in old_content:
-                idx = old_content.find(archived_marker)
+                idx = old_content.rfind(archived_marker)
                 archived_summary = old_content[idx:].strip()
 
             from nanobot.coworker.agents.prompt import build_system_prompt
@@ -387,6 +387,7 @@ class CoworkerHook(AgentHook):
                 svc=svc,
                 roster=cfg.room.agents,
                 role="direct",
+                channel=self._turn.channel,
             )
             if archived_summary:
                 new_prompt = f"{new_prompt}\n\n---\n\n{archived_summary}"

@@ -139,17 +139,20 @@ any agent configured in `room.agents[]` — without starting a multi-agent room.
   with their emoji, name, and bio. Select one to adopt that persona for the session.
 - **What it does when activated**:
   - `session_state["persona"]` stores the chosen `agent_id`.
-  - `transform_request` appends a `## Persona` section to the system prompt (current behavior; will transition to a dedicated direct system prompt in Phase 5), sourced from
-    the agent's `instructions` field — this is part of the cacheable prefix.
+  - **Direct mode** (agent has `home`): the entire system prompt is replaced by the agent's dedicated prompt
+    (its own `SOUL.md`, `USER.md`, `AGENTS.md`, and `directives.persona_direct`), preserving `[Archived Context Summary]`
+    at the tail. Coordinator tools are filtered by the persona's `tools.allow`/`deny` policy, and `agent_notes`
+    writes directly to `<home>/memory/MEMORY.md` when `memory == 'thread+notes'`.
+  - **Overlay mode** (agent has no `home`): `transform_request` appends a `## Persona` section to the base
+    system prompt, sourced from the agent's `instructions` field.
   - The session's model preset is set to the persona's `preset` (if configured).
   - The coordinator participant in the header shows the persona's emoji + name.
 - **Cache bust warning**: changing persona mid-session modifies the system prompt prefix,
-  which may invalidate the provider's prompt cache. The popover shows a warning when the
-  cache is currently warm.
+  which resets the session cache state and adopts the new prompt. Subsequent turns remain frozen and cached.
 - **Reset**: click the active persona again or use the reset button to return to the default
   (no persona) state.
 - **WS mutation**: `session.coworker.persona` with body `{agentId: string | null}`.
-- **Status API**: the session status includes `persona` (current `CoworkerPersonaInfo | null`)
+- **Status API**: the session status includes `persona` (current `CoworkerPersonaInfo | null`, with `mode: "direct" | "overlay"` and `tools` highlights)
   and `personas` (list of all available agents).
 
 
@@ -159,19 +162,19 @@ any agent configured in `room.agents[]` — without starting a multi-agent room.
 - The session's agent is the **coordinator**. `room_delegate({agent, task, context})` queues a
   teammate (`context` is required, at least `room.minContextChars` characters; old `{agent, task}`
   calls are rejected). Optional: `context_keys`, `after` (agent ids already delegated this turn),
-  `deliverable`. This changes the coordinator prompt prefix once (one cache miss). When the
-  coordinator's turn ends, teammates with a configured `home` run through `AgentRuntime` (own
-  prompt, JSON output contract, thread, and tool/skill allowlist, including MCP wrappers
-  borrowed from the main loop). Agents without `home` (or with `legacyGuestRunner`) still run
-  as inline subagents with the default subagent toolset — `tools.allow`/`deny` and the JSON
-  contract are ignored until they have a home; they still receive the structured assignment.
-  Replies are posted with attribution, then an `[auto-room]` review turn re-summons the
-  coordinator with summaries/artifacts (open listed files with `read_file` before approving).
-  Teammates can delegate onward; `after` is honored in the sequential queue (parallel DAG is
-  Phase 4.4). `WAIT_FOR @id` still works. Chained turns are budgeted per user message
-  (`maxChainedTurns`). Long files go in `.coworker/rooms/<room>/artifacts/<agent>/`.
-- Storage: `<workspace>/.coworker/rooms/<room>.state.json` and `.transcript.jsonl`.
-  `/room reset` clears them.
+  `deliverable`. When the coordinator's turn ends, delegations run through a parallel DAG scheduler
+  (`maxParallel` defaults to 1 for backwards-compatible sequential execution, configurable up to 8).
+  Teammates for the same agent always run sequentially to preserve conversation and note order.
+  Teammates with a configured `home` run through `AgentRuntime` (own prompt, JSON output contract, thread,
+  and tool/skill allowlist, including MCP wrappers borrowed from the main loop). Agents without `home`
+  (or with `legacyGuestRunner`) run as inline subagents with the default subagent toolset.
+  Replies are posted with attribution, then an `[auto-room]` review turn re-summons the coordinator
+  with summaries/artifacts (open listed files with `read_file` before approving).
+  Chained turns are budgeted per user message (`maxChainedTurns`). Long files go in
+  `.coworker/rooms/<room>/artifacts/<agent>/`.
+- Storage: `<workspace>/.coworker/rooms/<room>.state.json`, `.transcript.jsonl`, and `.queue.json`.
+  `/room resume` reloads unfinished delegations from `.queue.json` after an interruption or restart.
+  `/room reset` clears the state, transcript, queue, and thread files.
 - Differences from AICoworker: teammates are personas over nanobot presets (nanobot has no
   multi-agent registry); no remote/federated agents; no direct `@agent` bypass of the
   coordinator.

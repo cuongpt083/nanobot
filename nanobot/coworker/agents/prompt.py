@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.skills import SkillsLoader
@@ -69,7 +69,8 @@ def build_system_prompt(
     project_root: Path,
     svc: CoworkerServices,
     roster: list[RoomAgentConfig],
-    role: str = "member",
+    role: Literal["member", "direct"] = "member",
+    channel: str | None = None,
 ) -> str:
     home = resolve_home(agent, svc.workspace)
     if home is None:
@@ -78,6 +79,7 @@ def build_system_prompt(
     disabled_skills = list(agent.skills.deny) if agent.skills.deny else None
     builder = ContextBuilder(home, timezone=svc.timezone, disabled_skills=disabled_skills)
     base = builder.build_system_prompt(
+        channel=channel,
         workspace=project_root,
         include_memory=agent.memory == "thread+notes",
     )
