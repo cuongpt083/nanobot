@@ -298,61 +298,72 @@ class CodingRunner:
             while True:
                 tool_count = 0
                 last_tool: str | None = None
-                last_event_time = time.time()
                 round_done = False
 
-                async for event in run:
-                    now = time.time()
-                    last_event_time = now
-                    task.live["last_event_at"] = now
+                last_event_time = time.time()
+                timeout_reason: str | None = None
 
-                    # Wall clock timeout
-                    if now - start_time > wall_timeout_seconds:
-                        logger.warning(f"Task {task.id} timed out (wall clock)")
-                        task.status = "timed_out"
-                        task.error = f"Wall clock timeout ({self.config.coding.timeout_minutes} minutes) exceeded"
-                        await backend.abort()
-                        break
+                async def _watchdog() -> None:
+                    nonlocal timeout_reason
+                    while True:
+                        await asyncio.sleep(0.5)
+                        now = time.time()
+                        if now - start_time > wall_timeout_seconds:
+                            timeout_reason = "wall"
+                            logger.warning(f"Task {task.id} timed out (wall clock)")
+                            task.status = "timed_out"
+                            task.error = f"Wall clock timeout ({self.config.coding.timeout_minutes} minutes) exceeded"
+                            await backend.abort()
+                            break
+                        if now - last_event_time > idle_timeout_seconds:
+                            timeout_reason = "idle"
+                            logger.warning(f"Task {task.id} timed out (idle)")
+                            task.status = "timed_out"
+                            task.error = f"Idle timeout ({self.config.coding.idle_timeout_minutes} minutes without events) exceeded"
+                            await backend.abort()
+                            break
 
-                    if isinstance(event, BackendEventTool):
-                        if event.state == "start":
-                            tool_count += 1
-                            total_tools += 1
-                            last_tool = event.tool_name
-                            task.live["tool_count"] = total_tools
-                            task.live["last_tool"] = last_tool
+                watchdog_task = asyncio.create_task(_watchdog())
+                try:
+                    async for event in run:
+                        now = time.time()
+                        last_event_time = now
+                        task.live["last_event_at"] = now
 
-                    if isinstance(event, BackendEventProgress):
-                        # Progress throttled reporting
-                        if now - last_progress_time >= progress_throttle:
-                            elapsed_min = int((now - start_time) / 60)
-                            progress_msg = f"🛠️ {task.id} [{task.backend}] {last_tool or 'working'} ({tool_count} tools, {elapsed_min}m)"
-                            await post_to_chat(channel=task.channel, chat_id=task.chat_id, content=progress_msg)
-                            last_progress_time = now
+                        if isinstance(event, BackendEventTool):
+                            if event.state == "start":
+                                tool_count += 1
+                                total_tools += 1
+                                last_tool = event.tool_name
+                                task.live["tool_count"] = total_tools
+                                task.live["last_tool"] = last_tool
 
-                    if isinstance(event, BackendEventError):
-                        task.error = event.error
-                        task.raw_error_line = event.raw_line
+                        if isinstance(event, BackendEventProgress):
+                            # Progress throttled reporting
+                            if now - last_progress_time >= progress_throttle:
+                                elapsed_min = int((now - start_time) / 60)
+                                progress_msg = f"🛠️ {task.id} [{task.backend}] {last_tool or 'working'} ({tool_count} tools, {elapsed_min}m)"
+                                await post_to_chat(channel=task.channel, chat_id=task.chat_id, content=progress_msg)
+                                last_progress_time = now
 
-                    if isinstance(event, BackendEventDone):
-                        round_done = True
-                        task.resume_ref = event.resume_ref or task.resume_ref
-                        task.summary = event.result.summary or task.summary
-                        if event.result.stats.total_tokens > 0:
-                            task.round_stats.append(event.result.stats.__dict__)
-                        if event.result.status != "succeeded":
-                            task.status = event.result.status
-                            task.error = event.result.error
-                            task.raw_error_line = event.result.raw_error_line
-                        break
+                        if isinstance(event, BackendEventError):
+                            task.error = event.error
+                            task.raw_error_line = event.raw_line
 
-                    # Idle timeout check
-                    if now - last_event_time > idle_timeout_seconds:
-                        logger.warning(f"Task {task.id} timed out (idle)")
-                        task.status = "timed_out"
-                        task.error = f"Idle timeout ({self.config.coding.idle_timeout_minutes} minutes without events) exceeded"
-                        await backend.abort()
-                        break
+                        if isinstance(event, BackendEventDone):
+                            round_done = True
+                            task.resume_ref = event.resume_ref or task.resume_ref
+                            task.summary = event.result.summary or task.summary
+                            if event.result.stats.total_tokens > 0:
+                                task.round_stats.append(event.result.stats.__dict__)
+                            if task.status != "timed_out" and event.result.status != "succeeded":
+                                task.status = event.result.status
+                                task.error = event.result.error
+                                task.raw_error_line = event.result.raw_error_line
+                            break
+                finally:
+                    if not watchdog_task.done():
+                        watchdog_task.cancel()
 
                 if task.status in ("timed_out", "aborted", "error"):
                     break
