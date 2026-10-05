@@ -29,3 +29,5 @@ def test_contract_file_structure(tmp_path: Path) -> None:
     assert loaded["task_id"] == "ct-123"
     assert loaded["mode"] == "implement"
     assert "^git\\s+push" in loaded["deny_commands"]
+    assert "acceptance_criteria" in loaded["contract"]
+    assert loaded["ask"]["enabled"] is True

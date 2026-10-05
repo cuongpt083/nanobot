@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import * as child_process from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -7,8 +8,8 @@ interface ContractData {
   mode: "plan" | "implement" | "review";
   root: string;
   write_roots: string[];
-  deny_commands: string[];
-  deny_read: string[];
+  deny_commands?: string[];
+  deny_read?: string[];
   contract?: {
     objective?: string;
     context?: string;
@@ -48,11 +49,43 @@ export default function (pi: ExtensionAPI) {
   function applyModeTools(mode: "plan" | "implement" | "review"): void {
     if (mode === "plan" || mode === "review") {
       // Read-only tools
-      pi.setActiveTools(["read", "bash", "ls", "find", "grep", "report_result", "ask_coordinator"]);
+      pi.setActiveTools([
+        "read",
+        "bash",
+        "powershell",
+        "ls",
+        "find",
+        "grep",
+        "report_result",
+        "ask_coordinator",
+      ]);
     } else {
       // Implement tools
-      pi.setActiveTools(["read", "write", "edit", "bash", "ls", "find", "grep", "report_result", "ask_coordinator"]);
+      pi.setActiveTools([
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "powershell",
+        "ls",
+        "find",
+        "grep",
+        "report_result",
+        "ask_coordinator",
+      ]);
     }
+  }
+
+  function normalizePathForComparison(p: string): string {
+    const resolved = path.resolve(p);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  }
+
+  function isPathWithin(target: string, parent: string): boolean {
+    const normTarget = normalizePathForComparison(target);
+    const normParent = normalizePathForComparison(parent);
+    if (normTarget === normParent) return true;
+    return normTarget.startsWith(normParent.endsWith(path.sep) ? normParent : normParent + path.sep);
   }
 
   pi.on("session_start", async () => {
@@ -66,21 +99,72 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("nanobot-mode", {
     description: "Switch nanobot operation mode (plan, implement, review)",
     handler: async (args, ctx) => {
-      const mode = (args.trim() || "implement") as "plan" | "implement" | "review";
+      loadContract();
+      const mode = (args.trim() || (contract ? contract.mode : "implement")) as
+        | "plan"
+        | "implement"
+        | "review";
       if (contract) {
         contract.mode = mode;
       }
       applyModeTools(mode);
-      ctx.ui.notify(`Nanobot mode set to: ${mode}`, "info");
+      const active = pi.getActiveTools();
+      ctx.ui.notify(`Nanobot mode set to: ${mode}; active_tools: ${active.join(",")}`, "info");
     },
+  });
+
+  // Inject system prompt sections via before_agent_start
+  pi.on("before_agent_start", async (event) => {
+    loadContract();
+    if (!contract) return;
+
+    const sections = event.systemPromptOptions.sections || {};
+
+    if (contract.contract) {
+      const c = contract.contract;
+      sections["nanobot_task"] = [
+        `Objective: ${c.objective || ""}`,
+        `Context: ${c.context || ""}`,
+        `Constraints: ${(c.constraints || []).join("; ")}`,
+        `Out of scope: ${(c.out_of_scope || []).join("; ")}`,
+      ].join("\n");
+
+      if (c.acceptance_criteria || c.acceptance_cmd) {
+        sections["nanobot_acceptance"] = [
+          `Criteria: ${(c.acceptance_criteria || []).join("; ")}`,
+          `Command: ${c.acceptance_cmd || "none"}`,
+        ].join("\n");
+      }
+    }
+
+    if (contract.plan) {
+      sections["nanobot_plan"] = contract.plan;
+    }
+
+    sections["nanobot_mode"] = [
+      `Current Mode: ${contract.mode}`,
+      `Instruction: You are in ${contract.mode} mode. Conclude your work with report_result tool call.`,
+    ].join("\n");
+
+    event.systemPromptOptions.sections = sections;
+  });
+
+  // Progress update on turn_end
+  pi.on("turn_end", async (event, ctx) => {
+    try {
+      ctx.ui.setStatus("nanobot", `Turn ${event.turnIndex + 1} completed`);
+    } catch {
+      // ignore
+    }
   });
 
   // Policy enforcement on tool_call
   pi.on("tool_call", async (event, ctx) => {
+    loadContract();
     if (!contract) return;
 
     const toolName = event.toolName;
-    const args = (event as any).args || {};
+    const args = (event as any).input || (event as any).args || {};
 
     // 1. Guard writes outside write_roots
     if (["write", "edit"].includes(toolName)) {
@@ -88,12 +172,14 @@ export default function (pi: ExtensionAPI) {
         return { block: true, reason: `Write operations disabled in ${contract.mode} mode` };
       }
 
-      const filePath = args.path ? path.resolve(contract.root, args.path) : null;
+      const filePath = args.path
+        ? path.isAbsolute(args.path)
+          ? args.path
+          : path.resolve(contract.root, args.path)
+        : null;
+
       if (filePath) {
-        const allowed = contract.write_roots.some((root) => {
-          const absRoot = path.resolve(root);
-          return filePath === absRoot || filePath.startsWith(absRoot + path.sep);
-        });
+        const allowed = (contract.write_roots || []).some((root) => isPathWithin(filePath, root));
         if (!allowed) {
           ctx.ui.notify(`Write blocked outside write_roots: ${filePath}`, "warning");
           pi.appendEntry("nanobot_block", { type: "write_violation", path: filePath });
@@ -102,23 +188,39 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    // 2. Guard dangerous bash commands
-    if (toolName === "bash" && typeof args.command === "string") {
-      for (const denyPattern of contract.deny_commands || []) {
-        const regex = new RegExp(denyPattern, "i");
-        if (regex.test(args.command)) {
-          ctx.ui.notify(`Command blocked by policy: ${args.command}`, "warning");
-          pi.appendEntry("nanobot_block", { type: "command_violation", command: args.command });
-          return { block: true, reason: `Command matches deny pattern: ${denyPattern}` };
+    // 2. Guard dangerous shell/bash/powershell commands
+    if (["bash", "powershell"].includes(toolName)) {
+      const command = (typeof args.command === "string" ? args.command : args.cmd) || "";
+      if (typeof command === "string") {
+        for (const denyPattern of contract.deny_commands || []) {
+          try {
+            const regex = new RegExp(denyPattern, "i");
+            if (regex.test(command)) {
+              ctx.ui.notify(`Command blocked by policy: ${command}`, "warning");
+              pi.appendEntry("nanobot_block", { type: "command_violation", command });
+              return { block: true, reason: `Command matches deny pattern: ${denyPattern}` };
+            }
+          } catch {
+            // regex compilation fallback
+            if (command.toLowerCase().includes(denyPattern.toLowerCase())) {
+              ctx.ui.notify(`Command blocked by policy: ${command}`, "warning");
+              pi.appendEntry("nanobot_block", { type: "command_violation", command });
+              return { block: true, reason: `Command matches deny pattern: ${denyPattern}` };
+            }
+          }
         }
       }
     }
 
     // 3. Guard read file
     if (toolName === "read" && typeof args.path === "string") {
-      const filePath = path.resolve(contract.root, args.path);
+      const filePath = path.isAbsolute(args.path)
+        ? path.resolve(args.path)
+        : path.resolve(contract.root, args.path);
+
       for (const denyPattern of contract.deny_read || []) {
-        if (filePath.includes(denyPattern.replace(/\*/g, ""))) {
+        const cleanPattern = denyPattern.replace(/\*/g, "");
+        if (filePath.includes(cleanPattern)) {
           ctx.ui.notify(`Read blocked by policy: ${filePath}`, "warning");
           pi.appendEntry("nanobot_block", { type: "read_violation", path: filePath });
           return { block: true, reason: `Path matches deny read pattern: ${denyPattern}` };
@@ -151,12 +253,30 @@ export default function (pi: ExtensionAPI) {
           items: {
             type: "object",
             required: ["cmd", "result"],
-            properties: { cmd: { type: "string" }, result: { type: "string" }, notes: { type: "string" } },
+            properties: {
+              cmd: { type: "string" },
+              result: { type: "string" },
+              notes: { type: "string" },
+            },
           },
         },
         plan_steps: { type: "array", items: { type: "string" } },
+        test_plan: { type: "array", items: { type: "string" } },
         verdict: { type: "string", enum: ["pass", "changes_requested"] },
-        findings: { type: "array", items: { type: "object" } },
+        findings: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              severity: { type: "string", enum: ["blocking", "major", "minor"] },
+              file: { type: "string" },
+              line: { type: "number" },
+              issue: { type: "string" },
+              fix: { type: "string" },
+            },
+          },
+        },
+        risks: { type: "array", items: { type: "string" } },
         open_questions: { type: "array", items: { type: "string" } },
       },
     },
@@ -184,6 +304,7 @@ export default function (pi: ExtensionAPI) {
       },
     },
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+      loadContract();
       if (contract?.ask?.enabled === false) {
         return {
           content: [
@@ -224,17 +345,74 @@ export default function (pi: ExtensionAPI) {
 
   // Acceptance & gate via agent_before_settle
   pi.on("agent_before_settle", async () => {
-    if (!contract || contract.mode !== "implement") return;
+    loadContract();
+    if (!contract || contract.mode !== "implement") {
+      return { continue: false };
+    }
 
+    const maxContinuations = contract.settle?.max_continuations ?? 2;
+
+    // 1. Report result check
     if (!reportSubmitted && continuationsUsed < 1) {
       continuationsUsed++;
+      pi.appendEntry("nanobot_gate", {
+        passed: false,
+        reason: "missing_report_result",
+        continuations_used: continuationsUsed,
+      });
       return {
         continue: true,
-        message: {
-          role: "user",
-          content: [{ type: "text", text: "Please call report_result before concluding your implementation." }],
-        },
-      } as any;
+        entries: [
+          {
+            type: "custom_message",
+            customType: "continuation_prompt",
+            content: "Please call report_result before concluding your implementation.",
+            display: true,
+          } as any,
+        ],
+      };
     }
+
+    // 2. Acceptance cmd check
+    const acceptanceCmd = contract.contract?.acceptance_cmd;
+    let acceptancePassed = false;
+    if (acceptanceCmd && continuationsUsed < maxContinuations) {
+      try {
+        const timeoutMs = (contract.settle?.acceptance_timeout_s ?? 600) * 1000;
+        child_process.execSync(acceptanceCmd, {
+          cwd: contract.root,
+          timeout: timeoutMs,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        acceptancePassed = true;
+        pi.appendEntry("nanobot_gate", { passed: true, continuations_used: continuationsUsed });
+        return { continue: false };
+      } catch (error: any) {
+        continuationsUsed++;
+        const output = (error.stdout ? error.stdout.toString() : "") +
+                       (error.stderr ? error.stderr.toString() : error.message || "");
+        const truncatedOutput = output.slice(-4000);
+
+        if (continuationsUsed <= maxContinuations) {
+          return {
+            continue: true,
+            entries: [
+              {
+                type: "custom_message",
+                customType: "continuation_prompt",
+                content: `Acceptance command failed:\n\`\`\`\n${truncatedOutput}\n\`\`\`\nPlease fix the issues and rerun your tests.`,
+                display: true,
+              } as any,
+            ],
+          };
+        }
+      }
+    }
+
+    pi.appendEntry("nanobot_gate", {
+      passed: !acceptanceCmd || acceptancePassed,
+      continuations_used: continuationsUsed,
+    });
+    return { continue: false };
   });
 }
