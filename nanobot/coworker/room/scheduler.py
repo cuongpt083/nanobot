@@ -34,6 +34,7 @@ from nanobot.coworker.runtime import (
 from nanobot.coworker.transcript import as_dict, is_genuine_user, message_text
 
 if TYPE_CHECKING:
+    from nanobot.coworker.agents.runtime import GuestResult
     from nanobot.session.manager import Session
     from nanobot.utils.llm_runtime import LLMRuntime
 
@@ -66,11 +67,13 @@ class Delegation:
     by: str
 
 
-@dataclass(frozen=True)
+@dataclass
 class ActiveGuest:
     agent_id: str
     task: str
     started_at: float
+    iteration: int = 0
+    last_tool: str | None = None
 
 
 @dataclass(frozen=True)
@@ -276,7 +279,10 @@ def _workspace():
     return svc.workspace
 
 
-async def _run_guest(room: _Room, agent: RoomAgentConfig, delegation: Delegation) -> str | None:
+async def _run_guest(room: _Room, agent: RoomAgentConfig, delegation: Delegation) -> GuestResult | None:
+    from nanobot.coworker.agents.prompt import resolve_home
+    from nanobot.coworker.agents.runtime import AgentRuntime, GuestResult
+
     svc = services()
     cfg = load_coworker_config()
     if agent.backend:
@@ -290,42 +296,70 @@ async def _run_guest(room: _Room, agent: RoomAgentConfig, delegation: Delegation
             chat_id=room.chat_id,
             backend_name=agent.backend,
         )
-        return await asyncio.wait_for(
+        text = await asyncio.wait_for(
             runner.execute_task(task, backend_obj, repo_cfg, wait=True),
             timeout=cfg.room.guest_timeout_seconds,
         )
+        cleaned = str(text or "").strip()
+        return GuestResult(text=cleaned) if cleaned else None
 
-    if svc is None or svc.subagents is None:
-        raise RuntimeError("subagent manager unavailable")
+    if svc is None:
+        raise RuntimeError("coworker services are not bound")
     runtime = runtime_for_preset(agent.preset) if agent.preset else room.owner_runtime
     if runtime is None:
         runtime = runtime_for_preset("default")
     session = get_session(room.session_key)
-    prompt = "\n\n".join([
-        directives.room_guest(agent, "the room coordinator", cfg.room.agents),
+    assignment = "\n\n".join([
         f"## Your assignment (from {delegation.by})\n{delegation.task}",
         "---",
         _projection(room, session),
     ])
+    use_legacy = cfg.room.legacy_guest_runner or resolve_home(agent, svc.workspace) is None
     token = current_room_actor.set(
         RoomActor(room_id=room_id_for(room.session_key), session_key=room.session_key, agent_id=agent.id)
     )
     try:
-        result = await asyncio.wait_for(
-            svc.subagents.run_inline(
-                task=prompt,
-                label=f"room:{agent.id}",
-                origin_channel=room.channel,
-                origin_chat_id=room.chat_id,
+        if use_legacy:
+            if svc.subagents is None:
+                raise RuntimeError("subagent manager unavailable")
+            prompt = "\n\n".join([
+                directives.room_guest(agent, "the room coordinator", cfg.room.agents),
+                assignment,
+            ])
+            result = await asyncio.wait_for(
+                svc.subagents.run_inline(
+                    task=prompt,
+                    label=f"room:{agent.id}",
+                    origin_channel=room.channel,
+                    origin_chat_id=room.chat_id,
+                    session_key=room.session_key,
+                    runtime=runtime,
+                ),
+                timeout=cfg.room.guest_timeout_seconds,
+            )
+            text = str(result or "").strip()
+            return GuestResult(text=text) if text else None
+
+        from nanobot.coworker.coding.project import session_project_path
+
+        project_root = session_project_path(session) or svc.workspace
+        guest = await asyncio.wait_for(
+            AgentRuntime(svc, cfg).run(
+                agent,
+                assignment,
+                room_id=room_id_for(room.session_key),
                 session_key=room.session_key,
+                channel=room.channel,
+                chat_id=room.chat_id,
+                project_root=project_root,
                 runtime=runtime,
+                progress=room.active.get(agent.id),
             ),
             timeout=cfg.room.guest_timeout_seconds,
         )
+        return guest
     finally:
         current_room_actor.reset(token)
-    text = str(result or "").strip()
-    return text or None
 
 
 async def _run_room(room: _Room) -> None:
@@ -368,7 +402,7 @@ async def _run_room(room: _Room) -> None:
             room.active[agent.id] = ActiveGuest(agent.id, delegation.task, time.time())
             guest_t0 = time.monotonic()
             try:
-                reply = await _run_guest(room, agent, delegation)
+                guest = await _run_guest(room, agent, delegation)
             except TimeoutError:
                 duration_s = time.monotonic() - guest_t0
                 room.outcome(agent.id, "timeout", duration_s=duration_s)
@@ -390,12 +424,17 @@ async def _run_room(room: _Room) -> None:
             finally:
                 room.active.pop(agent.id, None)
             duration_s = time.monotonic() - guest_t0
+            reply = (guest.text if guest is not None else "").strip()
+            tokens_in = guest.usage.get("prompt_tokens") if guest is not None else None
+            tokens_out = guest.usage.get("completion_tokens") if guest is not None else None
             # Delegations the teammate made during its turn join the queue in order.
             queue.extend(room.pending)
             room.pending = []
             room.queued = list(queue)
-            if not reply or reply.strip() == REPLY_SKIP:
-                room.outcome(agent.id, "done", duration_s=duration_s)
+            if not reply or reply == REPLY_SKIP:
+                room.outcome(
+                    agent.id, "done", duration_s=duration_s, tokens_in=tokens_in, tokens_out=tokens_out,
+                )
                 continue
             wait = _WAIT_FOR.search(reply)
             if wait and agent.id not in waited:
@@ -407,7 +446,9 @@ async def _run_room(room: _Room) -> None:
                     room.waiting[agent.id] = target
                     await note(f"⏳ {_label(agent)} waits for @{target} first (data dependency).")
                     continue
-            room.outcome(agent.id, "done", duration_s=duration_s)
+            room.outcome(
+                agent.id, "done", duration_s=duration_s, tokens_in=tokens_in, tokens_out=tokens_out,
+            )
             transcript.append(f"@{agent.id}", reply)
             await note(f"{_label(agent)}:\n{reply}")
             results.append((agent, reply))

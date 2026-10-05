@@ -148,8 +148,11 @@ def _teammate_participants(
     for agent in cfg.room.agents:
         since: float | None = None
         task: str | None = None
+        detail: dict[str, Any] | None = None
         if agent.id in active:
-            state, task, since = "working", active[agent.id].task, active[agent.id].started_at
+            guest = active[agent.id]
+            state, task, since = "working", guest.task, guest.started_at
+            detail = {"rounds": guest.iteration, "last_tool": guest.last_tool}
         elif agent.id in snap.waiting:
             state, task = "waiting", f"waiting for @{snap.waiting[agent.id]}"
         elif agent.id in queued:
@@ -162,7 +165,9 @@ def _teammate_participants(
             continue
         label = f"{agent.emoji + ' ' if agent.emoji else ''}{agent.name or agent.id}"
         engine = f"backend:{agent.backend}" if agent.backend else f"preset:{agent.preset or 'default'}"
-        out.append(_participant(agent.id, "teammate", label, engine, state, task=task, since=since))
+        out.append(_participant(
+            agent.id, "teammate", label, engine, state, task=task, since=since, detail=detail,
+        ))
     return out
 
 

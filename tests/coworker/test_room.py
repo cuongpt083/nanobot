@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 
 from nanobot.agent.tools.context import RequestContext, request_context
+from nanobot.coworker.agents.home import scaffold_agent_home
+from nanobot.coworker.agents.runtime import GuestResult
 from nanobot.coworker.config import CoworkerConfig, RoomAgentConfig, RoomConfig
 from nanobot.coworker.room import scheduler
 from nanobot.coworker.room.store import MAX_KEYS, RoomStateStore
@@ -84,7 +86,10 @@ async def test_delegations_run_teammates_then_summon_the_coordinator(env) -> Non
     await _drain(KEY)
 
     assert [agent for agent, _ in env.subagents.calls] == ["researcher", "writer"]
-    assert "## Your assignment (from owner)\nfind facts" in env.subagents.calls[0][1]
+    first_task = env.subagents.calls[0][1]
+    assert first_task.startswith('You are agent "Researcher" (id `researcher`)')
+    assert "## Your assignment (from owner)\nfind facts" in first_task
+    assert "\n\n---\n\n" in first_task
     # The writer sees the researcher's result in the room projection.
     assert "@researcher: Facts: A, B" in env.subagents.calls[1][1]
     posted = [m.content for m in env.bus.outbound]
@@ -229,6 +234,40 @@ async def test_guest_outcome_records_duration(env) -> None:
     assert outcome.duration_s >= 0.04
     assert outcome.tokens_in is None
     assert outcome.tokens_out is None
+
+
+@pytest.mark.asyncio
+async def test_home_guest_uses_agent_runtime_and_records_tokens(env, monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = RoomAgentConfig(id="researcher", name="Researcher", emoji="🔎", home="agents/researcher")
+    scaffold_agent_home(env.workspace, agent)
+    env.configure(CoworkerConfig(room=RoomConfig(agents=[agent])))
+    env.bind()
+
+    seen: dict[str, Any] = {}
+
+    async def fake_run(self, guest_agent, task_msg, **kwargs: Any) -> GuestResult:
+        seen["task"] = task_msg
+        seen["agent"] = guest_agent.id
+        seen["progress"] = kwargs.get("progress")
+        return GuestResult(
+            text="home reply",
+            usage={"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+        )
+
+    monkeypatch.setattr("nanobot.coworker.agents.runtime.AgentRuntime.run", fake_run)
+    scheduler.record_delegation(KEY, "researcher", "find facts", by="owner", runtime=OWNER_RUNTIME)
+    scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
+    await _drain(KEY)
+
+    assert seen["agent"] == "researcher"
+    assert "## Your assignment (from owner)\nfind facts" in seen["task"]
+    assert seen["progress"] is None or seen["progress"].agent_id == "researcher"
+    outcome = scheduler.room_snapshot(KEY).recent[-1]
+    assert outcome.state == "done"
+    assert outcome.tokens_in == 12
+    assert outcome.tokens_out == 4
+    posted = [m.content for m in env.bus.outbound]
+    assert any("home reply" in p for p in posted)
 
 
 @pytest.mark.asyncio
