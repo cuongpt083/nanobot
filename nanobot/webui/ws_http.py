@@ -548,6 +548,11 @@ class GatewayHTTPHandler:
             if not isinstance(key, str) or not key.strip():
                 return _http_error(400, "missing session key")
             return f"/api/sessions/{quote(key, safe='')}/delete"
+        if action == "session.context.exclusions":
+            key = payload.get("key")
+            if not isinstance(key, str) or not key.strip():
+                return _http_error(400, "missing session key")
+            return f"/api/sessions/{quote(key, safe='')}/context/exclusions"
         if action in _COWORKER_SESSION_ACTIONS:
             key = payload.get("key")
             if not isinstance(key, str) or not key.strip():
@@ -870,8 +875,7 @@ class GatewayHTTPHandler:
             return _http_error(404, "session not found")
         from nanobot.agent.inspector import get_inspector_store
 
-        workspace = self.workspace_scopes.default_scope.project_path if hasattr(self, "workspace_scopes") else None
-        store = get_inspector_store(workspace)
+        store = get_inspector_store()
         snap = store.get_snapshot(decoded_key)
         snap_dict = snap.to_dict()
         snap_dict["rules"] = store.get_rules(decoded_key)
@@ -880,6 +884,8 @@ class GatewayHTTPHandler:
     async def _handle_session_context_exclusions(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
+        if not getattr(request, _WEBUI_MUTATION_REQUEST_ATTR, False):
+            return _http_error(405, "Context Inspector exclusions require an authenticated WebSocket")
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
@@ -887,11 +893,8 @@ class GatewayHTTPHandler:
             return _http_error(404, "session not found")
         from nanobot.agent.inspector import get_inspector_store
 
-        body = getattr(request, "_json_body", {})
-        if not isinstance(body, dict):
-            body = {}
-        workspace = self.workspace_scopes.default_scope.project_path if hasattr(self, "workspace_scopes") else None
-        store = get_inspector_store(workspace)
+        body = _mutation_payload(request) or {}
+        store = get_inspector_store()
         rules = store.set_exclusions(
             session_key=decoded_key,
             system_sections=body.get("system_sections"),

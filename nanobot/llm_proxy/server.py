@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any
-
 from aiohttp import web
 from loguru import logger
 

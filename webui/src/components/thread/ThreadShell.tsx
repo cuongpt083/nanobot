@@ -1875,6 +1875,7 @@ export function ThreadShell({
   ) : undefined;
   const contextInspectorAction = historyKey ? (
     <ContextInspectorPopover
+      client={client}
       sessionKey={historyKey}
       token={token}
     />

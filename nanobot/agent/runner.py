@@ -898,7 +898,7 @@ class AgentRunner:
             try:
                 from nanobot.agent.inspector import get_inspector_store
 
-                store = get_inspector_store(spec.workspace)
+                store = get_inspector_store()
                 store.record_snapshot(
                     session_key=spec.session_key,
                     messages=messages,
@@ -911,9 +911,11 @@ class AgentRunner:
                     session_key=spec.session_key,
                     messages=messages,
                     tools_definitions=tool_definitions,
+                    stateful=provider_context is not None and provider_context.conversation_state is not None,
                 )
             except Exception:
-                pass
+                from loguru import logger
+                logger.warning("Context Inspector pre-flight failed for session {}", spec.session_key)
 
         kwargs = self._build_request_kwargs(
             spec,

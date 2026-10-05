@@ -768,11 +768,12 @@ proxy_app = typer.Typer(help="Manage Nanobot LLM Proxy (Local Gateway for OAuth 
 
 @proxy_app.command("start")
 def proxy_start(
-    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind host address"),
+    host: str = typer.Option("127.0.0.1", "--host", "-H", help="Bind host address"),
     port: int = typer.Option(23334, "--port", "-p", help="Port to listen on"),
 ):
     """Start the standalone LLM Proxy server."""
     import asyncio
+
     from nanobot.llm_proxy.server import LLMProxyServer
 
     async def _run():
@@ -804,7 +805,7 @@ def proxy_create_key(
 
     store = KeyStore()
     secret, key = store.create_key(name=name, budget_period=period, budget_tokens=tokens)
-    console.print(f"[green]✓ API Key Created Successfully![/green]")
+    console.print("[green]✓ API Key Created Successfully![/green]")
     console.print(f"Key ID: [cyan]{key.id}[/cyan]")
     console.print(f"Name: {key.name}")
     console.print(f"Budget: {key.budget_tokens or 'unlimited'} tokens per {key.budget_period}")

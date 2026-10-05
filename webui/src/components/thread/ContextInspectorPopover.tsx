@@ -32,10 +32,12 @@ import {
   type ContextSnapshot,
   type ContextRules,
 } from "@/lib/contextInspector";
+import type { WebUIMutationTransport } from "@/lib/api";
 
 interface ContextInspectorPopoverProps {
   sessionKey: string;
   token: string;
+  client: WebUIMutationTransport;
 }
 
 function fmtTokens(n: number): string {
@@ -48,6 +50,7 @@ function fmtTokens(n: number): string {
 export function ContextInspectorPopover({
   sessionKey,
   token,
+  client,
 }: ContextInspectorPopoverProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -93,7 +96,7 @@ export function ContextInspectorPopover({
       : [...rules.system_sections, key];
     const newRules = { ...rules, system_sections: next };
     setRules(newRules);
-    await updateContextExclusions(sessionKey, token, { system_sections: next });
+    await updateContextExclusions(sessionKey, client, { system_sections: next });
   };
 
   const toggleTool = async (name: string) => {
@@ -103,7 +106,7 @@ export function ContextInspectorPopover({
       : [...rules.tools, name];
     const newRules = { ...rules, tools: next };
     setRules(newRules);
-    await updateContextExclusions(sessionKey, token, { tools: next });
+    await updateContextExclusions(sessionKey, client, { tools: next });
   };
 
   const toggleMessage = async (idx: number) => {
@@ -113,7 +116,7 @@ export function ContextInspectorPopover({
       : [...rules.message_idx, idx];
     const newRules = { ...rules, message_idx: next };
     setRules(newRules);
-    await updateContextExclusions(sessionKey, token, { message_idx: next });
+    await updateContextExclusions(sessionKey, client, { message_idx: next });
   };
 
   const budget = data?.budget;

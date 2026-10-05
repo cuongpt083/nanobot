@@ -41,7 +41,8 @@ class MarkContextWastedTool(Tool):
 
     @classmethod
     def enabled(cls, ctx: ToolContext) -> bool:
-        return True
+        # Only enable when explicitly configured or in coworker context optimization
+        return getattr(ctx.config, "context_optimize_enabled", False) is True
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:

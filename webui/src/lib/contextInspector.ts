@@ -1,3 +1,5 @@
+import { mutation, type WebUIMutationTransport } from "./api";
+
 export interface ContextSystemSection {
   key: string;
   label: string;
@@ -84,7 +86,7 @@ export async function fetchContextInspect(
 
 export async function updateContextExclusions(
   sessionKey: string,
-  token: string,
+  transport: WebUIMutationTransport,
   exclusions: {
     system_sections?: string[];
     tools?: string[];
@@ -92,23 +94,15 @@ export async function updateContextExclusions(
   },
 ): Promise<ContextRules | null> {
   try {
-    const encodedKey = encodeURIComponent(sessionKey);
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-    const res = await fetch(`/api/sessions/${encodedKey}/context/exclusions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(exclusions),
-    });
-    if (!res.ok) {
-      return null;
-    }
-    const data = await res.json();
-    return data.rules as ContextRules;
+    const res = await mutation<{ status: string; rules: ContextRules }>(
+      transport,
+      "session.context.exclusions",
+      {
+        key: sessionKey,
+        ...exclusions,
+      },
+    );
+    return res.rules;
   } catch {
     return null;
   }

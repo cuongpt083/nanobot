@@ -138,7 +138,7 @@ async function request<T>(
   return (await res.json()) as T;
 }
 
-async function mutation<T>(
+export async function mutation<T>(
   transport: WebUIMutationTransport,
   action: string,
   payload: Record<string, unknown> = {},

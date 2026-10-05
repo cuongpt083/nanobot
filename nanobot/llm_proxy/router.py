@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from nanobot.config.loader import load_config
 from nanobot.llm_proxy.keys import ProxyApiKey
 from nanobot.providers.base import LLMProvider
