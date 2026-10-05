@@ -2019,6 +2019,16 @@ export interface CoworkerAdvisorConfig {
   stuck_detection?: boolean;
 }
 
+export interface CoworkerRoomAgentToolsConfig {
+  allow?: string[];
+  deny?: string[];
+}
+
+export interface CoworkerRoomAgentSkillsConfig {
+  inherit?: string[];
+  deny?: string[];
+}
+
 export interface CoworkerRoomAgentConfig {
   id: string;
   name: string;
@@ -2027,12 +2037,22 @@ export interface CoworkerRoomAgentConfig {
   preset: string | null;
   backend: "pi" | "agy" | null;
   instructions: string;
+  home?: string | null;
+  tools?: CoworkerRoomAgentToolsConfig;
+  skills?: CoworkerRoomAgentSkillsConfig;
+  memory?: "none" | "thread" | "thread+notes";
+  thread_turns?: number;
+  max_iterations?: number;
+  output_contract?: "none" | "default";
 }
 
 export interface CoworkerRoomConfig {
   agents: CoworkerRoomAgentConfig[];
   max_chained_turns: number;
   guest_timeout_seconds: number;
+  max_parallel?: number;
+  context_turns?: number;
+  min_context_chars?: number;
 }
 
 export interface CoworkerPiBackendConfig {

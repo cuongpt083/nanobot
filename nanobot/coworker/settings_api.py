@@ -14,6 +14,7 @@ Write rules:
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -25,6 +26,7 @@ from typing import Any, cast
 
 from loguru import logger
 from pydantic import ValidationError
+from pydantic.alias_generators import to_camel, to_snake
 
 from nanobot.coworker import config as coworker_config
 from nanobot.coworker import metrics_store
@@ -206,6 +208,13 @@ def _check_repos(cfg: CoworkerConfig) -> None:
             raise CoworkerSettingsError(f"coding.repos[{index}].path: {checked['error']}")
 
 
+def _as_list(value: object) -> list[object]:
+    if isinstance(value, list):
+        return cast(list[object], value)
+    return []
+
+
+@functools.lru_cache(maxsize=1)
 def _known_tool_names() -> set[str]:
     """Discover all built-in and plugin tool names statically without running full runtime init."""
     from nanobot.agent.tools.loader import ToolLoader
@@ -354,8 +363,43 @@ def update_coworker_settings(
         raise CoworkerSettingsError("nothing to update")
 
     names = set(preset_names)
+    path = coworker_config_path()
+    raw = _read_raw(path)
     current = load_coworker_config()
     merged: dict[str, Any] = {name: getattr(current, name).model_dump(mode="json") for name in EDITABLE_SECTIONS}
+
+    # Pre-merge incoming room.agents with existing raw entries so keys omitted by the WebUI
+    # form (e.g. home, tools, skills, memory...) are not wiped by model defaults.
+    if "room" in submitted and isinstance(submitted["room"], dict):
+        sub_room_dict: dict[str, Any] = dict(cast(dict[str, Any], submitted["room"]))
+        raw_agents = sub_room_dict.get("agents")
+        if isinstance(raw_agents, list):
+            raw_room = as_dict(raw.get("room")) or {}
+            raw_agents_list = _as_list(raw_room.get("agents"))
+            raw_by_id: dict[str, dict[str, Any]] = {}
+            for item in raw_agents_list:
+                d = as_dict(item)
+                if d and isinstance(d.get("id"), str):
+                    raw_by_id[d["id"]] = d
+            premerged_agents: list[object] = []
+            for agent_item in cast(list[object], raw_agents):
+                ad = as_dict(agent_item)
+                if ad and isinstance(ad.get("id"), str) and ad["id"] in raw_by_id:
+                    # Clean out keys from raw base that have a snake/camel equivalent in incoming ad
+                    base_dict = dict(raw_by_id[ad["id"]])
+                    for submitted_k in list(ad.keys()):
+                        snake_k = to_snake(submitted_k)
+                        camel_k = to_camel(submitted_k)
+                        if snake_k != submitted_k:
+                            base_dict.pop(snake_k, None)
+                        if camel_k != submitted_k:
+                            base_dict.pop(camel_k, None)
+                    premerged_agents.append(_deep_merge(base_dict, ad))
+                else:
+                    premerged_agents.append(agent_item)
+            sub_room_dict["agents"] = premerged_agents
+        submitted["room"] = sub_room_dict
+
     merged.update(submitted)
     try:
         new = CoworkerConfig.model_validate(merged)
@@ -368,8 +412,6 @@ def update_coworker_settings(
         _check_pass_env(new)
         _check_repos(new)
 
-    path = coworker_config_path()
-    raw = _read_raw(path)
     for name in submitted:
         dumped = getattr(new, name).model_dump(mode="json", by_alias=True)
         existing = as_dict(raw.get(name))

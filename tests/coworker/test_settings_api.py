@@ -247,14 +247,79 @@ def test_update_room_rejects_unknown_tools_allow(cfg_file: Path) -> None:
         }, PRESETS, detect=False)
 
 
-def test_update_room_accepts_valid_tools_allow(cfg_file: Path) -> None:
+def test_update_room_camel_vs_snake_premerge(cfg_file: Path) -> None:
+    # 1. Stored has threadTurns: 3 in camelCase
+    cfg_file.write_text(json.dumps({
+        "room": {
+            "agents": [
+                {
+                    "id": "researcher",
+                    "threadTurns": 3,
+                    "home": "agents/researcher",
+                }
+            ]
+        }
+    }), encoding="utf-8")
+
+    # 2. Form submits thread_turns: 10 in snake_case without home
     update_coworker_settings({
         "room": {
             "agents": [
-                {"id": "a1", "tools": {"allow": ["read_file", "search*"]}}
+                {
+                    "id": "researcher",
+                    "thread_turns": 10,
+                }
             ]
         }
     }, PRESETS, detect=False)
+
     live = load_coworker_config()
-    assert live.room.agents[0].tools.allow == ["read_file", "search*"]
+    assert live.room.agents[0].thread_turns == 10
+    assert live.room.agents[0].home == "agents/researcher"
+
+
+
+def test_update_room_preserves_agent_home_when_form_omits_it(cfg_file: Path) -> None:
+    # 1. Existing configuration has home and tools.allow
+    cfg_file.write_text(json.dumps({
+        "room": {
+            "agents": [
+                {
+                    "id": "researcher",
+                    "name": "Researcher Old",
+                    "home": "agents/researcher",
+                    "tools": {"allow": ["read_file"]}
+                }
+            ]
+        }
+    }), encoding="utf-8")
+
+    # 2. WebUI form only submits basic fields (id, name, bio, preset, backend, instructions)
+    update_coworker_settings({
+        "room": {
+            "agents": [
+                {
+                    "id": "researcher",
+                    "name": "Researcher Updated",
+                    "bio": "New bio",
+                    "preset": None,
+                    "backend": None,
+                    "instructions": "New instructions",
+                }
+            ]
+        }
+    }, PRESETS, detect=False)
+
+    # 3. Verify home and tools.allow survive both in file and live config
+    written = json.loads(cfg_file.read_text(encoding="utf-8"))
+    agent_data = written["room"]["agents"][0]
+    assert agent_data["name"] == "Researcher Updated"
+    assert agent_data["home"] == "agents/researcher"
+    assert agent_data["tools"]["allow"] == ["read_file"]
+
+    live = load_coworker_config()
+    assert live.room.agents[0].name == "Researcher Updated"
+    assert live.room.agents[0].home == "agents/researcher"
+    assert live.room.agents[0].tools.allow == ["read_file"]
+
 
