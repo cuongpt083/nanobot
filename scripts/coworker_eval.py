@@ -232,7 +232,7 @@ class CoworkerEvaluator:
 
         judge_prompt = self._build_judge_prompt(scenario, transcript_content, delegations)
         async with Nanobot.from_config() as bot:
-            session = bot.sessions.get_or_create(f"eval:judge:{scenario['id']}:{time.time()}")
+            session = bot._loop.sessions.get_or_create(f"eval:judge:{scenario['id']}:{time.time()}")
             session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] = self.judge_preset
             res = await bot.run(judge_prompt, session_key=session.key)
 
@@ -374,7 +374,7 @@ Respond ONLY with a JSON object matching this schema:
                 # Start background AgentLoop to process review turns from MessageBus
                 loop_task = asyncio.create_task(bot._loop.run())
 
-                session = bot.sessions.get_or_create(session_key)
+                session = bot._loop.sessions.get_or_create(session_key)
                 session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] = self.runner_preset
 
                 persona_id = scenario.get("persona")
