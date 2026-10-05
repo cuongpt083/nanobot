@@ -17,6 +17,7 @@ import secrets
 import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -500,6 +501,22 @@ async def _run_room(room: _Room) -> None:
     running: dict[str, asyncio.Task[GuestResult | None]] = {}
     running_info: dict[str, tuple[RoomAgentConfig, Delegation, float]] = {}
 
+    from nanobot.coworker.room.queue_store import RoomQueueStore
+
+    queue_store = RoomQueueStore(_workspace(), room_id_for(room.session_key))
+
+    def _save_checkpoint() -> None:
+        running_delegations = [info[1] for info in running_info.values()]
+        queue_store.save(
+            session_key=room.session_key,
+            channel=room.channel,
+            chat_id=room.chat_id,
+            chained=room.chained,
+            queued=queue,
+            running=running_delegations,
+            finished=finished,
+        )
+
     async def note(text: str) -> None:
         await post_to_chat(channel=room.channel, chat_id=room.chat_id, content=text)
 
@@ -587,6 +604,7 @@ async def _run_room(room: _Room) -> None:
         transcript.append(f"@{agent.id}", reply)
         await note(f"{_label(agent)}:\n{reply}")
         results.append((agent, reply))
+        _save_checkpoint()
 
     try:
         while True:
@@ -628,6 +646,7 @@ async def _run_room(room: _Room) -> None:
                 )
                 running[agent.id] = task
                 running_info[agent.id] = (agent, delegation, guest_t0)
+                _save_checkpoint()
 
             if queue and room.chained >= cfg.room.max_chained_turns and not running:
                 if not budget_note:
@@ -641,6 +660,7 @@ async def _run_room(room: _Room) -> None:
                 break
 
             if not running and not queue and not room.pending:
+                queue_store.clear()
                 break
 
             if not running and queue:
@@ -746,6 +766,91 @@ def _review_priority(guest: GuestResult | None) -> int:
     if contract.get("confidence") == "low" or (isinstance(questions, list) and questions):
         return 0
     return 1
+
+
+def clear_room(session_key: str) -> None:
+    """Clear in-memory room state on reset."""
+    room = _rooms.pop(session_key, None)
+    if room is not None:
+        if room.task is not None and not room.task.done():
+            room.task.cancel()
+        room.pending.clear()
+        room.queued.clear()
+        room.active.clear()
+        room.waiting.clear()
+        room.last_guest.clear()
+
+
+def resume_room(
+    session_key: str, *, channel: str | None = None, chat_id: str | None = None
+) -> tuple[bool, str]:
+    """Resume an interrupted room run from its checkpoint file."""
+    room = _room(session_key)
+    if room.task is not None and not room.task.done():
+        return False, "Room is already running."
+
+    from nanobot.coworker.room.queue_store import RoomQueueStore
+
+    try:
+        ws = _workspace()
+    except RuntimeError:
+        return False, "Coworker services are not bound."
+
+    store = RoomQueueStore(ws, room_id_for(session_key))
+    doc = store.load()
+    if not doc:
+        return False, "No saved room queue found."
+
+    unfinished = store.unfinished_delegations()
+    if not unfinished:
+        store.clear()
+        return False, "No unfinished delegations to resume."
+
+    room.pending = list(unfinished)
+    room.queued = list(unfinished)
+    room.chained = int(doc.get("chained", 0))
+    saved_channel = channel or str(doc.get("channel") or "")
+    saved_chat_id = chat_id or str(doc.get("chat_id") or "")
+    if saved_channel and saved_chat_id:
+        room.channel = saved_channel
+        room.chat_id = saved_chat_id
+
+    session = get_session(session_key)
+    if session is not None:
+        from nanobot.coworker.persona import resolve_persona
+        persona_agent = resolve_persona(session, load_coworker_config())
+        if persona_agent and persona_agent.preset:
+            room.owner_runtime = runtime_for_preset(persona_agent.preset)
+
+    started = maybe_start_room_run(session_key, channel=room.channel, chat_id=room.chat_id)
+    if not started:
+        return False, "Failed to start room run (check delivery route)."
+    return True, f"Resuming {len(unfinished)} delegation(s)."
+
+
+async def notify_interrupted_rooms(workspace: Path) -> None:
+    """Check for any checkpointed queue files left by an interrupted run and notify chat."""
+    from nanobot.coworker.room.queue_store import RoomQueueStore
+
+    rdir = rooms_dir(workspace)
+    if not rdir.is_dir():
+        return
+    for qfile in rdir.glob("*.queue.json"):
+        rid = qfile.name.removesuffix(".queue.json")
+        store = RoomQueueStore(workspace, rid)
+        doc = store.load()
+        if not doc:
+            continue
+        unfinished = store.unfinished_delegations()
+        if unfinished:
+            ch = str(doc.get("channel") or "")
+            cid = str(doc.get("chat_id") or "")
+            if ch and cid:
+                msg = (
+                    f"⚠️ Interrupted room detected: {len(unfinished)} unfinished delegation(s) from a previous run. "
+                    "Use `/room resume` to continue or `/room reset` to discard."
+                )
+                await post_to_chat(channel=ch, chat_id=cid, content=msg)
 
 
 def reset_rooms() -> None:

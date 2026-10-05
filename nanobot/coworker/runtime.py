@@ -71,6 +71,15 @@ def bind_services(ctx: ToolContext) -> None:
         workspace_sandbox=ctx.workspace_sandbox,
         main_tools=ctx.tool_registry,
     )
+    try:
+        from nanobot.coworker.room.scheduler import notify_interrupted_rooms
+
+        spawn_background(
+            notify_interrupted_rooms(Path(ctx.workspace).expanduser().resolve()),
+            name="coworker-notify-interrupted-rooms",
+        )
+    except Exception:
+        pass
 
 
 def services() -> CoworkerServices | None:

@@ -94,15 +94,25 @@ async def cmd_room(ctx: CommandContext) -> OutboundMessage:
             rid = room_id_for(ctx.key)
             RoomStateStore(svc.workspace, rid).clear()
             RoomTranscript(svc.workspace, rid).clear()
+            from nanobot.coworker.room.queue_store import RoomQueueStore
+            RoomQueueStore(svc.workspace, rid).clear()
             from nanobot.coworker.agents.thread import clear_room_threads
             clear_room_threads(svc.workspace, rid)
+        scheduler.reset_chain_budget(ctx.key)
+        scheduler.clear_room(ctx.key)
+    elif arg == "resume":
+        channel, chat_id = _route(ctx)
+        ok, msg = scheduler.resume_room(ctx.key, channel=channel, chat_id=chat_id)
+        if not ok:
+            return _reply(ctx, f"⚠️ {msg}")
+        return _reply(ctx, f"▶️ {msg}")
     if not cfg.room.agents:
         return _reply(ctx, f"👥 No room agents configured — add `room.agents` to {coworker_config_path()}.")
     roster = "\n".join(
         f"- {(a.emoji + ' ') if a.emoji else ''}{a.name or a.id} (`{a.id}`): {a.bio}" for a in cfg.room.agents
     )
     state = "ON" if scheduler.is_armed(session) else "off"
-    return _reply(ctx, f"👥 Room: {state}\n{roster}\nUsage: /room on | off | reset")
+    return _reply(ctx, f"👥 Room: {state}\n{roster}\nUsage: /room on | off | reset | resume")
 
 
 async def cmd_workflow(ctx: CommandContext) -> OutboundMessage:
