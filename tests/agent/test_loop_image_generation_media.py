@@ -40,6 +40,7 @@ async def test_outbound_no_longer_carries_generated_media(
         lambda name: FakeImageClient if name == "openrouter" else None,
     )
     provider = MagicMock()
+    provider.provider_name = "test-provider"
     provider.get_default_model.return_value = "test-model"
     provider.generation.max_tokens = 4096
     provider.chat_stream_with_retry = AsyncMock(
