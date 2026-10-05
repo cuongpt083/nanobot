@@ -23,6 +23,7 @@ from nanobot.optional_features import (
 )
 from nanobot.providers.image_generation import (
     get_image_gen_provider,
+    image_gen_provider_configs,
     image_gen_provider_names,
 )
 from nanobot.providers.registry import find_by_name
@@ -94,19 +95,48 @@ def _image_generation_provider_rows(
     oauth_status: OAuthStatusReader,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for name in image_gen_provider_names():
+    registered_names = set(image_gen_provider_names())
+    all_provider_configs = image_gen_provider_configs(config)
+    all_names = list(image_gen_provider_names())
+    for extra_name in all_provider_configs:
+        if extra_name not in registered_names and (extra_name == "custom" or extra_name.startswith("custom-")):
+            all_names.append(extra_name)
+
+    for name in all_names:
         image_provider = get_image_gen_provider(name)
         spec = find_by_name(name)
-        provider_config = getattr(config.providers, name, None)
-        configured = (
-            provider_configured_for_settings(spec, provider_config, oauth_status)
-            if spec is not None and provider_config is not None
-            else bool(getattr(provider_config, "api_key", None))
+        provider_config = all_provider_configs.get(name) or getattr(config.providers, name, None)
+        is_custom = name == "custom" or name.startswith("custom-")
+
+        if is_custom:
+            configured = bool(getattr(provider_config, "api_base", None))
+            label = (
+                getattr(provider_config, "display_name", None)
+                or (spec.label if spec is not None else name.replace("-", " ").replace("_", " ").title())
+            )
+        else:
+            configured = (
+                provider_configured_for_settings(spec, provider_config, oauth_status)
+                if spec is not None and provider_config is not None
+                else bool(getattr(provider_config, "api_key", None))
+            )
+            label = spec.label if spec is not None else name
+
+        models = None if is_custom else (list(image_provider.model_options) if image_provider else [])
+        default_model = (
+            None
+            if is_custom
+            else (
+                image_provider.model_options[0]
+                if image_provider and image_provider.model_options
+                else None
+            )
         )
+
         rows.append(
             {
                 "name": name,
-                "label": spec.label if spec is not None else name,
+                "label": label,
                 "configured": configured,
                 "auth_type": "oauth" if spec is not None and spec.is_oauth else "api_key",
                 "api_key_hint": mask_secret_hint(getattr(provider_config, "api_key", None)),
@@ -114,12 +144,8 @@ def _image_generation_provider_rows(
                 "default_api_base": (
                     spec.default_api_base if spec and spec.default_api_base else None
                 ),
-                "models": list(image_provider.model_options) if image_provider else [],
-                "default_model": (
-                    image_provider.model_options[0]
-                    if image_provider and image_provider.model_options
-                    else None
-                ),
+                "models": models,
+                "default_model": default_model,
             }
         )
     return rows
@@ -406,13 +432,28 @@ def update_image_generation_settings(
 
     provider_name = query_first(query, "provider")
     if provider_name is not None:
-        provider_name = provider_name.strip().lower()
+        provider_name = provider_name.strip()
         if not provider_name:
             raise WebUISettingsError("image generation provider is required")
-        if get_image_gen_provider(provider_name) is None:
+        if get_image_gen_provider(provider_name.lower()) is None:
             raise WebUISettingsError("unknown image generation provider")
-        if image_config.provider != provider_name:
-            image_config.provider = provider_name
+
+        canonical_provider = provider_name.lower()
+        if canonical_provider.startswith("custom-"):
+            provider_configs = image_gen_provider_configs(config)
+            matched_key = next(
+                (
+                    key for key in provider_configs
+                    if key.lower() == canonical_provider or key.replace("-", "_").lower() == canonical_provider.replace("-", "_")
+                ),
+                None,
+            )
+            if matched_key is None:
+                raise WebUISettingsError("unknown image generation provider")
+            canonical_provider = matched_key
+
+        if image_config.provider != canonical_provider:
+            image_config.provider = canonical_provider
             changed = True
 
     enabled = query_first(query, "enabled")

@@ -150,7 +150,7 @@ export function ImageGenerationSettings({
               token={token}
               settings={settings}
               provider={form.provider}
-              models={selectedProvider?.models ?? []}
+              models={selectedProvider?.models ?? undefined}
               value={form.model}
               showProviderLogos={showBrandLogos}
               emptyLabel={tx("settings.image.selectModel", "Select image model")}
