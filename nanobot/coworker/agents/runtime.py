@@ -18,11 +18,17 @@ from nanobot.coworker.agents.prompt import build_system_prompt
 from nanobot.coworker.agents.thread import AgentThreadStore
 from nanobot.coworker.agents.toolset import build_tools
 from nanobot.llm_usage.context import current_llm_usage_source
+from nanobot.security.workspace_access import (
+    bind_workspace_scope,
+    default_workspace_scope,
+    reset_workspace_scope,
+)
 
 if TYPE_CHECKING:
     from nanobot.agent.runner import AgentRunResult
     from nanobot.coworker.config import CoworkerConfig, RoomAgentConfig
     from nanobot.coworker.runtime import CoworkerServices
+    from nanobot.security.workspace_access import WorkspaceScope
     from nanobot.utils.llm_runtime import LLMRuntime
 
 
@@ -56,6 +62,14 @@ def to_guest_result(result: AgentRunResult, agent: RoomAgentConfig) -> GuestResu
         usage=usage_dict,
         stop_reason=result.stop_reason,
     )
+
+
+async def _skip_guest_history_consolidation(
+    _messages: list[dict[str, Any]],
+    _previous_summary: str | None,
+) -> None:
+    """Guest threads persist task/reply summaries; skip runner transcript compaction."""
+    return None
 
 
 class GuestHook(AgentHook):
@@ -113,9 +127,13 @@ class AgentRuntime:
         project_root: Path,
         runtime: LLMRuntime,
         progress: Any | None = None,
+        workspace_scope: WorkspaceScope | None = None,
     ) -> GuestResult:
         from nanobot.coworker.agents.prompt import resolve_home
 
+        restrict_default = bool(self.svc.tools_config and self.svc.tools_config.restrict_to_workspace)
+        scope = workspace_scope or default_workspace_scope(project_root, restrict_default)
+        project_root = scope.project_path
         thread = AgentThreadStore(self.svc.workspace, agent.id, room_id)
         persist_memory = agent.memory != "none" and resolve_home(agent, self.svc.workspace) is not None
         history = thread.recent(agent.thread_turns) if persist_memory else []
@@ -131,7 +149,13 @@ class AgentRuntime:
             {"role": "user", "content": task_msg},
         ]
         esm = ExecSessionManager()
-        tools = build_tools(agent, self.svc, project_root=project_root, exec_session_manager=esm)
+        tools = build_tools(
+            agent,
+            self.svc,
+            project_root=project_root,
+            exec_session_manager=esm,
+            restrict_to_workspace=scope.restrict_to_workspace,
+        )
 
         max_tool_chars = (
             self.svc.max_tool_result_chars
@@ -147,6 +171,7 @@ class AgentRuntime:
                 runtime=runtime,
             )
         )
+        workspace_token = bind_workspace_scope(scope)
         try:
             result = await self.runner.run(
                 AgentRunSpec(
@@ -161,10 +186,11 @@ class AgentRuntime:
                     max_iterations_message="Stopped at the iteration limit; report what is done.",
                     finalize_on_max_iterations=True,
                     llm_usage_source=current_llm_usage_source(),
-                    # TODO(phase-2 follow-up): wire consolidate_history for long guest runs.
+                    consolidate_history=_skip_guest_history_consolidation,
                 )
             )
         finally:
+            reset_workspace_scope(workspace_token)
             reset_request_context(token)
             await esm.close_all()
 

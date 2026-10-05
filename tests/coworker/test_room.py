@@ -271,6 +271,114 @@ async def test_home_guest_uses_agent_runtime_and_records_tokens(env, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_home_agent_two_turn_thread_binds_session_workspace(env) -> None:
+    from agent.conftest import make_provider
+
+    from nanobot.coworker.runtime import services
+    from nanobot.providers.base import LLMResponse, LLMUsage
+    from nanobot.security.workspace_access import current_workspace_scope
+    from nanobot.utils.llm_runtime import LLMRuntime
+
+    agent = RoomAgentConfig(id="researcher", name="Researcher", emoji="🔎", home="agents/researcher")
+    scaffold_agent_home(env.workspace, agent)
+    (env.workspace / "agents" / "researcher" / "SOUL.md").write_text(
+        "# Unique Soul Marker\nI am the specialist.",
+        encoding="utf-8",
+    )
+    proj = env.workspace / "proj"
+    proj.mkdir()
+    env.configure(CoworkerConfig(room=RoomConfig(agents=[agent])))
+    env.bind()
+    session = env.sessions.get_or_create(KEY)
+    session.metadata["workspace_scope"] = {
+        "project_path": str(proj.resolve()),
+        "access_mode": "restricted",
+    }
+    env.sessions.save(session)
+
+    captured: list[dict[str, Any]] = []
+    replies = ["r1", "r2"]
+
+    async def _record(*_args: Any, **kwargs: Any) -> LLMResponse:
+        scope = current_workspace_scope()
+        captured.append({
+            "messages": kwargs["messages"],
+            "scope_path": scope.project_path if scope is not None else None,
+            "restrict": scope.restrict_to_workspace if scope is not None else None,
+        })
+        return LLMResponse(
+            content=replies[len(captured) - 1],
+            usage=LLMUsage.estimated(input_tokens=5, output_tokens=3),
+        )
+
+    provider = make_provider()
+    provider.chat_stream_with_retry = _record
+    runtime = LLMRuntime.capture(provider, "test", context_window_tokens=128_000)
+    before = id(services())
+
+    scheduler.record_delegation(KEY, "researcher", "first task", by="owner", runtime=runtime)
+    scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
+    await _drain(KEY)
+    scheduler.record_delegation(KEY, "researcher", "second task", by="owner", runtime=runtime)
+    scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
+    await _drain(KEY)
+
+    assert len(captured) == 2
+    assert any("Unique Soul Marker" in str(m.get("content")) for m in captured[0]["messages"])
+    second_contents = [str(m.get("content")) for m in captured[1]["messages"]]
+    assert any("first task" in content for content in second_contents)
+    assert any("r1" in content for content in second_contents)
+    assert captured[0]["scope_path"] == proj.resolve()
+    assert captured[1]["scope_path"] == proj.resolve()
+    assert captured[0]["restrict"] is True
+    outcome = scheduler.room_snapshot(KEY).recent[-1]
+    assert outcome.state == "done"
+    assert outcome.tokens_in == 5
+    assert outcome.tokens_out == 3
+    assert id(services()) == before
+
+
+@pytest.mark.asyncio
+async def test_stale_workspace_scope_falls_back_to_workspace(env) -> None:
+    from agent.conftest import make_provider
+
+    from nanobot.providers.base import LLMResponse, LLMUsage
+    from nanobot.security.workspace_access import current_workspace_scope
+    from nanobot.utils.llm_runtime import LLMRuntime
+
+    agent = RoomAgentConfig(id="researcher", name="Researcher", home="agents/researcher")
+    scaffold_agent_home(env.workspace, agent)
+    env.configure(CoworkerConfig(room=RoomConfig(agents=[agent])))
+    env.bind()
+    session = env.sessions.get_or_create(KEY)
+    session.metadata["workspace_scope"] = {
+        "project_path": str(env.workspace / "missing-dir"),
+        "access_mode": "restricted",
+    }
+    env.sessions.save(session)
+
+    seen: dict[str, Any] = {}
+
+    async def _record(*_args: Any, **kwargs: Any) -> LLMResponse:
+        scope = current_workspace_scope()
+        seen["scope_path"] = scope.project_path if scope is not None else None
+        return LLMResponse(
+            content="ok",
+            usage=LLMUsage.estimated(input_tokens=1, output_tokens=1),
+        )
+
+    provider = make_provider()
+    provider.chat_stream_with_retry = _record
+    runtime = LLMRuntime.capture(provider, "test", context_window_tokens=128_000)
+    scheduler.record_delegation(KEY, "researcher", "work", by="owner", runtime=runtime)
+    scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
+    await _drain(KEY)
+
+    assert seen["scope_path"] == env.workspace.resolve()
+    assert scheduler.room_snapshot(KEY).recent[-1].state == "done"
+
+
+@pytest.mark.asyncio
 async def test_self_delegate_forbidden_when_wearing_persona(env) -> None:
     from nanobot.coworker.persona import set_persona_id
 

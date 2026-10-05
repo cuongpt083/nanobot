@@ -24,6 +24,7 @@ def build_tools(
     *,
     project_root: Path,
     exec_session_manager: ExecSessionManager | None = None,
+    restrict_to_workspace: bool | None = None,
 ) -> ToolRegistry:
     """Build isolated subagent toolset for a coworker agent."""
     registry = ToolRegistry()
@@ -31,6 +32,7 @@ def build_tools(
         svc,
         project_root,
         exec_session_manager=exec_session_manager,
+        restrict_to_workspace=restrict_to_workspace,
     )
     ToolLoader().load(ctx, registry, scope="subagent")
     return registry
@@ -41,22 +43,24 @@ def subagent_tool_context(
     project_root: Path,
     tools_config: ToolsConfig | None = None,
     exec_session_manager: ExecSessionManager | None = None,
+    restrict_to_workspace: bool | None = None,
 ) -> ToolContext:
     root = project_root.resolve()
     base_cfg = tools_config or svc.tools_config or ToolsConfig()
+    restrict = (
+        restrict_to_workspace
+        if restrict_to_workspace is not None
+        else base_cfg.restrict_to_workspace
+    )
     cfg = ToolsConfig(
         exec=base_cfg.exec,
         web=base_cfg.web,
         file=base_cfg.file,
-        restrict_to_workspace=base_cfg.restrict_to_workspace,
+        restrict_to_workspace=restrict,
     )
-    sandbox = (
-        svc.workspace_sandbox
-        if svc.workspace_sandbox is not None
-        else workspace_sandbox_status(
-            restrict_to_workspace=cfg.restrict_to_workspace,
-            workspace=root,
-        )
+    sandbox = workspace_sandbox_status(
+        restrict_to_workspace=cfg.restrict_to_workspace,
+        workspace=root,
     )
     esm = exec_session_manager if exec_session_manager is not None else ExecSessionManager()
     # Do not pass bus/sessions/subagent_manager: CoworkerTool.create() would

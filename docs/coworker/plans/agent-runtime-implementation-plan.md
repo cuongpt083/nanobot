@@ -297,6 +297,14 @@ Trong `_run_guest`, nhánh `agent.backend` giữ nguyên. Nhánh còn lại set 
 
 Trong một room, teammate có home trả lời theo SOUL của nó và nhắc lại đúng kết quả của lần giao việc trước; các test room hiện có xanh mà không sửa kỳ vọng.
 
+### Phase 2 notes (follow-up)
+
+- No-home guests stay on `svc.subagents.run_inline`; `room.legacyGuestRunner` only forces that path for home agents.
+- The legacy `run_inline` path still does not bind session workspace scope (left equivalent to pre-Phase-2).
+- Home guests bind `workspace_scope_from_metadata` (stale scope falls back to the workspace) and compute sandbox for `project_root`; they never reuse `svc.workspace_sandbox`.
+- Guest `AgentRunner` uses a no-op consolidator; long guest runs are not compacted yet.
+- Home guests may see their own prior reply twice (thread history plus `_projection`); Phase 4 replaces the projection.
+
 ## Phase 3 – Seam S6 và allowlist tool/skill/MCP (1–2 ngày; 3b hoãn)
 
 Phase 3 cho teammate dùng MCP tool của agent chính theo allowlist và áp allow/deny cho mọi tool. Đây là phase duy nhất chạm lõi. Nhánh: `feat/agent-runtime-p3`.

@@ -340,9 +340,14 @@ async def _run_guest(room: _Room, agent: RoomAgentConfig, delegation: Delegation
             text = str(result or "").strip()
             return GuestResult(text=text) if text else None
 
-        from nanobot.coworker.coding.project import session_project_path
+        from nanobot.security.workspace_access import workspace_scope_from_metadata
 
-        project_root = session_project_path(session) or svc.workspace
+        restrict_default = bool(svc.tools_config and svc.tools_config.restrict_to_workspace)
+        scope = workspace_scope_from_metadata(
+            getattr(session, "metadata", None) if session is not None else None,
+            default_workspace=svc.workspace,
+            default_restrict_to_workspace=restrict_default,
+        )
         guest = await asyncio.wait_for(
             AgentRuntime(svc, cfg).run(
                 agent,
@@ -351,9 +356,10 @@ async def _run_guest(room: _Room, agent: RoomAgentConfig, delegation: Delegation
                 session_key=room.session_key,
                 channel=room.channel,
                 chat_id=room.chat_id,
-                project_root=project_root,
+                project_root=scope.project_path,
                 runtime=runtime,
                 progress=room.active.get(agent.id),
+                workspace_scope=scope,
             ),
             timeout=cfg.room.guest_timeout_seconds,
         )
