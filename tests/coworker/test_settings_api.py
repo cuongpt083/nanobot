@@ -212,3 +212,49 @@ def test_update_context_section(cfg_file: Path) -> None:
     assert live.context.keepalive.strategy == "ttl1h"
     assert live.context.keepalive.window_minutes == 60
     assert live.context.cache_ttl_seconds == 3600
+
+
+def test_update_room_preserves_unknown_keys_inside_agents(cfg_file: Path) -> None:
+    cfg_file.write_text(json.dumps({
+        "room": {
+            "agents": [
+                {"id": "researcher", "name": "Res", "extraCustomField": 123}
+            ]
+        }
+    }), encoding="utf-8")
+    update_coworker_settings({
+        "room": {
+            "agents": [
+                {"id": "researcher", "name": "Researcher Updated", "home": "agents/researcher"}
+            ]
+        }
+    }, PRESETS, detect=False)
+    written = json.loads(cfg_file.read_text(encoding="utf-8"))
+    agent_data = written["room"]["agents"][0]
+    assert agent_data["name"] == "Researcher Updated"
+    assert agent_data["home"] == "agents/researcher"
+    assert agent_data["extraCustomField"] == 123
+
+
+def test_update_room_rejects_unknown_tools_allow(cfg_file: Path) -> None:
+    with pytest.raises(CoworkerSettingsError, match="does not match any known tool"):
+        update_coworker_settings({
+            "room": {
+                "agents": [
+                    {"id": "a1", "tools": {"allow": ["totally_non_existent_tool_xyz"]}}
+                ]
+            }
+        }, PRESETS, detect=False)
+
+
+def test_update_room_accepts_valid_tools_allow(cfg_file: Path) -> None:
+    update_coworker_settings({
+        "room": {
+            "agents": [
+                {"id": "a1", "tools": {"allow": ["read_file", "search*"]}}
+            ]
+        }
+    }, PRESETS, detect=False)
+    live = load_coworker_config()
+    assert live.room.agents[0].tools.allow == ["read_file", "search*"]
+

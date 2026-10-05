@@ -21,7 +21,7 @@ import shutil
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError
 
@@ -205,6 +205,83 @@ def _check_repos(cfg: CoworkerConfig) -> None:
             raise CoworkerSettingsError(f"coding.repos[{index}].path: {checked['error']}")
 
 
+def _known_tool_names() -> set[str]:
+    """Discover all built-in and plugin tool names statically without running full runtime init."""
+    from nanobot.agent.tools.loader import ToolLoader
+
+    names: set[str] = set()
+    for tool_cls in ToolLoader().discover():
+        prop = getattr(tool_cls, "name", None)
+        if isinstance(prop, property) and prop.fget is not None:
+            try:
+                val = prop.fget(None)  # Constant tool names define property getters callable without self
+                if isinstance(val, str):
+                    names.add(val)
+            except Exception:
+                pass
+        elif isinstance(prop, str):
+            names.add(prop)
+    return names
+
+
+def _check_agents(cfg: CoworkerConfig, workspace: Path | None = None) -> list[str]:
+    """Validate room agents configuration.
+
+    - Warns (returns warning strings) if an agent's `home` directory does not exist yet.
+    - Raises CoworkerSettingsError if `home` tries to escape workspace or non-glob pattern in tools.allow
+      matches no known tools. (Patterns with '*' or '?' or 'mcp:*' are skipped if unmatched to allow dynamic tools).
+    """
+    import fnmatch
+
+    warnings: list[str] = []
+    known_tools = _known_tool_names()
+
+    for i, agent in enumerate(cfg.room.agents):
+        # 1. home check
+        if agent.home:
+            if workspace is not None:
+                # home is already validated relative without '..' by pydantic
+                full_home = (workspace / agent.home).resolve()
+                try:
+                    full_home.relative_to(workspace.resolve())
+                except ValueError:
+                    raise CoworkerSettingsError(
+                        f"room.agents[{i}].home: path {agent.home!r} escapes workspace"
+                    )
+                if not full_home.exists():
+                    warnings.append(
+                        f"room.agents[{i}] ({agent.id}): home directory '{agent.home}' does not exist"
+                    )
+        # 2. tools.allow check against known tools
+        if agent.tools.allow and known_tools:
+            for pattern in agent.tools.allow:
+                # If pattern is a concrete name (no wildcard) and not in MCP format, require it to match
+                has_wildcard = any(ch in pattern for ch in ("*", "?", "[", "]"))
+                is_mcp = pattern.startswith("mcp:")
+                matches = any(fnmatch.fnmatch(t, pattern) for t in known_tools)
+                if not matches and not has_wildcard and not is_mcp:
+                    raise CoworkerSettingsError(
+                        f"room.agents[{i}].tools.allow: pattern {pattern!r} does not match any known tool"
+                    )
+    return warnings
+
+
+def _merge_by_id(base: list[object], new: list[object]) -> list[object] | None:
+    """Merge lists of {"id": ...} dicts by id; None if either list isn't id-keyed."""
+    base_items = [as_dict(x) for x in base]
+    new_items = [as_dict(x) for x in new]
+    if any(d is None or "id" not in d for d in (*base_items, *new_items)):
+        return None
+    by_id: dict[object, dict[str, Any]] = {d["id"]: d for d in base_items if d is not None}
+    out: list[object] = []
+    for d in new_items:
+        if d is None:
+            continue
+        prev = by_id.get(d["id"])
+        out.append(_deep_merge(prev, d) if prev is not None else d)
+    return out
+
+
 def _deep_merge(base: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     """``new`` wins; nested dicts merge so keys unknown to the schema survive; lists are replaced."""
     merged = dict(base)
@@ -213,6 +290,9 @@ def _deep_merge(base: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
         incoming = as_dict(value)
         if current is not None and incoming is not None:
             merged[key] = _deep_merge(current, incoming)
+        elif isinstance(value, list) and isinstance(merged.get(key), list):
+            combined = _merge_by_id(cast(list[object], merged[key]), cast(list[object], value))
+            merged[key] = combined if combined is not None else value
         else:
             merged[key] = value
     return merged
@@ -255,6 +335,7 @@ def update_coworker_settings(
     preset_names: Iterable[str],
     *,
     detect: bool = True,
+    workspace: Path | None = None,
 ) -> dict[str, Any]:
     """Validate and persist submitted sections; return the fresh settings payload."""
     unknown = sorted(set(values) - set(EDITABLE_SECTIONS))
@@ -276,6 +357,8 @@ def update_coworker_settings(
     except ValidationError as exc:
         raise CoworkerSettingsError(_format_validation(exc)) from exc
     _check_presets(new, names)
+    if "room" in submitted:
+        _check_agents(new, workspace)
     if "coding" in submitted:
         _check_pass_env(new)
         _check_repos(new)

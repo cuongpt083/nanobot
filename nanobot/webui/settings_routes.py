@@ -6,6 +6,7 @@ import asyncio
 import html
 import json
 from collections.abc import Awaitable, Callable, Mapping
+from pathlib import Path
 from typing import Any, cast
 
 from websockets.http11 import Request as WsRequest
@@ -499,10 +500,16 @@ class WebUISettingsRouter:
         )
 
         def run() -> dict[str, Any]:
-            preset_names = list(self.settings.config.load().model_presets)
+            cfg_obj = self.settings.config.load()
+            preset_names = list(cfg_obj.model_presets)
+            ws = Path(cfg_obj.agents.defaults.workspace).expanduser().resolve()
             if not update:
                 return coworker_settings_payload(preset_names)
-            return update_coworker_settings(_mutation_payload(request) or {}, preset_names)
+            return update_coworker_settings(
+                _mutation_payload(request) or {},
+                preset_names,
+                workspace=ws,
+            )
 
         try:
             payload = await asyncio.to_thread(run)
