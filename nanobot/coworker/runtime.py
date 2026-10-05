@@ -23,8 +23,11 @@ from nanobot.coworker.transcript import as_dict
 if TYPE_CHECKING:
     from nanobot.agent.subagent import SubagentManager
     from nanobot.agent.tools.context import ToolContext
+    from nanobot.agent.tools.registry import ToolRegistry
     from nanobot.bus.queue import MessageBus
+    from nanobot.config.schema import ToolsConfig
     from nanobot.providers.factory import ProviderSnapshot
+    from nanobot.security.workspace_access import WorkspaceSandboxStatus
     from nanobot.session.manager import Session, SessionManager
     from nanobot.utils.llm_runtime import LLMRuntime
 
@@ -40,6 +43,11 @@ class CoworkerServices:
     sessions: SessionManager
     subagents: SubagentManager | None
     provider_snapshot_loader: Callable[..., ProviderSnapshot] | None
+    timezone: str = "UTC"
+    tools_config: ToolsConfig | None = None
+    workspace_sandbox: WorkspaceSandboxStatus | None = None
+    main_tools: ToolRegistry | None = None  # assigned in Phase 3
+    max_tool_result_chars: int | None = None
 
 
 _services: CoworkerServices | None = None
@@ -58,6 +66,9 @@ def bind_services(ctx: ToolContext) -> None:
         sessions=ctx.sessions,
         subagents=ctx.subagent_manager,
         provider_snapshot_loader=ctx.provider_snapshot_loader,
+        timezone=ctx.timezone or "UTC",
+        tools_config=ctx.config,
+        workspace_sandbox=ctx.workspace_sandbox,
     )
 
 

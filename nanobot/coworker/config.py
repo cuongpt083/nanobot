@@ -102,6 +102,7 @@ class RoomConfig(Base):
     max_parallel: int = Field(default=3, ge=1, le=8)
     context_turns: int = Field(default=5, ge=1, le=20)
     min_context_chars: int = Field(default=80, ge=0)
+    legacy_guest_runner: bool = False
 
 
 class TrimConfig(Base):

@@ -27,6 +27,7 @@ def test_room_config_defaults() -> None:
     assert room.max_parallel == 3
     assert room.context_turns == 5
     assert room.min_context_chars == 80
+    assert room.legacy_guest_runner is False
 
 
 def test_room_agent_camel_case_parsing() -> None:

@@ -142,6 +142,28 @@ def room_guest(agent: RoomAgentConfig, owner_label: str, teammates: list[RoomAge
     return "\n".join(lines)
 
 
+def room_member(agent: RoomAgentConfig, teammates: list[RoomAgentConfig], owner_label: str = "the room coordinator") -> str:
+    """Directive for home-backed agents in a multi-agent room.
+
+    Omits persona/instructions since those are provided by the agent's SOUL.md.
+    Focuses on room role, room_state scratchpad, delegation rules, and output.
+    """
+    others = ", ".join(f"`{a.id}`" for a in teammates if a.id != agent.id) or "none"
+    lines = [
+        "## Multi-agent room member",
+        f"You are collaborating in a multi-agent room coordinated by {owner_label}.",
+        "You are a FULL agent: EXECUTE the assignment NOW with your tools and reply with concrete results. "
+        "This is your only turn until someone delegates to you again — never promise future work.",
+        "Only the TEXT of your reply reaches the room: put the entire deliverable in it.",
+        "SHARED STATE IS MANDATORY: start with `room_state` `list`; finish by `set`-ing your result under your own key.",
+        f"Other teammates: {others}. To hand a sub-task to one, call `room_delegate`. If your part genuinely "
+        "cannot start until another agent's output exists (and it is not in room_state yet), reply with "
+        "`WAIT_FOR @<their id>` on its own line plus one sentence — the room re-runs you after them.",
+        "If no reply is needed, reply exactly REPLY_SKIP.",
+    ]
+    return "\n".join(lines)
+
+
 WORKFLOWS = "\n".join([
     "## Agent workflows",
     "Registered workflows are deterministic markdown step-graphs. When the user asks to run a "

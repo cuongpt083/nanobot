@@ -94,6 +94,8 @@ async def cmd_room(ctx: CommandContext) -> OutboundMessage:
             rid = room_id_for(ctx.key)
             RoomStateStore(svc.workspace, rid).clear()
             RoomTranscript(svc.workspace, rid).clear()
+            from nanobot.coworker.agents.thread import clear_room_threads
+            clear_room_threads(svc.workspace, rid)
     if not cfg.room.agents:
         return _reply(ctx, f"👥 No room agents configured — add `room.agents` to {coworker_config_path()}.")
     roster = "\n".join(
