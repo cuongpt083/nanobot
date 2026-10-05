@@ -1,5 +1,5 @@
-{"type":"compaction_start","reason":"manual"}
-{"type":"compaction_end","reason":"manual","aborted":false,"willRetry":false,"errorMessage":"Compaction failed: Nothing to compact (session too small)"}
-{"id":"c3_1","type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}
-{"type":"agent_start"}
-{"id":"c3_2","type":"response","command":"compact","success":false,"error":"Nothing to compact (session too small)"}
+{"type": "compaction_start", "reason": "manual"}
+{"type": "compaction_end", "reason": "manual", "aborted": false, "willRetry": false, "errorMessage": "Compaction failed: Nothing to compact (session too small)"}
+{"id": "c3_1", "type": "response", "command": "prompt", "success": true, "data": {"disposition": "started"}}
+{"type": "agent_start"}
+{"id": "c3_2", "type": "response", "command": "compact", "success": false, "error": "Nothing to compact (session too small)"}

@@ -1,1 +1,1 @@
-{"id": "c2", "type": "non_existent_command", "message": "invalid"}
+{"id": "c2", "type": "set_model", "model": "invalid_provider/fake_model"}

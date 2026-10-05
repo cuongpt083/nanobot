@@ -1,1 +1,1 @@
-{"id": "c1", "type": "prompt", "message": "List files in the current folder using read or ls tool."}
+{"id": "c1", "type": "prompt", "message": "Read sample.txt and report the content in 3 words."}

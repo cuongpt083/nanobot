@@ -1,1 +1,1 @@
-{"id":"c2","type":"response","command":"non_existent_command","success":false,"error":"Unknown command: non_existent_command"}
+{"id": "c2", "type": "response", "command": "set_model", "success": false, "error": "Model not found: undefined/undefined"}
