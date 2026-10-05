@@ -99,7 +99,7 @@ class RoomConfig(Base):
     agents: list[RoomAgentConfig] = Field(default_factory=list)
     max_chained_turns: int = Field(default=16, ge=1, le=100)
     guest_timeout_seconds: int = Field(default=900, ge=30)
-    max_parallel: int = Field(default=3, ge=1, le=8)
+    max_parallel: int = Field(default=1, ge=1, le=8)
     context_turns: int = Field(default=5, ge=1, le=20)
     min_context_chars: int = Field(default=80, ge=0)
     legacy_guest_runner: bool = False

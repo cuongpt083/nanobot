@@ -491,37 +491,145 @@ async def _run_room(room: _Room) -> None:
     transcript = RoomTranscript(_workspace(), room_id_for(room.session_key))
     queue = list(room.pending)
     room.pending.clear()
+    room.queued = list(queue)
     results: list[tuple[RoomAgentConfig, str]] = []
     waited: set[str] = set()
     finished: set[str] = set(room.last_guest)
     budget_note = False
 
+    running: dict[str, asyncio.Task[GuestResult | None]] = {}
+    running_info: dict[str, tuple[RoomAgentConfig, Delegation, float]] = {}
+
     async def note(text: str) -> None:
         await post_to_chat(channel=room.channel, chat_id=room.chat_id, content=text)
 
+    async def _handle_finished(
+        agent: RoomAgentConfig,
+        delegation: Delegation,
+        guest_t0: float,
+        exc: BaseException | None,
+        guest: GuestResult | None,
+    ) -> None:
+        nonlocal budget_note
+        room.active.pop(agent.id, None)
+        duration_s = time.monotonic() - guest_t0
+
+        if isinstance(exc, TimeoutError):
+            room.outcome(agent.id, "timeout", duration_s=duration_s)
+            finished.add(agent.id)
+            await note(f"⚠️ {_label(agent)} did not finish within {cfg.room.guest_timeout_seconds}s — stopped.")
+            return
+
+        if exc is not None:
+            room.outcome(agent.id, "error", duration_s=duration_s)
+            finished.add(agent.id)
+            logger.opt(exception=exc).warning("room {}: guest @{} failed", room.session_key, agent.id)
+            # ProjectError / RuntimeError from coding admission carry an actionable,
+            # user-facing reason (pick a project dir, make it a git repo, install backend...).
+            detail = (
+                f"{type(exc).__name__}: {str(exc)[:400]}"
+                if isinstance(exc, RuntimeError) and str(exc)
+                else type(exc).__name__
+            )
+            await note(f"⚠️ {_label(agent)} failed: {detail}")
+            return
+
+        if guest is not None:
+            room.last_guest[agent.id] = guest
+        reply = (guest.text if guest is not None else "").strip()
+        tokens_in = guest.usage.get("prompt_tokens") if guest is not None else None
+        tokens_out = guest.usage.get("completion_tokens") if guest is not None else None
+
+        # Delegations the teammate made during its turn join the queue in order.
+        if room.pending:
+            queue.extend(room.pending)
+            room.pending.clear()
+            room.queued = list(queue)
+
+        if not reply or reply == REPLY_SKIP:
+            finished.add(agent.id)
+            room.outcome(
+                agent.id, "done", duration_s=duration_s, tokens_in=tokens_in, tokens_out=tokens_out,
+            )
+            return
+
+        wait = _WAIT_FOR.search(reply)
+        if wait and agent.id not in waited:
+            target = wait.group(1).lower()
+            still_pending = (
+                target not in finished
+                and (
+                    any(item.agent_id == target for item in queue)
+                    or any(item.agent_id == target for item in room.pending)
+                    or target in running
+                )
+            )
+            if still_pending:
+                waited.add(agent.id)
+                queue.append(replace(
+                    delegation,
+                    after=tuple(dict.fromkeys([*delegation.after, target])),
+                ))
+                room.queued = list(queue)
+                room.waiting[agent.id] = target
+                await note(f"⏳ {_label(agent)} waits for @{target} first (data dependency).")
+                return
+
+        finished.add(agent.id)
+        if guest is not None and guest.contract_failed:
+            await note(
+                f"⚠️ {_label(agent)} did not return a valid output contract "
+                "(confidence treated as low)."
+            )
+        room.outcome(
+            agent.id, "done", duration_s=duration_s, tokens_in=tokens_in, tokens_out=tokens_out,
+        )
+        transcript.append(f"@{agent.id}", reply)
+        await note(f"{_label(agent)}:\n{reply}")
+        results.append((agent, reply))
+
     try:
         while True:
-            if not queue:
-                # Delegations recorded while this run was busy (coordinator or teammates).
-                queue, room.pending = room.pending, []
-                if not queue:
+            # Delegations recorded while this run was busy (coordinator or teammates).
+            if room.pending:
+                queue.extend(room.pending)
+                room.pending.clear()
+                room.queued = list(queue)
+
+            max_parallel = max(1, cfg.room.max_parallel)
+            while len(running) < max_parallel and room.chained < cfg.room.max_chained_turns:
+                ready_idx = None
+                for i, item in enumerate(queue):
+                    if item.agent_id not in running and all(dep in finished for dep in item.after):
+                        ready_idx = i
+                        break
+                if ready_idx is None:
                     break
-            ready_idx = next(
-                (i for i, item in enumerate(queue) if all(dep in finished for dep in item.after)),
-                None,
-            )
-            if ready_idx is None:
-                blocked = "; ".join(
-                    f"@{item.agent_id} waits for {', '.join('@' + dep for dep in item.after)}"
-                    for item in queue
+
+                delegation = queue.pop(ready_idx)
+                room.queued = list(queue)
+                agent = cfg.agent(delegation.agent_id)
+                if agent is None:
+                    await note(f"⚠️ Unknown room agent `{delegation.agent_id}` — skipped.")
+                    finished.add(delegation.agent_id)
+                    continue
+
+                room.chained += 1
+                transcript.append(f"{delegation.by} → @{agent.id}", delegation.task)
+                await note(f"⏳ {_label(agent)} is working on: {delegation.task[:200]}")
+                room.waiting.pop(agent.id, None)
+                room.active[agent.id] = ActiveGuest(agent.id, delegation.task, time.time())
+                guest_t0 = time.monotonic()
+
+                coro = _run_guest(room, agent, delegation)
+                task = asyncio.create_task(
+                    coro,
+                    name=f"coworker-guest:{room_id_for(room.session_key)}:{agent.id}",
                 )
-                await note(f"⚠️ Dependencies could not be resolved: {blocked}")
-                queue.clear()
-                room.queued = []
-                continue
-            delegation = queue.pop(ready_idx)
-            room.queued = list(queue)
-            if room.chained >= cfg.room.max_chained_turns:
+                running[agent.id] = task
+                running_info[agent.id] = (agent, delegation, guest_t0)
+
+            if queue and room.chained >= cfg.room.max_chained_turns and not running:
                 if not budget_note:
                     budget_note = True
                     await note(
@@ -530,91 +638,38 @@ async def _run_room(room: _Room) -> None:
                     )
                 queue.clear()
                 room.queued = []
-                continue
-            agent = cfg.agent(delegation.agent_id)
-            if agent is None:
-                await note(f"⚠️ Unknown room agent `{delegation.agent_id}` — skipped.")
-                finished.add(delegation.agent_id)
-                continue
-            room.chained += 1
-            transcript.append(f"{delegation.by} → @{agent.id}", delegation.task)
-            await note(f"⏳ {_label(agent)} is working on: {delegation.task[:200]}")
-            room.waiting.pop(agent.id, None)
-            room.active[agent.id] = ActiveGuest(agent.id, delegation.task, time.time())
-            guest_t0 = time.monotonic()
-            try:
-                guest = await _run_guest(room, agent, delegation)
-            except TimeoutError:
-                duration_s = time.monotonic() - guest_t0
-                room.outcome(agent.id, "timeout", duration_s=duration_s)
-                finished.add(agent.id)
-                await note(f"⚠️ {_label(agent)} did not finish within {cfg.room.guest_timeout_seconds}s — stopped.")
-                continue
-            except Exception as exc:
-                duration_s = time.monotonic() - guest_t0
-                room.outcome(agent.id, "error", duration_s=duration_s)
-                finished.add(agent.id)
-                logger.opt(exception=exc).warning("room {}: guest @{} failed", room.session_key, agent.id)
-                # ProjectError / RuntimeError from coding admission carry an actionable,
-                # user-facing reason (pick a project dir, make it a git repo, install backend...).
-                detail = (
-                    f"{type(exc).__name__}: {str(exc)[:400]}"
-                    if isinstance(exc, RuntimeError) and str(exc)
-                    else type(exc).__name__
+                break
+
+            if not running and not queue and not room.pending:
+                break
+
+            if not running and queue:
+                blocked = "; ".join(
+                    f"@{item.agent_id} waits for {', '.join('@' + dep for dep in item.after)}"
+                    for item in queue
                 )
-                await note(f"⚠️ {_label(agent)} failed: {detail}")
-                continue
-            finally:
-                room.active.pop(agent.id, None)
-            duration_s = time.monotonic() - guest_t0
-            if guest is not None:
-                room.last_guest[agent.id] = guest
-            reply = (guest.text if guest is not None else "").strip()
-            tokens_in = guest.usage.get("prompt_tokens") if guest is not None else None
-            tokens_out = guest.usage.get("completion_tokens") if guest is not None else None
-            # Delegations the teammate made during its turn join the queue in order.
-            queue.extend(room.pending)
-            room.pending = []
-            room.queued = list(queue)
-            if not reply or reply == REPLY_SKIP:
-                finished.add(agent.id)
-                room.outcome(
-                    agent.id, "done", duration_s=duration_s, tokens_in=tokens_in, tokens_out=tokens_out,
-                )
-                continue
-            wait = _WAIT_FOR.search(reply)
-            if wait and agent.id not in waited:
-                target = wait.group(1).lower()
-                still_pending = (
-                    target not in finished
-                    and (
-                        any(item.agent_id == target for item in queue)
-                        or any(item.agent_id == target for item in room.pending)
-                    )
-                )
-                if still_pending:
-                    waited.add(agent.id)
-                    queue.append(replace(
-                        delegation,
-                        after=tuple(dict.fromkeys([*delegation.after, target])),
-                    ))
-                    room.queued = list(queue)
-                    room.waiting[agent.id] = target
-                    await note(f"⏳ {_label(agent)} waits for @{target} first (data dependency).")
-                    continue
-            finished.add(agent.id)
-            if guest is not None and guest.contract_failed:
-                await note(
-                    f"⚠️ {_label(agent)} did not return a valid output contract "
-                    "(confidence treated as low)."
-                )
-            room.outcome(
-                agent.id, "done", duration_s=duration_s, tokens_in=tokens_in, tokens_out=tokens_out,
+                await note(f"⚠️ Dependencies could not be resolved: {blocked}")
+                queue.clear()
+                room.queued = []
+                break
+
+            done, _ = await asyncio.wait(
+                running.values(),
+                return_when=asyncio.FIRST_COMPLETED,
             )
-            transcript.append(f"@{agent.id}", reply)
-            await note(f"{_label(agent)}:\n{reply}")
-            results.append((agent, reply))
+            for finished_task in done:
+                matched_id = next(aid for aid, t in running.items() if t == finished_task)
+                running.pop(matched_id)
+                agent, delegation, guest_t0 = running_info.pop(matched_id)
+                exc = finished_task.exception() if not finished_task.cancelled() else None
+                guest = finished_task.result() if (exc is None and not finished_task.cancelled()) else None
+                await _handle_finished(agent, delegation, guest_t0, exc, guest)
+
     finally:
+        for t in running.values():
+            t.cancel()
+        if running:
+            await asyncio.gather(*running.values(), return_exceptions=True)
         room.queued = []
         room.active.clear()
         room.waiting.clear()

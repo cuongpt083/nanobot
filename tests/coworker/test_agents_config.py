@@ -24,7 +24,7 @@ def test_room_agent_config_defaults() -> None:
 
 def test_room_config_defaults() -> None:
     room = RoomConfig()
-    assert room.max_parallel == 3
+    assert room.max_parallel == 1
     assert room.context_turns == 5
     assert room.min_context_chars == 80
     assert room.legacy_guest_runner is False
