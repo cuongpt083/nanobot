@@ -25,7 +25,7 @@ from nanobot.coworker.coding.pi.protocol import (
 )
 from nanobot.coworker.coding.pi.questions import QuestionRouter
 from nanobot.coworker.coding.pi.transport import JsonlChannel
-from nanobot.coworker.coding.pi.version import check_pi_version, resolve_pi_binary
+from nanobot.coworker.coding.pi.version import check_pi_version_async, resolve_pi_binary
 from nanobot.coworker.coding.runtime import CodingRuntime, ModelSpec, RunOutcome, SessionSpec
 from nanobot.coworker.coding.sandbox import WINDOWS_ENV_KEYS, SandboxPolicy, wrap_argv
 from nanobot.coworker.config import PiBackendConfig
@@ -152,7 +152,8 @@ class PiClient(CodingRuntime):
 
     async def _preflight(self) -> None:
         min_ver = self.config.min_version or "1.0.0"
-        if not check_pi_version(min_ver, pi_command=self.config.command):
+        ok = await check_pi_version_async(min_ver, pi_command=self.config.command)
+        if not ok:
             raise RuntimeError(
                 f"Pi executable version does not satisfy minimum required version {min_ver}"
             )

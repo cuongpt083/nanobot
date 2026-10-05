@@ -208,7 +208,7 @@ export default function (pi: ExtensionAPI) {
         while not settled and time.time() - start_wait < 30:
             time.sleep(0.1)
 
-        assert settled is True
+        assert settled is True, "Pi run did not settle within 30s timeout"
 
         # Fetch entries
         entries_cmd = json.dumps({"id": "get_e", "type": "get_entries"}) + "\n"

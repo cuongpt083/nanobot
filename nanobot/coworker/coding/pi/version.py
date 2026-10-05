@@ -29,9 +29,16 @@ def get_pi_version(pi_command: list[str] | None = None) -> tuple[int, int, int] 
         match = re.search(r"(\d+)\.(\d+)\.(\d+)", res.stdout)
         if match:
             return int(match.group(1)), int(match.group(2)), int(match.group(3))
+    except FileNotFoundError:
+        return None
     except Exception:
         pass
     return None
+
+
+async def check_pi_version_async(min_version: str = "1.0.0", pi_command: list[str] | None = None) -> bool:
+    import asyncio
+    return await asyncio.to_thread(check_pi_version, min_version, pi_command)
 
 
 def check_pi_version(min_version: str = "1.0.0", pi_command: list[str] | None = None) -> bool:

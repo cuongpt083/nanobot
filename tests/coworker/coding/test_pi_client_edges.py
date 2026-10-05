@@ -131,7 +131,8 @@ async def test_extension_ui_request_roundtrip(tmp_path: Path) -> None:
 async def test_preflight_and_handshake_checks(tmp_path: Path) -> None:
     cfg = PiBackendConfig(allow_unsandboxed=True, min_version="99.0.0")
     client = PiClient(cfg)
-    with patch("nanobot.coworker.coding.pi.client.check_pi_version", return_value=False):
+    with patch("nanobot.coworker.coding.pi.client.check_pi_version_async", new_callable=AsyncMock) as mock_ver:
+        mock_ver.return_value = False
         with pytest.raises(RuntimeError, match="does not satisfy minimum required version"):
             await client.start(cwd=tmp_path, session=SessionSpec(task_id="t3"))
 
