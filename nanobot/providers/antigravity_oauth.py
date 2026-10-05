@@ -1091,8 +1091,11 @@ class ProactiveRefresher:
                 await self._sleep(min(delay_ms, 60_000) / 1000.0)
                 continue
             try:
-                refreshed = get_antigravity_oauth_token(
-                    adapter=self._adapter, proxy=self._proxy, force_refresh=True
+                refreshed = await asyncio.to_thread(
+                    get_antigravity_oauth_token,
+                    adapter=self._adapter,
+                    proxy=self._proxy,
+                    force_refresh=True,
                 )
             except AntigravityOAuthReauthRequiredError as exc:
                 self._dead_refresh = token.refresh

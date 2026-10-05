@@ -503,14 +503,17 @@ def _run_gateway(
     port = port if port is not None else config.gateway.port
     webui_url = _webui_browser_url(config)
     gateway_host_for_browser = _host_for_local_browser(config.gateway.host)
-    if health_server_enabled and _tcp_endpoint_reachable(gateway_host_for_browser, port):
+    if (
+        health_server_enabled
+        and _tcp_endpoint_reachable(gateway_host_for_browser, port, timeout_s=0.05)
+    ):
         _print_foreground_port_conflict(
             webui_url=webui_url,
             gateway_host=config.gateway.host,
             gateway_port=port,
         )
         raise typer.Exit(1)
-    if _webui_channel_enabled(config) and _webui_endpoint_reachable(webui_url):
+    if _webui_channel_enabled(config) and _webui_endpoint_reachable(webui_url, timeout_s=0.05):
         _print_foreground_port_conflict(
             webui_url=webui_url,
             gateway_host=config.gateway.host,

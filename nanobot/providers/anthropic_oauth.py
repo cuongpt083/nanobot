@@ -753,7 +753,11 @@ class ProactiveRefresher:
                 await self._sleep(min(delay_ms, 60_000) / 1000.0)
                 continue
             try:
-                refreshed = get_anthropic_oauth_token(proxy=self._proxy, force_refresh=True)
+                refreshed = await asyncio.to_thread(
+                    get_anthropic_oauth_token,
+                    proxy=self._proxy,
+                    force_refresh=True,
+                )
             except AnthropicOAuthReauthRequiredError as exc:
                 self._dead_refresh = token.refresh
                 if self._on_error is not None:
