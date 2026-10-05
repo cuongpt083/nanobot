@@ -25,6 +25,8 @@ from nanobot.coworker.coding.backends.base import (
     CodingBackend,
 )
 from nanobot.coworker.coding.backends.jsonl import (
+    StderrRingBuffer,
+    drain_stderr_to_buffer,
     iter_jsonl_stream,
     spawn_process_group,
     terminate_process_group,
@@ -83,6 +85,8 @@ class AgyRun(BackendRun):
         self._stdin_content = stdin_content
         self._cumulative_stats = cumulative_stats
         self.proc: asyncio.subprocess.Process | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
+        self.stderr_buffer = StderrRingBuffer()
         self.conversation_id: str | None = None
         self.round_stats: BackendStats = BackendStats()
         self.last_cumulative_stats: BackendStats = cumulative_stats
@@ -94,6 +98,10 @@ class AgyRun(BackendRun):
             env=self._env,
             stdin_pipe=bool(self._stdin_content),
         )
+        if self.proc.stderr:
+            self._stderr_task = asyncio.create_task(
+                drain_stderr_to_buffer(self.proc.stderr, self.stderr_buffer)
+            )
 
         if self._stdin_content and self.proc.stdin:
             try:
@@ -109,6 +117,9 @@ class AgyRun(BackendRun):
 
         if self.proc.stdout:
             async for raw in iter_jsonl_stream(self.proc.stdout):
+                if raw.get("type") == "__jsonl_overrun__":
+                    logger.warning(f"Agy stream record overrun: {raw.get('error')}")
+                    continue
                 event_type = raw.get("event")
 
                 if event_type == "init":
@@ -186,15 +197,14 @@ class AgyRun(BackendRun):
                     break
 
         await self.proc.wait()
+        if self._stderr_task and not self._stderr_task.done():
+            try:
+                await asyncio.wait_for(self._stderr_task, timeout=1.0)
+            except Exception:
+                self._stderr_task.cancel()
 
         if not result_event_seen:
-            stderr_out = ""
-            if self.proc.stderr:
-                try:
-                    stderr_bytes = await self.proc.stderr.read()
-                    stderr_out = stderr_bytes.decode("utf-8", errors="replace").strip()
-                except Exception:
-                    pass
+            stderr_out = self.stderr_buffer.get_text().strip()
             err_msg = (
                 f"agy exited with code {self.proc.returncode} before emitting result: {stderr_out}"
                 if self.proc.returncode != 0

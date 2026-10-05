@@ -52,12 +52,91 @@ async def iter_jsonl_stream(
                 if parsed is not None:
                     yield parsed
             break
-        except (asyncio.LimitOverrunError, EOFError):
+        except asyncio.LimitOverrunError as e:
+            # The line exceeded reader's internal limit. Skip chunks until \n is reached.
+            discarded_chunks: list[bytes] = []
+            try:
+                # Read out the consumed buffer chunk
+                if hasattr(e, "consumed") and e.consumed > 0:
+                    chunk = await reader.readexactly(e.consumed)
+                    if chunk:
+                        discarded_chunks.append(chunk)
+                while True:
+                    try:
+                        chunk = await reader.readuntil(b"\n")
+                        discarded_chunks.append(chunk)
+                        break
+                    except asyncio.LimitOverrunError as inner_e:
+                        if hasattr(inner_e, "consumed") and inner_e.consumed > 0:
+                            chunk = await reader.readexactly(inner_e.consumed)
+                            if chunk:
+                                discarded_chunks.append(chunk)
+                        else:
+                            break
+                    except (asyncio.IncompleteReadError, EOFError):
+                        break
+            except Exception:
+                pass
+            discarded = b"".join(discarded_chunks)
+            yield {
+                "type": "__jsonl_overrun__",
+                "error": "JSONL record exceeded stream limit",
+                "raw_line": (discarded[:1000].decode("utf-8", errors="replace")) if discarded else None,
+            }
+            continue
+        except EOFError:
             break
 
         parsed = parse_jsonl_line(line)
         if parsed is not None:
             yield parsed
+
+
+DEFAULT_STREAM_LIMIT = 64 * 1024 * 1024  # 64 MB
+
+
+class StderrRingBuffer:
+    """Bounded in-memory ring buffer holding the most recent stderr bytes."""
+
+    def __init__(self, max_bytes: int = 256 * 1024) -> None:
+        self.max_bytes = max_bytes
+        self._chunks: list[bytes] = []
+        self._total_bytes: int = 0
+
+    def feed(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+        if len(chunk) >= self.max_bytes:
+            self._chunks = [chunk[-self.max_bytes:]]
+            self._total_bytes = self.max_bytes
+            return
+        self._chunks.append(chunk)
+        self._total_bytes += len(chunk)
+        while self._chunks and self._total_bytes - len(self._chunks[0]) >= self.max_bytes:
+            self._total_bytes -= len(self._chunks.pop(0))
+
+    def get_text(self, encoding: str = "utf-8", errors: str = "replace") -> str:
+        data = b"".join(self._chunks)
+        if len(data) > self.max_bytes:
+            data = data[-self.max_bytes:]
+        return data.decode(encoding, errors=errors)
+
+
+async def drain_stderr_to_buffer(
+    reader: asyncio.StreamReader,
+    buffer: StderrRingBuffer,
+) -> None:
+    """Continuously read reader until EOF and store in ring buffer."""
+    try:
+        while True:
+            chunk = await reader.read(65536)
+            if not chunk:
+                break
+            buffer.feed(chunk)
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        logger.debug(f"Error draining stderr: {exc}")
 
 
 async def spawn_process_group(
@@ -66,6 +145,7 @@ async def spawn_process_group(
     cwd: Path | str,
     env: dict[str, str],
     stdin_pipe: bool = True,
+    limit: int = DEFAULT_STREAM_LIMIT,
 ) -> asyncio.subprocess.Process:
     """Spawn a subprocess in a new process group for clean subtree termination."""
     return await asyncio.create_subprocess_exec(
@@ -75,6 +155,7 @@ async def spawn_process_group(
         stdin=asyncio.subprocess.PIPE if stdin_pipe else asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        limit=limit,
         start_new_session=True,
     )
 

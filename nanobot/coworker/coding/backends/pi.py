@@ -26,6 +26,8 @@ from nanobot.coworker.coding.backends.base import (
     CodingBackend,
 )
 from nanobot.coworker.coding.backends.jsonl import (
+    StderrRingBuffer,
+    drain_stderr_to_buffer,
     iter_jsonl_stream,
     spawn_process_group,
     terminate_process_group,
@@ -104,6 +106,8 @@ class PiBackend(CodingBackend):
         self.sandbox_policy = sandbox_policy or SandboxPolicy(mode=global_sandbox)
         self.proc: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
+        self.stderr_buffer = StderrRingBuffer()
         self._pending_commands: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._current_queue: asyncio.Queue[BackendEvent] | None = None
         self._session_path: str | None = None
@@ -249,6 +253,19 @@ class PiBackend(CodingBackend):
                         await self._current_queue.put(BackendEventText(text=str(delta)))
                     continue
 
+                # 4b. Non-fatal overrun warning from jsonl stream
+                if event_type == "__jsonl_overrun__":
+                    logger.warning(f"Pi stream record overrun: {raw.get('error')}")
+                    if self._current_queue:
+                        await self._current_queue.put(
+                            BackendEventProgress(
+                                message=f"warning: {raw.get('error')}",
+                                tool_count=self._tool_count,
+                                last_tool=self._last_tool,
+                            )
+                        )
+                    continue
+
                 # 5. Agent completion
                 if event_type == "agent_settled":
                     settled = True
@@ -275,8 +292,15 @@ class PiBackend(CodingBackend):
             # If terminated without agent_settled and queue is waiting
             if self._current_queue and not settled:
                 code = self.proc.returncode if self.proc else None
-                err_msg = f"Pi process terminated unexpectedly (exit code {code})"
-                await self._current_queue.put(BackendEventError(error=err_msg))
+                stderr_tail = self.stderr_buffer.get_text()
+                err_msg = (
+                    f"Pi process terminated unexpectedly (exit code {code}): {stderr_tail}"
+                    if stderr_tail
+                    else f"Pi process terminated unexpectedly (exit code {code})"
+                )
+                await self._current_queue.put(
+                    BackendEventError(error=err_msg, raw_line=stderr_tail or None)
+                )
 
     async def _on_agent_settled(self) -> None:
         response_text = ""
@@ -364,6 +388,10 @@ class PiBackend(CodingBackend):
 
         async def _launch_and_prompt() -> None:
             self.proc = await spawn_process_group(args, cwd=cwd, env=env, stdin_pipe=True)
+            if self.proc.stderr:
+                self._stderr_task = asyncio.create_task(
+                    drain_stderr_to_buffer(self.proc.stderr, self.stderr_buffer)
+                )
             self._reader_task = asyncio.create_task(self._read_loop())
             # Send initial prompt
             await self._send_command("prompt", {"message": brief})
@@ -401,6 +429,10 @@ class PiBackend(CodingBackend):
             env = _make_child_env(self.config.pass_env, self.config.agent_dir)
             args = self._sandboxed(args, cwd, env, session_dir)
             self.proc = await spawn_process_group(args, cwd=cwd, env=env, stdin_pipe=True)
+            if self.proc.stderr:
+                self._stderr_task = asyncio.create_task(
+                    drain_stderr_to_buffer(self.proc.stderr, self.stderr_buffer)
+                )
             self._reader_task = asyncio.create_task(self._read_loop())
             await self._send_command("prompt", {"message": message})
 
@@ -417,6 +449,11 @@ class PiBackend(CodingBackend):
             except Exception:
                 pass
             await terminate_process_group(self.proc, timeout=5.0)
+        if self._stderr_task and not self._stderr_task.done():
+            try:
+                await asyncio.wait_for(self._stderr_task, timeout=1.0)
+            except Exception:
+                self._stderr_task.cancel()
 
     async def stats(self) -> BackendStats:
         if self.proc and self.proc.returncode is None:
