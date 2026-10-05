@@ -28,6 +28,18 @@ def _metadata(session: Any) -> dict[str, Any] | None:
     return cast("dict[str, Any]", meta) if isinstance(meta, dict) else None
 
 
+def _prev_persona_preset(state: dict[str, Any], cfg: CoworkerConfig) -> str | None:
+    if "persona_preset" in state:
+        val = state.get("persona_preset")
+        return str(val) if isinstance(val, str) and val.strip() else None
+    old_persona = state.get("persona")
+    if old_persona:
+        old_agent = next((a for a in cfg.room.agents if a.id == old_persona), None)
+        if old_agent and old_agent.preset:
+            return old_agent.preset
+    return None
+
+
 def set_persona_id(session: Any, agent_id: str | None, cfg: CoworkerConfig) -> RoomAgentConfig | None:
     """Assign or clear the per-session persona.
 
@@ -36,10 +48,15 @@ def set_persona_id(session: Any, agent_id: str | None, cfg: CoworkerConfig) -> R
     """
     state = session_state(session)
     metadata = _metadata(session)
+    prev_preset = _prev_persona_preset(state, cfg)
+
     if not agent_id:
+        state.pop("persona", None)
+        state.pop("persona_preset", None)
         # Only undo the preset a persona applied; never wipe a model the user picked.
-        if state.pop("persona", None) is not None and metadata is not None:
-            metadata.pop(SESSION_MODEL_PRESET_METADATA_KEY, None)
+        if metadata is not None and prev_preset:
+            if metadata.get(SESSION_MODEL_PRESET_METADATA_KEY) == prev_preset:
+                metadata.pop(SESSION_MODEL_PRESET_METADATA_KEY, None)
         return None
 
     agent = next((a for a in cfg.room.agents if a.id == agent_id), None)
@@ -47,9 +64,13 @@ def set_persona_id(session: Any, agent_id: str | None, cfg: CoworkerConfig) -> R
         raise ValueError(f"unknown persona {agent_id!r}")
 
     state["persona"] = agent.id
-    if metadata is not None:
-        if agent.preset:
+    if agent.preset:
+        state["persona_preset"] = agent.preset
+        if metadata is not None:
             metadata[SESSION_MODEL_PRESET_METADATA_KEY] = agent.preset
-        else:
-            metadata.pop(SESSION_MODEL_PRESET_METADATA_KEY, None)
+    else:
+        state.pop("persona_preset", None)
+        if metadata is not None and prev_preset:
+            if metadata.get(SESSION_MODEL_PRESET_METADATA_KEY) == prev_preset:
+                metadata.pop(SESSION_MODEL_PRESET_METADATA_KEY, None)
     return agent

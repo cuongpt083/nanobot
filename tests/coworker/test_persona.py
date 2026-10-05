@@ -127,3 +127,51 @@ def test_session_api_apply_persona(env) -> None:
     apply_persona(session, {"id": "researcher"})
     assert get_persona_id(session) == "researcher"
     assert session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] == "sonnet"
+
+
+def test_persona_preset_preserves_user_override(env) -> None:
+    session = env.sessions.get_or_create(KEY)
+
+    # 1. Turn on researcher (sets preset to 'sonnet')
+    set_persona_id(session, "researcher", CFG)
+    assert session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] == "sonnet"
+
+    # User manually overrides model preset to 'opus'
+    session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] = "opus"
+
+    # Clearing persona preserves user override
+    set_persona_id(session, None, CFG)
+    assert get_persona_id(session) is None
+    assert session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] == "opus"
+
+    # Re-enable researcher, user overrides, then switch to writer (no preset)
+    set_persona_id(session, "researcher", CFG)
+    session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] = "custom-model"
+    set_persona_id(session, "writer", CFG)
+    assert get_persona_id(session) == "writer"
+    assert session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] == "custom-model"
+
+
+def test_persona_preset_switch_and_legacy_fallback(env) -> None:
+    session = env.sessions.get_or_create(KEY)
+
+    # Switch from researcher (sonnet) to writer (no preset) when untouched
+    set_persona_id(session, "researcher", CFG)
+    assert session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] == "sonnet"
+    set_persona_id(session, "writer", CFG)
+    assert get_persona_id(session) == "writer"
+    assert SESSION_MODEL_PRESET_METADATA_KEY not in session.metadata
+
+    # Legacy state simulation: 'persona' is set, metadata preset matches agent, but 'persona_preset' missing
+    from nanobot.coworker.runtime import session_state
+
+    state = session_state(session)
+    state["persona"] = "researcher"
+    state.pop("persona_preset", None)
+    session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] = "sonnet"
+
+    # Clearing persona falls back to old agent's preset and cleans it up
+    set_persona_id(session, None, CFG)
+    assert get_persona_id(session) is None
+    assert SESSION_MODEL_PRESET_METADATA_KEY not in session.metadata
+
