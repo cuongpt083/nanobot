@@ -148,6 +148,17 @@ def reset_states() -> None:
     _states.clear()
 
 
+def reset_session_state(session_key: str) -> None:
+    _states.pop(session_key, None)
+
+
+def reset(session_key: str | None = None) -> None:
+    if session_key:
+        _states.pop(session_key, None)
+    else:
+        _states.clear()
+
+
 def cache_ttl_seconds(override: int | None) -> float:
     """Short-TTL prompt caches (Anthropic ephemeral, OpenAI, Gemini) live ~5 minutes."""
     return float(override) if override else DEFAULT_TTL_S

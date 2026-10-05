@@ -295,3 +295,24 @@ def persona_section(agent: RoomAgentConfig) -> str:
         parts.append(agent.instructions.strip())
     return "\n".join(parts)
 
+
+def persona_direct(agent: RoomAgentConfig) -> str:
+    """Directive for a home-backed agent speaking directly with the user."""
+    name = f"{agent.name or agent.id}".strip()
+    if agent.emoji:
+        name = f"{name} {agent.emoji}".strip()
+    lines = [
+        f"## Persona: {name}",
+        "You are speaking directly with the user. Answer in your own voice according to your SOUL.md.",
+    ]
+    if agent.bio:
+        lines.append(f"Role: {agent.bio}")
+    if agent.instructions and agent.instructions.strip():
+        lines.append(agent.instructions.strip())
+    if agent.memory == "thread+notes":
+        lines.append(
+            "You have access to `agent_notes` to view and record durable lessons learned in your private memory. "
+            "Record only reusable lessons, never personal user data."
+        )
+    return "\n".join(lines)
+

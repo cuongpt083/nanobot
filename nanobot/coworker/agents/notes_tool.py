@@ -8,10 +8,12 @@ import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from nanobot.agent.tools.base import ToolResult, tool_parameters
+from nanobot.agent.tools.context import current_request_context
 from nanobot.coworker.agents.home import agent_home_path
 from nanobot.coworker.config import load_coworker_config
+from nanobot.coworker.persona import get_persona_id
 from nanobot.coworker.room.scheduler import current_room_actor
-from nanobot.coworker.runtime import services
+from nanobot.coworker.runtime import get_session, services
 from nanobot.coworker.tools_base import CoworkerTool
 
 if TYPE_CHECKING:
@@ -39,16 +41,16 @@ MAX_FILE_BYTES = 32 * 1024  # 32 KB
 class AgentNotesTool(CoworkerTool):
     """View and record durable lessons into the agent's private memory/MEMORY.md."""
 
-    _scopes = {"subagent"}
+    _scopes = {"core", "subagent"}
 
     @classmethod
     def enabled(cls, ctx: ToolContext) -> bool:
         actor = current_room_actor.get()
-        if actor is None:
-            return False
-        cfg = load_coworker_config()
-        agent = cfg.agent(actor.agent_id)
-        return agent is not None and agent.memory == "thread+notes"
+        if actor is not None:
+            cfg = load_coworker_config()
+            agent = cfg.agent(actor.agent_id)
+            return agent is not None and agent.memory == "thread+notes"
+        return True
 
     @property
     def name(self) -> str:
@@ -61,31 +63,45 @@ class AgentNotesTool(CoworkerTool):
             "Only available for teammates configured with 'thread+notes' memory."
         )
 
+    def _resolve_agent_id(self) -> str | None:
+        actor = current_room_actor.get()
+        if actor is not None:
+            return actor.agent_id
+        req = current_request_context()
+        if req and req.session_key:
+            session = get_session(req.session_key)
+            if session is not None:
+                return get_persona_id(session)
+        return None
+
     async def execute(
         self,
         action: Literal["append", "list"] = "list",
         note: str | None = None,
         **kwargs: Any,
     ) -> ToolResult:
-        actor = current_room_actor.get()
-        if actor is None:
-            return self.payload("error", error="agent_notes is only available during an active room turn.")
+        agent_id = self._resolve_agent_id()
+        if agent_id is None:
+            return self.payload(
+                "error",
+                error="agent_notes is only available during an active room turn or with a persona using 'thread+notes'.",
+            )
 
         svc = services()
         if svc is None:
             return self.payload("error", error="Coworker services are not available.")
 
         cfg = load_coworker_config()
-        agent = cfg.agent(actor.agent_id)
+        agent = cfg.agent(agent_id)
         if agent is None:
-            return self.payload("error", error=f"Agent '{actor.agent_id}' not found in configuration.")
+            return self.payload("error", error=f"Agent '{agent_id}' not found in configuration.")
 
         if agent.memory != "thread+notes":
-            return self.payload("error", error=f"Agent '{actor.agent_id}' does not have memory='thread+notes' enabled.")
+            return self.payload("error", error=f"Agent '{agent_id}' does not have memory='thread+notes' enabled.")
 
         home = agent_home_path(svc.workspace, agent)
         if home is None or not home.is_dir():
-            return self.payload("error", error=f"Agent home directory for '{actor.agent_id}' is not initialized.")
+            return self.payload("error", error=f"Agent home directory for '{agent_id}' is not initialized.")
 
         mem_dir = home / "memory"
         mem_dir.mkdir(parents=True, exist_ok=True)

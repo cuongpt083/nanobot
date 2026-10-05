@@ -49,10 +49,17 @@ def set_persona_id(session: Any, agent_id: str | None, cfg: CoworkerConfig) -> R
     state = session_state(session)
     metadata = _metadata(session)
     prev_preset = _prev_persona_preset(state, cfg)
+    old_persona = state.get("persona")
 
     if not agent_id:
         state.pop("persona", None)
         state.pop("persona_preset", None)
+        if old_persona is not None:
+            from nanobot.coworker.context import optimizer
+
+            session_key = getattr(session, "key", None)
+            if session_key:
+                optimizer.reset(session_key)
         # Only undo the preset a persona applied; never wipe a model the user picked.
         if metadata is not None and prev_preset:
             if metadata.get(SESSION_MODEL_PRESET_METADATA_KEY) == prev_preset:
@@ -62,6 +69,13 @@ def set_persona_id(session: Any, agent_id: str | None, cfg: CoworkerConfig) -> R
     agent = next((a for a in cfg.room.agents if a.id == agent_id), None)
     if agent is None:
         raise ValueError(f"unknown persona {agent_id!r}")
+
+    if old_persona != agent.id:
+        from nanobot.coworker.context import optimizer
+
+        session_key = getattr(session, "key", None)
+        if session_key:
+            optimizer.reset(session_key)
 
     state["persona"] = agent.id
     if agent.preset:

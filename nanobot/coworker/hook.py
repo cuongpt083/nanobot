@@ -349,10 +349,49 @@ class CoworkerHook(AgentHook):
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
         if not self._key or services() is None:
             return messages, tools
+        svc = services()
+        if svc is None:
+            return messages, tools
         cfg = load_coworker_config()
         session = get_session(self._key)
         if session is None:
             return messages, tools
+
+        from nanobot.coworker.agents.prompt import resolve_home
+
+        persona_agent = resolve_persona(session, cfg)
+        home = resolve_home(persona_agent, svc.workspace) if persona_agent else None
+        is_direct = persona_agent is not None and home is not None
+
+        if is_direct and messages and messages[0].get("role") == "system":
+            old_content = messages[0].get("content")
+            archived_summary = ""
+            archived_marker = "[Archived Context Summary]"
+            if isinstance(old_content, str) and archived_marker in old_content:
+                idx = old_content.find(archived_marker)
+                archived_summary = old_content[idx:].strip()
+
+            from nanobot.coworker.agents.prompt import build_system_prompt
+            from nanobot.security.workspace_access import workspace_scope_from_metadata
+
+            scope = workspace_scope_from_metadata(
+                getattr(session, "metadata", None),
+                default_workspace=svc.workspace,
+                default_restrict_to_workspace=bool(
+                    svc.tools_config and svc.tools_config.restrict_to_workspace
+                ),
+            )
+            new_prompt = build_system_prompt(
+                persona_agent,
+                project_root=scope.project_path,
+                svc=svc,
+                roster=cfg.room.agents,
+                role="direct",
+            )
+            if archived_summary:
+                new_prompt = f"{new_prompt}\n\n---\n\n{archived_summary}"
+            messages = [{**messages[0], "content": new_prompt}, *messages[1:]]
+
         ctx_cfg = cfg.context
         keepalive.mark_in_flight(self._key, True)
         kw_setting = keepalive_state.effective(session)
@@ -401,9 +440,8 @@ class CoworkerHook(AgentHook):
         room_on = room_armed_for(session)
         workflows_on = cfg.workflows.enabled
         coding_on = cfg.coding.enabled
-        persona_agent = resolve_persona(session, cfg)
         sections: list[str] = []
-        if persona_agent is not None:
+        if not is_direct and persona_agent is not None:
             sections.append(directives.persona_section(persona_agent))
         if advisor_eff is not None:
             brainstorm = advisor_eff.mode == advisor_state.MODE_BRAINSTORM
@@ -437,6 +475,34 @@ class CoworkerHook(AgentHook):
             hidden.add(WASTED_TOOL)
         if not coding_on:
             hidden.add(CODING_TOOL)
+
+        if persona_agent is not None:
+            if persona_agent.memory != "thread+notes":
+                hidden.add("agent_notes")
+            if tools:
+                from nanobot.coworker.agents.toolset import matches_any
+
+                always_keep = {
+                    "room_state",
+                    "room_delegate",
+                    "agents_list",
+                    "agent_notes",
+                    ADVISOR_TOOL,
+                    WASTED_TOOL,
+                    CODING_TOOL,
+                    *WORKFLOW_TOOLS,
+                }
+                for t in tools:
+                    tname = _tool_name(t)
+                    if tname in always_keep:
+                        continue
+                    if persona_agent.tools.allow and not matches_any(tname, persona_agent.tools.allow):
+                        hidden.add(tname)
+                    if persona_agent.tools.deny and matches_any(tname, persona_agent.tools.deny):
+                        hidden.add(tname)
+        else:
+            hidden.add("agent_notes")
+
         if tools and hidden:
             tools = [t for t in tools if _tool_name(t) not in hidden]
 

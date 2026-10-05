@@ -69,6 +69,7 @@ def build_system_prompt(
     project_root: Path,
     svc: CoworkerServices,
     roster: list[RoomAgentConfig],
+    role: str = "member",
 ) -> str:
     home = resolve_home(agent, svc.workspace)
     if home is None:
@@ -85,5 +86,8 @@ def build_system_prompt(
         summary = inherited_skills_summary(svc.workspace, agent.skills.inherit)
         if summary:
             parts.append(summary)
-    parts.append(directives.room_member(agent, roster))
+    if role == "direct":
+        parts.append(directives.persona_direct(agent))
+    else:
+        parts.append(directives.room_member(agent, roster))
     return "\n\n---\n\n".join(p for p in parts if p)

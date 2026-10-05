@@ -8,6 +8,7 @@ from typing import Any
 
 from nanobot.coworker.advisor import state as advisor_state
 from nanobot.coworker.advisor.consult import active_consult, breaker_open_seconds
+from nanobot.coworker.agents.prompt import resolve_home
 from nanobot.coworker.coding.project import (
     ProjectError,
     direct_allowed,
@@ -18,6 +19,7 @@ from nanobot.coworker.coding.project import (
 from nanobot.coworker.coding.tasks import CodingTask, shared_registry
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import keepalive, metrics, optimizer
+from nanobot.coworker.directives import agent_capability_highlights
 from nanobot.coworker.persona import resolve_persona
 from nanobot.coworker.room.scheduler import room_snapshot
 from nanobot.coworker.room.store import RoomStateStore, room_id_for
@@ -367,6 +369,8 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
         "emoji": persona_agent.emoji,
         "bio": persona_agent.bio,
         "preset": persona_agent.preset,
+        "mode": "direct" if resolve_home(persona_agent, ws_root) is not None else "overlay",
+        "tools": agent_capability_highlights(persona_agent),
     } if persona_agent is not None else None
 
     personas_list = [
@@ -376,6 +380,8 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
             "emoji": a.emoji,
             "bio": a.bio,
             "preset": a.preset,
+            "mode": "direct" if resolve_home(a, ws_root) is not None else "overlay",
+            "tools": agent_capability_highlights(a),
         }
         for a in cfg.room.agents
     ]
