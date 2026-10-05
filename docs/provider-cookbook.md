@@ -596,6 +596,31 @@ In chat:
 The selection survives restarts, does not affect other sessions, and an in-progress
 turn keeps using the model it started with.
 
+## Recipe: Custom OpenAI-Compatible Image Generation (e.g. agy2api)
+
+Configure an external OpenAI-compatible image endpoint as a named custom provider:
+
+```json
+{
+  "providers": {
+    "custom-agy-17": {
+      "displayName": "Agy 17 Gateway",
+      "apiBase": "http://192.168.100.17:8000/v1",
+      "apiKey": "${CUSTOM_IMAGE_API_KEY}"
+    }
+  },
+  "tools": {
+    "imageGeneration": {
+      "enabled": true,
+      "provider": "custom-agy-17",
+      "model": "gemini-3.8-flash-high"
+    }
+  }
+}
+```
+
+The `custom-*` prefix routes requests to the OpenAI-compatible images client (`POST {apiBase}/images/generations`). `apiKey` is optional if the server does not enforce auth. Image-to-image reference files are supported automatically as Base64 data URIs.
+
 ## Quick Failure Map
 
 | Symptom | Usually means | First check |

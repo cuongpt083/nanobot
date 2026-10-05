@@ -78,6 +78,9 @@ def test_image_generation_provider_rows_and_update_custom_providers() -> None:
     payload = capability_settings_payload(config, oauth_status=_oauth_status)
     image_rows = {row["name"]: row for row in payload["image_generation"]["providers"]}
 
+    assert "custom" in image_rows
+    assert image_rows["custom"]["models"] is None
+
     assert "custom-agy-17" in image_rows
     agy_row = image_rows["custom-agy-17"]
     assert agy_row["label"] == "Agy 17 Gateway"

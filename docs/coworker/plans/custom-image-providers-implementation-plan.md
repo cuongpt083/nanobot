@@ -90,14 +90,16 @@ Nanobot hiện đã sở hữu công cụ tạo ảnh `generate_image` (`nanobot
 
 ### Phase 3: WebUI Settings & Model Discovery
 - [x] Cập nhật `_image_generation_provider_rows` trong `nanobot/webui/settings_capabilities.py` để hiển thị các custom provider trong cấu hình.
-- [x] Bổ sung dynamic model discovery bằng cách tái sử dụng endpoint `/api/settings/provider-models` sẵn có (`models: null` kích hoạt WebUI `ModelIdPicker` fetch online và fallback gõ tay tự do).
+- [x] Bổ sung dynamic model discovery bằng cách tái sử dụng endpoint `/api/settings/provider-models` sẵn có (`models: null` kích hoạt WebUI `ModelIdPicker` fetch online theo nhu cầu và fallback gõ tay tự do; giữ timeout 10s hiện tại thay vì 2.0s để tránh stall save settings payload).
 - [x] Cập nhật validation trong `update_image_generation_settings` để cho phép lưu cấu hình named custom provider.
 - [x] Viết test trong `tests/webui/test_settings_capabilities.py`.
 
 ### Phase 4: Kiểm thử toàn diện & Tài liệu
-- [x] Chạy toàn bộ test suite liên quan của Nanobot (110 tests image generation & settings capabilities passed, 107 settings api passed, basedpyright 0 errors, vitest 25 tests passed).
-- [x] Cập nhật tài liệu `docs/image-generation.md` hỗ trợ custom providers (`custom-*`), reference images (image-to-image), và `displayName`.
-- [ ] Thử nghiệm thực tế với server `agy2api` khi server trực tuyến (hiện tại IP 192.168.100.17 đang offline/unreachable từ host này).
+- [x] Chạy toàn bộ test suite liên quan của Nanobot (110 tests image generation & settings capabilities passed, 107 settings api passed, basedpyright 0 errors, vitest 82 settings tests passed).
+- [x] Cập nhật tài liệu `docs/image-generation.md` và `docs/provider-cookbook.md` hỗ trợ custom providers (`custom-*`), reference images (image-to-image), recipe và `displayName`.
+- [ ] **[BLOCKED - Host Unreachable]** Thử nghiệm thực tế với server `agy2api` tại `http://192.168.100.17:8000/v1`:
+  * Ping/TCP connect tới `192.168.100.17:8000` bị TimedOut (server offline hoặc khác subnet).
+  * Các unit tests mô phỏng đã pass 100%. Khi máy chủ online, có thể kiểm tra trực tiếp qua WebUI Settings hoặc CLI: `nanobot agent -m "Vẽ một chú mèo tam thể"`.
 
 ---
 
