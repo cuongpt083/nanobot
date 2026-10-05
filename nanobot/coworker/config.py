@@ -135,6 +135,7 @@ class WorkflowConfig(Base):
 
 class PiBackendConfig(Base):
     command: list[str] = ["pi"]
+    min_version: str = "1.0.0"
     agent_dir: str | None = None
     tools: list[str] | None = None
     extensions: bool = True
