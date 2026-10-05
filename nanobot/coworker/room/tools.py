@@ -69,13 +69,44 @@ class AgentsListTool(_RoomTool):
         return self.payload("ok", agents=agents)
 
 
+def _as_str_list(value: Any) -> list[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
 @tool_parameters({
     "type": "object",
     "properties": {
         "agent": {"type": "string", "description": 'Target agent id exactly as in agents_list (e.g. "researcher").'},
         "task": {"type": "string", "description": "Concrete, self-contained task: what to produce and any constraints."},
+        "context": {
+            "type": "string",
+            "description": (
+                "Required briefing for the teammate: decisions already made, constraints, audience, "
+                "and anything they must not redo. Must be at least room.minContextChars characters."
+            ),
+        },
+        "context_keys": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "room_state keys the teammate should read (e.g. brief, research).",
+        },
+        "after": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Agent ids that must finish first (already delegated this turn or running).",
+        },
+        "deliverable": {
+            "type": "string",
+            "description": "What to produce and where to save it (file path if long).",
+        },
     },
-    "required": ["agent", "task"],
+    "required": ["agent", "task", "context"],
 })
 class RoomDelegateTool(_RoomTool):
     @property
@@ -85,12 +116,22 @@ class RoomDelegateTool(_RoomTool):
     @property
     def description(self) -> str:
         return (
-            "Hand a sub-task to another agent in this room. That agent takes a turn after yours, does the "
-            "work with its own tools and reports back. Call once per agent you need, then END your turn; "
-            "the room runs them and re-summons the coordinator with their results."
+            "Hand a sub-task to another agent in this room. Required: agent, task, and context "
+            "(decisions, constraints, audience — not just a restatement of the task). Optional: "
+            "context_keys, after (agent ids already delegated this turn), deliverable. Call once "
+            "per agent, then END your turn; the room runs them and re-summons you with their results."
         )
 
-    async def execute(self, agent: str = "", task: str = "", **kwargs: Any) -> ToolResult:
+    async def execute(
+        self,
+        agent: str = "",
+        task: str = "",
+        context: str = "",
+        context_keys: Any = None,
+        after: Any = None,
+        deliverable: str = "",
+        **kwargs: Any,
+    ) -> ToolResult:
         identity = self._identity()
         if identity is None:
             return self.payload("error", error="room_delegate is only available inside a multi-agent room.")
@@ -111,11 +152,49 @@ class RoomDelegateTool(_RoomTool):
                         "error",
                         error=f"you cannot delegate to yourself (you are currently @{target}).",
                     )
+        cfg = load_coworker_config()
+        briefing = (context or "").strip()
+        min_chars = cfg.room.min_context_chars
+        if len(briefing) < min_chars:
+            return self.payload(
+                "error",
+                error=(
+                    "room_delegate requires `context` — a briefing of at least "
+                    f"{min_chars} characters covering decisions already made, constraints, "
+                    "audience, and what the teammate must not redo. Do not only restate `task`."
+                ),
+            )
+        deps = [item.lstrip("@").lower() for item in _as_str_list(after)]
+        if target in deps:
+            return self.payload("error", error="`after` cannot include the target agent.")
+        known = scheduler.known_delegate_targets(session_key)
+        missing = [dep for dep in deps if dep not in known]
+        if missing:
+            return self.payload(
+                "error",
+                error=(
+                    "`after` only accepts agent ids already delegated this turn or still running: "
+                    f"unknown {', '.join(f'`{d}`' for d in missing)}."
+                ),
+            )
         request = self.request()
-        scheduler.record_delegation(
-            session_key, target, task, by=by, runtime=request.runtime if request else None
+        recorded = scheduler.record_delegation(
+            session_key,
+            target,
+            task,
+            by=by,
+            runtime=request.runtime if request else None,
+            context=briefing,
+            context_keys=_as_str_list(context_keys),
+            after=deps,
+            deliverable=deliverable,
         )
-        return self.payload("ok", delegated=target, note=f"@{target} will take a turn after yours: {task[:120]}")
+        return self.payload(
+            "ok",
+            delegated=target,
+            id=recorded.id,
+            note=f"@{target} will take a turn after yours: {task[:120]}",
+        )
 
 
 @tool_parameters({

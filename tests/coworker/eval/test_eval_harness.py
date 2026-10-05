@@ -151,7 +151,14 @@ async def test_room_eval_loop_integration(tmp_path: Path) -> None:
                 ToolCallRequest(
                     id="call_del",
                     name="room_delegate",
-                    arguments={"agent": "researcher", "task": "research facts"},
+                    arguments={
+                        "agent": "researcher",
+                        "task": "research facts",
+                        "context": (
+                            "User already decided: no medical diagnosis, low budget, "
+                            "deliver via Zalo each morning, keep the tone practical."
+                        ),
+                    },
                 )
             ],
             finish_reason="tool_calls",

@@ -18,6 +18,10 @@ from nanobot.coworker.room.tools import RoomDelegateTool, RoomStateTool
 
 KEY = "telegram:42"
 OWNER_RUNTIME: Any = SimpleNamespace(model="owner-model")
+CTX = (
+    "User already decided: no medical diagnosis, low budget, deliver via Zalo "
+    "each morning, keep the tone practical and short for office workers."
+)
 
 
 class FakeSubagents:
@@ -76,10 +80,10 @@ async def test_delegations_run_teammates_then_summon_the_coordinator(env) -> Non
     env.bind()
     with request_context(RequestContext(channel="telegram", chat_id="42", session_key=KEY, runtime=OWNER_RUNTIME)):
         tool = RoomDelegateTool()
-        ok = json.loads(await tool.execute(agent="@Researcher", task="find facts"))
+        ok = json.loads(await tool.execute(agent="@Researcher", task="find facts", context=CTX))
         assert ok["status"] == "ok"
-        await tool.execute(agent="writer", task="write copy")
-        bad = json.loads(await tool.execute(agent="ghost", task="x"))
+        await tool.execute(agent="writer", task="write copy", context=CTX)
+        bad = json.loads(await tool.execute(agent="ghost", task="x", context=CTX))
         assert bad["status"] == "error"
 
     assert scheduler.maybe_start_room_run(KEY, channel="telegram", chat_id="42")
@@ -88,8 +92,8 @@ async def test_delegations_run_teammates_then_summon_the_coordinator(env) -> Non
     assert [agent for agent, _ in env.subagents.calls] == ["researcher", "writer"]
     first_task = env.subagents.calls[0][1]
     assert first_task.startswith('You are agent "Researcher" (id `researcher`)')
-    assert "## Your assignment (from owner)\nfind facts" in first_task
-    assert "\n\n---\n\n" in first_task
+    assert "## Assignment" in first_task
+    assert "find facts" in first_task
     # The writer sees the researcher's result in the room projection.
     assert "@researcher: Facts: A, B" in env.subagents.calls[1][1]
     posted = [m.content for m in env.bus.outbound]
@@ -106,7 +110,7 @@ async def test_teammate_can_delegate_onward_and_wait_for_dependencies(env) -> No
     async def on_run(agent: str) -> None:
         if agent == "writer" and len(env.subagents.calls) == 1:
             # Writer hands research to the researcher through its own tool call.
-            await RoomDelegateTool().execute(agent="researcher", task="get numbers")
+            await RoomDelegateTool().execute(agent="researcher", task="get numbers", context=CTX)
 
     env.subagents = FakeSubagents(
         {"writer": ["WAIT_FOR @researcher\nneed numbers", "Final copy with numbers"], "researcher": ["42%"]},
@@ -181,7 +185,7 @@ async def test_room_snapshot_marks_waiting_and_failed_agents(env) -> None:
 
     async def on_run(agent: str) -> None:
         if agent == "writer" and len(env.subagents.calls) == 1:
-            await RoomDelegateTool().execute(agent="researcher", task="get numbers")
+            await RoomDelegateTool().execute(agent="researcher", task="get numbers", context=CTX)
         if agent == "researcher":
             seen["snap"] = scheduler.room_snapshot(KEY)
 
@@ -252,6 +256,7 @@ async def test_home_guest_uses_agent_runtime_and_records_tokens(env, monkeypatch
         return GuestResult(
             text="home reply",
             usage={"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+            contract_failed=True,
         )
 
     monkeypatch.setattr("nanobot.coworker.agents.runtime.AgentRuntime.run", fake_run)
@@ -260,7 +265,8 @@ async def test_home_guest_uses_agent_runtime_and_records_tokens(env, monkeypatch
     await _drain(KEY)
 
     assert seen["agent"] == "researcher"
-    assert "## Your assignment (from owner)\nfind facts" in seen["task"]
+    assert "## Assignment" in seen["task"]
+    assert "find facts" in seen["task"]
     assert seen["progress"] is None or seen["progress"].agent_id == "researcher"
     outcome = scheduler.room_snapshot(KEY).recent[-1]
     assert outcome.state == "done"
@@ -268,6 +274,7 @@ async def test_home_guest_uses_agent_runtime_and_records_tokens(env, monkeypatch
     assert outcome.tokens_out == 4
     posted = [m.content for m in env.bus.outbound]
     assert any("home reply" in p for p in posted)
+    assert any("did not return a valid output contract" in p for p in posted)
 
 
 @pytest.mark.asyncio
@@ -279,7 +286,9 @@ async def test_home_agent_two_turn_thread_binds_session_workspace(env) -> None:
     from nanobot.security.workspace_access import current_workspace_scope
     from nanobot.utils.llm_runtime import LLMRuntime
 
-    agent = RoomAgentConfig(id="researcher", name="Researcher", emoji="🔎", home="agents/researcher")
+    agent = RoomAgentConfig(
+        id="researcher", name="Researcher", emoji="🔎", home="agents/researcher", output_contract="none",
+    )
     scaffold_agent_home(env.workspace, agent)
     (env.workspace / "agents" / "researcher" / "SOUL.md").write_text(
         "# Unique Soul Marker\nI am the specialist.",
@@ -346,7 +355,7 @@ async def test_stale_workspace_scope_falls_back_to_workspace(env) -> None:
     from nanobot.security.workspace_access import current_workspace_scope
     from nanobot.utils.llm_runtime import LLMRuntime
 
-    agent = RoomAgentConfig(id="researcher", name="Researcher", home="agents/researcher")
+    agent = RoomAgentConfig(id="researcher", name="Researcher", home="agents/researcher", output_contract="none")
     scaffold_agent_home(env.workspace, agent)
     env.configure(CoworkerConfig(room=RoomConfig(agents=[agent])))
     env.bind()
@@ -390,12 +399,12 @@ async def test_self_delegate_forbidden_when_wearing_persona(env) -> None:
     with request_context(RequestContext(channel="telegram", chat_id="42", session_key=KEY, runtime=OWNER_RUNTIME)):
         tool = RoomDelegateTool()
         # Delegating to researcher while wearing researcher persona is rejected
-        res = json.loads(await tool.execute(agent="researcher", task="find facts"))
+        res = json.loads(await tool.execute(agent="researcher", task="find facts", context=CTX))
         assert res["status"] == "error"
         assert "you are currently @researcher" in res["error"]
 
         # Delegating to writer works
-        ok = json.loads(await tool.execute(agent="writer", task="write copy"))
+        ok = json.loads(await tool.execute(agent="writer", task="write copy", context=CTX))
         assert ok["status"] == "ok"
 
 

@@ -156,14 +156,20 @@ any agent configured in `room.agents[]` — without starting a multi-agent room.
 ### Rooms
 - A session becomes a room with `/room on`, or automatically when the user @mentions a
   configured agent id. Room tools and the coordinator directive appear only then.
-- The session's agent is the **coordinator**. `room_delegate({agent, task})` queues a
-  teammate; when the coordinator's turn ends, teammates with a configured `home` run through
-  `AgentRuntime` (own prompt, thread, and tool/skill allowlist, including MCP wrappers
+- The session's agent is the **coordinator**. `room_delegate({agent, task, context})` queues a
+  teammate (`context` is required, at least `room.minContextChars` characters; old `{agent, task}`
+  calls are rejected). Optional: `context_keys`, `after` (agent ids already delegated this turn),
+  `deliverable`. This changes the coordinator prompt prefix once (one cache miss). When the
+  coordinator's turn ends, teammates with a configured `home` run through `AgentRuntime` (own
+  prompt, JSON output contract, thread, and tool/skill allowlist, including MCP wrappers
   borrowed from the main loop). Agents without `home` (or with `legacyGuestRunner`) still run
-  as inline subagents with the default subagent toolset — `tools.allow`/`deny` is ignored until
-  they have a home. Replies are posted with attribution, then an `[auto-room]` review turn
-  re-summons the coordinator. Teammates can delegate onward and `WAIT_FOR @id` on data
-  dependencies. Chained turns are budgeted per user message (`maxChainedTurns`).
+  as inline subagents with the default subagent toolset — `tools.allow`/`deny` and the JSON
+  contract are ignored until they have a home; they still receive the structured assignment.
+  Replies are posted with attribution, then an `[auto-room]` review turn re-summons the
+  coordinator with summaries/artifacts (open listed files with `read_file` before approving).
+  Teammates can delegate onward; `after` is honored in the sequential queue (parallel DAG is
+  Phase 4.4). `WAIT_FOR @id` still works. Chained turns are budgeted per user message
+  (`maxChainedTurns`). Long files go in `.coworker/rooms/<room>/artifacts/<agent>/`.
 - Storage: `<workspace>/.coworker/rooms/<room>.state.json` and `.transcript.jsonl`.
   `/room reset` clears them.
 - Differences from AICoworker: teammates are personas over nanobot presets (nanobot has no

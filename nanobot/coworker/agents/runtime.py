@@ -14,9 +14,11 @@ from nanobot.agent.runner import AgentRunner, AgentRunSpec
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
 from nanobot.agent.tools.exec_session import ExecSessionManager
 from nanobot.config.schema import AgentDefaults
+from nanobot.coworker.agents.contract import contract_repair_message, parse_guest_contract
 from nanobot.coworker.agents.prompt import build_system_prompt
 from nanobot.coworker.agents.thread import AgentThreadStore
 from nanobot.coworker.agents.toolset import build_tools
+from nanobot.coworker.room.store import rooms_dir
 from nanobot.llm_usage.context import current_llm_usage_source
 from nanobot.security.workspace_access import (
     bind_workspace_scope,
@@ -32,6 +34,9 @@ if TYPE_CHECKING:
     from nanobot.utils.llm_runtime import LLMRuntime
 
 
+_NO_CONTRACT_REPAIR = frozenset({"error", "cancelled", "max_iterations", "empty_final_response"})
+
+
 @dataclass
 class GuestResult:
     text: str
@@ -39,9 +44,14 @@ class GuestResult:
     tools_used: list[str] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     stop_reason: str = "end_turn"
+    contract_failed: bool = False
 
     def summary_for_thread(self) -> str:
         """Text summary to record in thread history."""
+        if self.contract:
+            summary = self.contract.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                return summary.strip()
         return self.text
 
 
@@ -156,6 +166,8 @@ class AgentRuntime:
             exec_session_manager=esm,
             restrict_to_workspace=scope.restrict_to_workspace,
         )
+        artifacts_dir = rooms_dir(self.svc.workspace) / room_id / "artifacts" / agent.id
+        _grant_artifact_access(tools, artifacts_dir)
 
         max_tool_chars = (
             self.svc.max_tool_result_chars
@@ -172,10 +184,11 @@ class AgentRuntime:
             )
         )
         workspace_token = bind_workspace_scope(scope)
-        try:
-            result = await self.runner.run(
+
+        async def _run(initial: list[dict[str, Any]]) -> AgentRunResult:
+            return await self.runner.run(
                 AgentRunSpec(
-                    initial_messages=messages,
+                    initial_messages=initial,
                     tools=tools,
                     runtime=runtime,
                     max_iterations=agent.max_iterations,
@@ -189,12 +202,45 @@ class AgentRuntime:
                     consolidate_history=_skip_guest_history_consolidation,
                 )
             )
+
+        guest: GuestResult | None = None
+        try:
+            result = await _run(messages)
+            guest = to_guest_result(result, agent)
+            if agent.output_contract == "default":
+                payload, errors = parse_guest_contract(guest.text)
+                can_repair = bool(errors) and guest.stop_reason not in _NO_CONTRACT_REPAIR
+                if can_repair:
+                    # Prefer the runner transcript (system + tools). Fall back if
+                    # a stub result omitted the prompt.
+                    repair = list(result.messages)
+                    if not repair or repair[0].get("role") != "system":
+                        repair = list(messages)
+                    if not repair or repair[-1].get("role") != "assistant":
+                        repair.append({"role": "assistant", "content": guest.text})
+                    repair.append({"role": "user", "content": contract_repair_message(errors)})
+                    result2 = await _run(repair)
+                    guest2 = to_guest_result(result2, agent)
+                    guest2.usage = _merge_usage(guest.usage, guest2.usage)
+                    guest2.tools_used = list(dict.fromkeys([*guest.tools_used, *guest2.tools_used]))
+                    guest = guest2
+                    payload, errors = parse_guest_contract(guest.text)
+                guest.contract = payload
+                guest.contract_failed = bool(errors)
+                if errors:
+                    logger.info(
+                        "Guest [{}] output contract failed{}: {}",
+                        agent.id,
+                        " after retry" if can_repair else f" ({guest.stop_reason})",
+                        "; ".join(errors),
+                    )
         finally:
             reset_workspace_scope(workspace_token)
             reset_request_context(token)
             await esm.close_all()
 
-        guest = to_guest_result(result, agent)
+        if guest is None:
+            raise RuntimeError("guest run produced no result")
         if persist_memory:
             thread.append_turn(
                 task=task_msg,
@@ -203,3 +249,29 @@ class AgentRuntime:
                 usage=guest.usage,
             )
         return guest
+
+
+def _merge_usage(first: dict[str, int], second: dict[str, int]) -> dict[str, int]:
+    keys = set(first) | set(second)
+    return {key: int(first.get(key, 0)) + int(second.get(key, 0)) for key in keys}
+
+
+def _grant_artifact_access(tools: Any, artifacts: Path) -> None:
+    """Let restricted guests write/read the room artifact directory (may sit outside project_root)."""
+    names = getattr(tools, "tool_names", None)
+    getter = getattr(tools, "get", None)
+    if not isinstance(names, (list, tuple)) or not callable(getter):
+        return
+    artifacts.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        if not isinstance(name, str):
+            continue
+        tool = getter(name)
+        if tool is None:
+            continue
+        writes = getattr(tool, "_extra_write_allowed_dirs", None)
+        if isinstance(writes, list):
+            writes.append(artifacts)
+        reads = getattr(tool, "_extra_read_allowed_dirs", None)
+        if isinstance(reads, list):
+            reads.append(artifacts)

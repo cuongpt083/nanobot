@@ -42,7 +42,7 @@ def test_to_guest_result_maps_usage_and_tools() -> None:
 
 @pytest.mark.asyncio
 async def test_runtime_persists_thread_for_home_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    agent = RoomAgentConfig(id="specialist", home="agents/specialist", memory="thread")
+    agent = RoomAgentConfig(id="specialist", home="agents/specialist", memory="thread", output_contract="none")
     scaffold_agent_home(tmp_path, agent)
     cfg = CoworkerConfig(room=RoomConfig(agents=[agent]))
     svc = CoworkerServices(
@@ -86,7 +86,7 @@ async def test_runtime_persists_thread_for_home_agent(tmp_path: Path, monkeypatc
 
 @pytest.mark.asyncio
 async def test_runtime_skips_thread_when_memory_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    agent = RoomAgentConfig(id="specialist", home="agents/specialist", memory="none")
+    agent = RoomAgentConfig(id="specialist", home="agents/specialist", memory="none", output_contract="none")
     scaffold_agent_home(tmp_path, agent)
     cfg = CoworkerConfig(room=RoomConfig(agents=[agent]))
     svc = CoworkerServices(
@@ -120,7 +120,7 @@ async def test_runtime_skips_thread_when_memory_none(tmp_path: Path, monkeypatch
 async def test_runtime_binds_session_workspace_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    agent = RoomAgentConfig(id="specialist", home="agents/specialist", memory="thread")
+    agent = RoomAgentConfig(id="specialist", home="agents/specialist", memory="thread", output_contract="none")
     scaffold_agent_home(tmp_path, agent)
     project = tmp_path / "proj"
     project.mkdir()

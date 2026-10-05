@@ -11,6 +11,21 @@ from __future__ import annotations
 
 from nanobot.coworker.config import RoomAgentConfig
 
+
+def _guest_contract_block() -> str:
+    from nanobot.coworker.agents.contract import contract_example
+
+    example = contract_example()
+    return "\n".join([
+        "End your reply with EXACTLY ONE fenced ```json block matching this schema: "
+        '{"summary": string ≤1200 chars, "confidence": "high"|"medium"|"low", '
+        '"artifacts": string[], "open_questions": string[]}. summary and confidence are required.',
+        "COPY THIS FORMAT (replace values with the real ones):",
+        "```json",
+        example,
+        "```",
+    ])
+
 ADVISOR = "\n".join([
     "## Advisor",
     "",
@@ -133,13 +148,17 @@ def room_owner(agents: list[RoomAgentConfig]) -> str:
         "For any task with more than one distinct area of work, delegate each part whose bio fits a "
         "teammate — a specialist's dedicated turn beats you rushing every part solo. Keep only the parts "
         "no teammate fits, plus planning and final consolidation. Do not ask the user which agent to use.",
-        "TO DELEGATE you MUST call `room_delegate({agent, task})` once per teammate, with a concrete, "
-        "self-contained task, THEN end your turn. Announcing a delegation without calling the tool does "
-        "nothing. `spawn` is not a room delegation.",
+        "TO DELEGATE you MUST call `room_delegate({agent, task, context})` once per teammate. `context` is "
+        "required: decisions already made, constraints, audience, and what they must not redo. Optional: "
+        "`context_keys` (room_state keys), `after` (agent ids already delegated this turn), `deliverable`. "
+        "THEN end your turn. Announcing a delegation without calling the tool does nothing. `spawn` is not "
+        "a room delegation.",
         "Delegation is asynchronous: never wait or poll inside your turn. The room runs the teammates, "
         "posts their results, and re-summons you with an [auto-room] turn to REVIEW (verify with tools, "
-        "do not rubber-stamp) and post ONE final consolidated report — or delegate a specific fix.",
-        "Sequence by dependency: if part B needs part A's output, delegate A first.",
+        "open listed artifacts with read_file, do not rubber-stamp) and post ONE final consolidated report "
+        "— or delegate a specific fix.",
+        "Sequence by dependency: if part B needs part A's output, either delegate A first or pass "
+        "`after: [\"A\"]` so B waits. Do not use WAIT_FOR in your own reply.",
     ])
 
 
@@ -153,11 +172,12 @@ def room_guest(agent: RoomAgentConfig, owner_label: str, teammates: list[RoomAge
     lines += [
         "You are a FULL agent: EXECUTE the assignment NOW with your tools and reply with concrete results. "
         "This is your only turn until someone delegates to you again — never promise future work.",
-        "Only the TEXT of your reply reaches the room: put the entire deliverable in it.",
+        "Only the TEXT of your reply reaches the room: put the entire deliverable in it. "
+        "Long deliverables go in `.coworker/rooms/<room>/artifacts/<your-id>/` and are listed in artifacts.",
         "SHARED STATE IS MANDATORY: start with `room_state` `list`; finish by `set`-ing your result under your own key.",
-        f"Other teammates: {others}. To hand a sub-task to one, call `room_delegate`. If your part genuinely "
-        "cannot start until another agent's output exists (and it is not in room_state yet), reply with "
-        "`WAIT_FOR @<their id>` on its own line plus one sentence — the room re-runs you after them.",
+        f"Other teammates: {others}. To hand a sub-task to one, call `room_delegate` with `context` and, "
+        "if needed, `after`. If your part genuinely cannot start until another agent's output exists "
+        "(and it is not in room_state yet), reply with `WAIT_FOR @<their id>` on its own line plus one sentence.",
         "If no reply is needed, reply exactly REPLY_SKIP.",
     ]
     return "\n".join(lines)
@@ -175,12 +195,14 @@ def room_member(agent: RoomAgentConfig, teammates: list[RoomAgentConfig], owner_
         f"You are collaborating in a multi-agent room coordinated by {owner_label}.",
         "You are a FULL agent: EXECUTE the assignment NOW with your tools and reply with concrete results. "
         "This is your only turn until someone delegates to you again — never promise future work.",
-        "Only the TEXT of your reply reaches the room: put the entire deliverable in it.",
+        "Only the TEXT of your reply reaches the room. Long deliverables go in "
+        "`.coworker/rooms/<room>/artifacts/<your-id>/` and are listed in the JSON `artifacts` array.",
         "SHARED STATE IS MANDATORY: start with `room_state` `list`; finish by `set`-ing your result under your own key.",
-        f"Other teammates: {others}. To hand a sub-task to one, call `room_delegate`. If your part genuinely "
-        "cannot start until another agent's output exists (and it is not in room_state yet), reply with "
-        "`WAIT_FOR @<their id>` on its own line plus one sentence — the room re-runs you after them.",
+        f"Other teammates: {others}. To hand a sub-task to one, call `room_delegate` with `context` and, "
+        "if needed, `after`. If your part genuinely cannot start until another agent's output exists "
+        "(and it is not in room_state yet), reply with `WAIT_FOR @<their id>` on its own line plus one sentence.",
         "If no reply is needed, reply exactly REPLY_SKIP.",
+        _guest_contract_block(),
     ]
     return "\n".join(lines)
 
