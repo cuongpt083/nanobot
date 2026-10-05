@@ -7,6 +7,7 @@ import base64
 import binascii
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Sized
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -1291,6 +1292,10 @@ class OpenAIImageGenerationClient(ImageGenerationProvider):
         return GeneratedImageResponse(images=images, content="", raw=payload)
 
 
+_CUSTOM_REF_MAX_COUNT = 3
+_CUSTOM_REF_MAX_BYTES = 10 * 1024 * 1024  # 10 MiB
+
+
 class CustomImageGenerationClient(ImageGenerationProvider):
     """OpenAI-compatible Images API for user-configured custom providers."""
 
@@ -1312,6 +1317,31 @@ class CustomImageGenerationClient(ImageGenerationProvider):
                 return requested
         return _openai_size("gpt-image-2", aspect_ratio, None)
 
+    @staticmethod
+    def _encode_reference_images(reference_images: list[str]) -> list[str]:
+        if len(reference_images) > _CUSTOM_REF_MAX_COUNT:
+            raise ImageGenerationError(
+                f"Custom image generation supports at most {_CUSTOM_REF_MAX_COUNT} reference images; "
+                f"got {len(reference_images)}"
+            )
+
+        encoded_refs: list[str] = []
+        for ref in reference_images:
+            p = Path(ref).expanduser()
+            try:
+                size = p.stat().st_size
+            except OSError as exc:
+                raise ImageGenerationError(f"reference image not found or inaccessible: {ref}") from exc
+
+            if size > _CUSTOM_REF_MAX_BYTES:
+                raise ImageGenerationError(
+                    f"reference image exceeds {_CUSTOM_REF_MAX_BYTES // (1024 * 1024)} MiB limit: {ref}"
+                )
+
+            encoded_refs.append(image_path_to_data_url(p))
+
+        return encoded_refs
+
     async def generate(
         self,
         *,
@@ -1323,14 +1353,6 @@ class CustomImageGenerationClient(ImageGenerationProvider):
     ) -> GeneratedImageResponse:
         if not self.api_base:
             raise ImageGenerationError(self.missing_base_message)
-
-        if reference_images:
-            logger.warning(
-                "Custom image generation does not support reference images; "
-                "ignoring {} reference image(s) for {}",
-                len(reference_images),
-                model,
-            )
 
         headers: dict[str, str] = {
             "Content-Type": "application/json",
@@ -1346,9 +1368,19 @@ class CustomImageGenerationClient(ImageGenerationProvider):
             "n": 1,
             "size": self._custom_size(aspect_ratio, image_size),
         }
+
+        refs = list(reference_images or [])
+        if refs:
+            body["reference_images"] = self._encode_reference_images(refs)
+
         body.update(self.extra_body)
 
-        logger.info("Custom Images API request: POST {}/images/generations body={}", self.api_base, body)
+        logged_body = dict(body)
+        if "reference_images" in logged_body:
+            val = logged_body["reference_images"]
+            count = len(cast(Sized, val)) if isinstance(val, (list, tuple)) else 1
+            logged_body["reference_images"] = [f"<{count} reference image(s) encoded as data URI>"]
+        logger.info("Custom Images API request: POST {}/images/generations body={}", self.api_base, logged_body)
 
         response = await self._http_post(
             f"{self.api_base}/images/generations",

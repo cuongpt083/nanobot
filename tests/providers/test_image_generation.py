@@ -1233,6 +1233,139 @@ async def test_custom_generate_http_error() -> None:
         await client.generate(prompt="draw", model="custom-image-model")
 
 
+@pytest.mark.asyncio
+async def test_custom_generate_with_reference_images(tmp_path: Path) -> None:
+    img1 = tmp_path / "ref1.png"
+    img1.write_bytes(PNG_BYTES)
+    img2 = tmp_path / "ref2.jpg"
+    img2.write_bytes(JPEG_BYTES)
+
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = CustomImageGenerationClient(
+        api_key="sk-custom-test",
+        api_base="https://custom.example/v1",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    response = await client.generate(
+        prompt="transform this",
+        model="custom-image-model",
+        reference_images=[str(img1), str(img2)],
+    )
+
+    assert response.images == [PNG_DATA_URL]
+    body = fake.calls[0]["json"]
+    assert "reference_images" in body
+    assert len(body["reference_images"]) == 2
+    assert body["reference_images"][0].startswith("data:image/png;base64,")
+    assert body["reference_images"][1].startswith("data:image/jpeg;base64,")
+
+
+@pytest.mark.asyncio
+async def test_custom_generate_without_reference_images_omits_key() -> None:
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = CustomImageGenerationClient(
+        api_key="sk-custom-test",
+        api_base="https://custom.example/v1",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    await client.generate(prompt="draw", model="custom-image-model", reference_images=None)
+    assert "reference_images" not in fake.calls[0]["json"]
+
+    await client.generate(prompt="draw", model="custom-image-model", reference_images=[])
+    assert "reference_images" not in fake.calls[1]["json"]
+
+
+@pytest.mark.asyncio
+async def test_custom_generate_reference_images_exceeds_max_count(tmp_path: Path) -> None:
+    refs = []
+    for i in range(4):
+        p = tmp_path / f"ref_{i}.png"
+        p.write_bytes(PNG_BYTES)
+        refs.append(str(p))
+
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = CustomImageGenerationClient(
+        api_key="sk-custom-test",
+        api_base="https://custom.example/v1",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ImageGenerationError, match="at most 3 reference images"):
+        await client.generate(
+            prompt="draw",
+            model="custom-image-model",
+            reference_images=refs,
+        )
+    assert len(fake.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_custom_generate_reference_image_exceeds_max_bytes(tmp_path: Path, monkeypatch) -> None:
+    img = tmp_path / "big.png"
+    img.write_bytes(PNG_BYTES)
+
+    import nanobot.providers.image_generation as ig_mod
+
+    monkeypatch.setattr(ig_mod, "_CUSTOM_REF_MAX_BYTES", 10)
+
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = CustomImageGenerationClient(
+        api_key="sk-custom-test",
+        api_base="https://custom.example/v1",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ImageGenerationError, match="limit"):
+        await client.generate(
+            prompt="draw",
+            model="custom-image-model",
+            reference_images=[str(img)],
+        )
+    assert len(fake.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_custom_generate_reference_image_not_found(tmp_path: Path) -> None:
+    missing = tmp_path / "non_existent.png"
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = CustomImageGenerationClient(
+        api_key="sk-custom-test",
+        api_base="https://custom.example/v1",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ImageGenerationError, match="not found or inaccessible"):
+        await client.generate(
+            prompt="draw",
+            model="custom-image-model",
+            reference_images=[str(missing)],
+        )
+    assert len(fake.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_custom_generate_reference_image_unsupported_format(tmp_path: Path) -> None:
+    not_img = tmp_path / "test.txt"
+    not_img.write_text("not an image")
+
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = CustomImageGenerationClient(
+        api_key="sk-custom-test",
+        api_base="https://custom.example/v1",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ImageGenerationError, match="unsupported reference image"):
+        await client.generate(
+            prompt="draw",
+            model="custom-image-model",
+            reference_images=[str(not_img)],
+        )
+    assert len(fake.calls) == 0
+
+
 # ---------------------------------------------------------------------------
 # OpenAI Codex (Responses API)
 # ---------------------------------------------------------------------------
