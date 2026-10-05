@@ -893,6 +893,28 @@ class AgentRunner:
             stateful=provider_context is not None and provider_context.conversation_state is not None,
         )
 
+        # Snapshot and apply Context Inspector exclusions / wasted rules
+        if spec.session_key:
+            try:
+                from nanobot.agent.inspector import get_inspector_store
+
+                store = get_inspector_store(spec.workspace)
+                store.record_snapshot(
+                    session_key=spec.session_key,
+                    messages=messages,
+                    tools_definitions=tool_definitions,
+                    model_id=spec.runtime.model,
+                    provider=spec.runtime.provider.provider_name if hasattr(spec.runtime.provider, "provider_name") else spec.runtime.provider.__class__.__name__,
+                    context_window_tokens=spec.runtime.context_window_tokens,
+                )
+                messages, tool_definitions = store.apply_rules(
+                    session_key=spec.session_key,
+                    messages=messages,
+                    tools_definitions=tool_definitions,
+                )
+            except Exception:
+                pass
+
         kwargs = self._build_request_kwargs(
             spec,
             messages,

@@ -36,6 +36,7 @@ interface ThreadHeaderProps {
   minimal?: boolean;
   promptNavigatorAction?: ReactNode;
   sessionInfoAction?: ReactNode;
+  contextInspectorAction?: ReactNode;
   coworkerInspectorAction?: ReactNode;
   temporaryChatEnabled?: boolean;
   temporaryChatDisabled?: boolean;
@@ -57,6 +58,7 @@ export function ThreadHeader({
   minimal = false,
   promptNavigatorAction,
   sessionInfoAction,
+  contextInspectorAction,
   coworkerInspectorAction,
   temporaryChatEnabled = false,
   temporaryChatDisabled = false,
@@ -112,6 +114,7 @@ export function ThreadHeader({
       </div>
 
       <div className={cn(controlsClassName, "ml-auto shrink-0")}>
+        {contextInspectorAction}
         {coworkerInspectorAction}
         {sessionInfoAction}
         {promptNavigatorAction}

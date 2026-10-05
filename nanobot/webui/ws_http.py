@@ -790,6 +790,14 @@ class GatewayHTTPHandler:
         if m:
             return await self._handle_session_context_get(request, m.group(1))
 
+        m = re.match(r"^/api/sessions/([^/]+)/context/inspect$", got)
+        if m:
+            return await self._handle_session_context_inspect(request, m.group(1))
+
+        m = re.match(r"^/api/sessions/([^/]+)/context/exclusions$", got)
+        if m:
+            return await self._handle_session_context_exclusions(request, m.group(1))
+
         m = re.match(r"^/api/sessions/([^/]+)/coworker$", got)
         if m:
             return await self._handle_session_coworker_get(request, m.group(1))
@@ -851,6 +859,46 @@ class GatewayHTTPHandler:
         if session is None:
             return _http_error(404, "session not found")
         return _http_json_response(session_context_payload(session))
+
+    async def _handle_session_context_inspect(self, request: WsRequest, key: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        decoded_key = _decode_api_key(key)
+        if decoded_key is None:
+            return _http_error(400, "invalid session key")
+        if not _is_websocket_channel_session_key(decoded_key):
+            return _http_error(404, "session not found")
+        from nanobot.agent.inspector import get_inspector_store
+
+        workspace = self.workspace_scopes.default_scope.project_path if hasattr(self, "workspace_scopes") else None
+        store = get_inspector_store(workspace)
+        snap = store.get_snapshot(decoded_key)
+        snap_dict = snap.to_dict()
+        snap_dict["rules"] = store.get_rules(decoded_key)
+        return _http_json_response(snap_dict)
+
+    async def _handle_session_context_exclusions(self, request: WsRequest, key: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        decoded_key = _decode_api_key(key)
+        if decoded_key is None:
+            return _http_error(400, "invalid session key")
+        if not _is_websocket_channel_session_key(decoded_key):
+            return _http_error(404, "session not found")
+        from nanobot.agent.inspector import get_inspector_store
+
+        body = getattr(request, "_json_body", {})
+        if not isinstance(body, dict):
+            body = {}
+        workspace = self.workspace_scopes.default_scope.project_path if hasattr(self, "workspace_scopes") else None
+        store = get_inspector_store(workspace)
+        rules = store.set_exclusions(
+            session_key=decoded_key,
+            system_sections=body.get("system_sections"),
+            tools=body.get("tools"),
+            message_idx=body.get("message_idx"),
+        )
+        return _http_json_response({"status": "ok", "rules": rules})
 
     async def _handle_session_coworker_get(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):

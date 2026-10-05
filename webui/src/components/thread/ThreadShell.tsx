@@ -18,6 +18,7 @@ import { RecoveryNotice } from "@/components/thread/RecoveryNotice";
 import { SessionInfoPopover } from "@/components/thread/SessionInfoPopover";
 import type { ComposerDraftStore } from "@/lib/composer-draft";
 import { CoworkerHeaderControls } from "@/components/coworker/CoworkerHeaderControls";
+import { ContextInspectorPopover } from "@/components/thread/ContextInspectorPopover";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import type {
@@ -1872,6 +1873,12 @@ export function ThreadShell({
       refreshKey={coworkerRefreshKey}
     />
   ) : undefined;
+  const contextInspectorAction = historyKey ? (
+    <ContextInspectorPopover
+      sessionKey={historyKey}
+      token={token}
+    />
+  ) : undefined;
   const promptNavigatorAction = historyKey ? (
     <PromptNavigator
       messages={displayMessages}
@@ -1894,6 +1901,7 @@ export function ThreadShell({
       minimal={!session && !loading}
       promptNavigatorAction={promptNavigatorAction}
       sessionInfoAction={sessionInfoAction}
+      contextInspectorAction={contextInspectorAction}
       coworkerInspectorAction={coworkerInspectorAction}
       temporaryChatEnabled={temporaryChatEnabled}
 
