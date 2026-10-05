@@ -759,6 +759,92 @@ def status(
 
 app.add_typer(provider_app, name="provider")
 
+# ============================================================================
+# LLM Proxy CLI Subcommands
+# ============================================================================
+
+proxy_app = typer.Typer(help="Manage Nanobot LLM Proxy (Local Gateway for OAuth & API Keys)")
+
+
+@proxy_app.command("start")
+def proxy_start(
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind host address"),
+    port: int = typer.Option(23334, "--port", "-p", help="Port to listen on"),
+):
+    """Start the standalone LLM Proxy server."""
+    import asyncio
+    from nanobot.llm_proxy.server import LLMProxyServer
+
+    async def _run():
+        server = LLMProxyServer(host=host, port=port)
+        await server.start()
+        console.print(f"[green]✓[/green] Nanobot LLM Proxy running on http://{host}:{port}")
+        console.print(f"OpenAI endpoint: http://{host}:{port}/v1/chat/completions")
+        console.print(f"Anthropic endpoint: http://{host}:{port}/v1/messages")
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            await server.stop()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        console.print("\n[dim]LLM Proxy stopped.[/dim]")
+
+
+@proxy_app.command("create-key")
+def proxy_create_key(
+    name: str = typer.Option("CLI Key", "--name", "-n", help="Name or label for the key"),
+    period: str = typer.Option("5h", "--period", help="Budget period (5h, daily, weekly, monthly, lifetime, none)"),
+    tokens: int | None = typer.Option(None, "--tokens", "-t", help="Token limit for the budget period"),
+):
+    """Create a new LLM Proxy API key."""
+    from nanobot.llm_proxy.keys import KeyStore
+
+    store = KeyStore()
+    secret, key = store.create_key(name=name, budget_period=period, budget_tokens=tokens)
+    console.print(f"[green]✓ API Key Created Successfully![/green]")
+    console.print(f"Key ID: [cyan]{key.id}[/cyan]")
+    console.print(f"Name: {key.name}")
+    console.print(f"Budget: {key.budget_tokens or 'unlimited'} tokens per {key.budget_period}")
+    console.print(f"Secret: [bold green]{secret}[/bold green]")
+    console.print("[dim]Save this secret now; it will not be displayed again.[/dim]")
+
+
+@proxy_app.command("list-keys")
+def proxy_list_keys():
+    """List all LLM Proxy API keys."""
+    from nanobot.llm_proxy.budget import BudgetTracker
+    from nanobot.llm_proxy.keys import KeyStore, ProxyApiKey
+
+    store = KeyStore()
+    tracker = BudgetTracker()
+    keys = store.list_keys()
+    if not keys:
+        console.print("[dim]No API keys found. Create one with: nanobot llm-proxy create-key[/dim]")
+        return
+
+    for k in keys:
+        dummy = ProxyApiKey(
+            id=k["id"],
+            name=k["name"],
+            key_hash="",
+            created_at=k["created_at"],
+            budget_period=k.get("budget_period", "none"),
+            budget_tokens=k.get("budget_tokens"),
+        )
+        status = tracker.get_status(dummy)
+        console.print(f"- [bold]{k['name']}[/bold] ([cyan]{k['id']}[/cyan])")
+        if status["enforced"]:
+            pct = round((status["used"] / status["limit"]) * 100, 1) if status["limit"] else 0
+            console.print(f"  Budget: {status['used']} / {status['limit']} tokens ({pct}%) [{status['period']}]")
+        else:
+            console.print("  Budget: Unlimited")
+
+
+app.add_typer(proxy_app, name="llm-proxy")
+
 
 if __name__ == "__main__":
     app()
