@@ -230,3 +230,93 @@ async def test_guest_outcome_records_duration(env) -> None:
     assert outcome.tokens_in is None
     assert outcome.tokens_out is None
 
+
+@pytest.mark.asyncio
+async def test_self_delegate_forbidden_when_wearing_persona(env) -> None:
+    from nanobot.coworker.persona import set_persona_id
+
+    cfg = _config()
+    env.configure(cfg)
+    session = env.sessions.get_or_create(KEY)
+    set_persona_id(session, "researcher", cfg)
+
+    with request_context(RequestContext(channel="telegram", chat_id="42", session_key=KEY, runtime=OWNER_RUNTIME)):
+        tool = RoomDelegateTool()
+        # Delegating to researcher while wearing researcher persona is rejected
+        res = json.loads(await tool.execute(agent="researcher", task="find facts"))
+        assert res["status"] == "error"
+        assert "you are currently @researcher" in res["error"]
+
+        # Delegating to writer works
+        ok = json.loads(await tool.execute(agent="writer", task="write copy"))
+        assert ok["status"] == "ok"
+
+
+def test_persona_excluded_from_room_owner_roster(env) -> None:
+    from nanobot.agent.hook import AgentHookContext, AgentTurnHookContext
+    from nanobot.coworker.hook import CoworkerHook
+    from nanobot.coworker.persona import set_persona_id
+
+    cfg = _config()
+    env.configure(cfg)
+    session = env.sessions.get_or_create(KEY)
+    set_persona_id(session, "researcher", cfg)
+    scheduler.set_armed(session, True)
+
+    hook = CoworkerHook(
+        AgentTurnHookContext(channel="telegram", chat_id="42", session_key=KEY)
+    )
+    agent_ctx = AgentHookContext(iteration=0, messages=[])
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": "BASE_PROMPT"},
+        {"role": "user", "content": "Hello"},
+    ]
+
+    out_msgs, _ = hook.transform_request(agent_ctx, messages, None, stateful=False)
+    sys_content = out_msgs[0]["content"]
+
+    # Roster has writer, but researcher is excluded from the Multi-agent room section
+    assert "## Multi-agent room" in sys_content
+    room_section = sys_content.split("## Multi-agent room", 1)[1]
+    assert "- `writer` — Writer" in room_section
+    assert "- `researcher`" not in room_section
+
+    # If all agents are excluded, roster shows fallback note
+    single_agent_cfg = CoworkerConfig(
+        room=RoomConfig(
+            agents=[RoomAgentConfig(id="researcher", name="Researcher", bio="finds facts")]
+        )
+    )
+    env.configure(single_agent_cfg)
+    set_persona_id(session, "researcher", single_agent_cfg)
+    out_msgs2, _ = hook.transform_request(agent_ctx, messages, None, stateful=False)
+    sys_content2 = out_msgs2[0]["content"]
+    assert "- _(no other teammates available)_" in sys_content2
+
+
+@pytest.mark.asyncio
+async def test_mentioning_own_persona_does_not_arm_room(env) -> None:
+    from nanobot.agent.hook import AgentRunHookContext, AgentTurnHookContext
+    from nanobot.coworker.hook import CoworkerHook
+    from nanobot.coworker.persona import set_persona_id
+
+    cfg = _config()
+    env.configure(cfg)
+    session = env.sessions.get_or_create(KEY)
+    set_persona_id(session, "researcher", cfg)
+    assert not scheduler.is_armed(session)
+
+    hook = CoworkerHook(
+        AgentTurnHookContext(channel="telegram", chat_id="42", session_key=KEY)
+    )
+    # Mentioning @researcher when wearing researcher persona does not arm the room
+    run_ctx1 = AgentRunHookContext(messages=[{"role": "user", "content": "Please check this @researcher"}])
+    await hook.before_run(run_ctx1)
+    assert not scheduler.is_armed(session)
+
+    # Mentioning @writer arms the room
+    run_ctx2 = AgentRunHookContext(messages=[{"role": "user", "content": "Please check this @writer"}])
+    await hook.before_run(run_ctx2)
+    assert scheduler.is_armed(session)
+
+

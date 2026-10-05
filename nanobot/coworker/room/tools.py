@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING, Any
 
 from nanobot.agent.tools.base import ToolResult, tool_parameters
 from nanobot.coworker.config import load_coworker_config
+from nanobot.coworker.persona import get_persona_id
 from nanobot.coworker.room import scheduler
 from nanobot.coworker.room.store import RoomStateStore, room_id_for
-from nanobot.coworker.runtime import services
+from nanobot.coworker.runtime import get_session, services
 from nanobot.coworker.tools_base import CoworkerTool
 
 if TYPE_CHECKING:
@@ -101,6 +102,15 @@ class RoomDelegateTool(_RoomTool):
             return self.payload("error", error=f"unknown agent `{target}` — call agents_list for valid ids.")
         if target == by:
             return self.payload("error", error="you cannot delegate to yourself.")
+        if by == "owner":
+            session = get_session(session_key)
+            if session is not None:
+                persona_id = get_persona_id(session)
+                if persona_id and persona_id.lower() == target:
+                    return self.payload(
+                        "error",
+                        error=f"you cannot delegate to yourself (you are currently @{target}).",
+                    )
         request = self.request()
         scheduler.record_delegation(
             session_key, target, task, by=by, runtime=request.runtime if request else None

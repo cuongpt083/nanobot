@@ -33,7 +33,7 @@ from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import cache_policy, keepalive, keepalive_state, metrics, optimizer
 from nanobot.coworker.context.tools import WASTED_TOOL, wasted_ids
-from nanobot.coworker.persona import resolve_persona
+from nanobot.coworker.persona import get_persona_id, resolve_persona
 from nanobot.coworker.room import scheduler
 from nanobot.coworker.room.tools import ROOM_TOOLS, room_armed_for
 from nanobot.coworker.runtime import (
@@ -237,7 +237,11 @@ class CoworkerHook(AgentHook):
         else:
             advisor_state.clear_user_request(session)
         scheduler.reset_chain_budget(self._key)
-        if not scheduler.is_armed(session) and scheduler.mentioned_agents(text):
+        mentioned = scheduler.mentioned_agents(text)
+        persona_id = get_persona_id(session)
+        if persona_id:
+            mentioned = [a for a in mentioned if a.lower() != persona_id.lower()]
+        if not scheduler.is_armed(session) and mentioned:
             scheduler.set_armed(session, True)
             logger.info("coworker: room armed for {} by @mention", self._key)
 
@@ -405,7 +409,12 @@ class CoworkerHook(AgentHook):
             brainstorm = advisor_eff.mode == advisor_state.MODE_BRAINSTORM
             sections.append(directives.ADVISOR_BRAINSTORM if brainstorm else directives.ADVISOR)
         if room_on:
-            sections += [directives.room_owner(cfg.room.agents), directives.ROOM_STATE]
+            roster_agents = (
+                [a for a in cfg.room.agents if a.id.lower() != persona_agent.id.lower()]
+                if persona_agent is not None
+                else cfg.room.agents
+            )
+            sections += [directives.room_owner(roster_agents), directives.ROOM_STATE]
         if workflows_on and _has_workflows():
             sections.append(directives.WORKFLOWS)
         if latch.optimize:

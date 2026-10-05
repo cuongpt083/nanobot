@@ -97,8 +97,12 @@ ROOM_STATE = "\n".join([
 
 
 def room_owner(agents: list[RoomAgentConfig]) -> str:
-    roster = "\n".join(
-        f"- `{a.id}` — {a.name or a.id}{': ' + a.bio if a.bio else ''}" for a in agents
+    roster = (
+        "\n".join(
+            f"- `{a.id}` — {a.name or a.id}{': ' + a.bio if a.bio else ''}" for a in agents
+        )
+        if agents
+        else "- _(no other teammates available)_"
     )
     return "\n".join([
         "## Multi-agent room",
