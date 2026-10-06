@@ -13,10 +13,6 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.coworker.coding.backends.base import (
-    BackendStats,
-)
-from nanobot.coworker.coding.backends.pi import parse_pi_stats
 from nanobot.coworker.coding.pi.protocol import (
     Command,
     Event,
@@ -26,7 +22,14 @@ from nanobot.coworker.coding.pi.protocol import (
 from nanobot.coworker.coding.pi.questions import QuestionRouter
 from nanobot.coworker.coding.pi.transport import JsonlChannel
 from nanobot.coworker.coding.pi.version import check_pi_version_async, resolve_pi_binary
-from nanobot.coworker.coding.runtime import CodingRuntime, ModelSpec, RunOutcome, SessionSpec
+from nanobot.coworker.coding.runtime import (
+    BackendStats,
+    CodingRuntime,
+    ModelSpec,
+    RunOutcome,
+    SessionSpec,
+    parse_pi_stats,
+)
 from nanobot.coworker.coding.sandbox import WINDOWS_ENV_KEYS, SandboxPolicy, wrap_argv
 from nanobot.coworker.config import PiBackendConfig
 from nanobot.coworker.transcript import as_dict
@@ -140,6 +143,37 @@ class PiClient(CodingRuntime):
             env["PI_CODING_AGENT_DIR"] = self.config.agent_dir
         if contract_file:
             env["NANOBOT_TASK_CONTRACT"] = str(contract_file)
+        elif session.task_id and cwd:
+            # Auto-serialize default task contract into run_dir if not explicitly passed
+            default_contract_file = cwd / "task-contract.json"
+            if not default_contract_file.exists():
+                try:
+                    import json
+                    from nanobot.coworker.transcript import as_dict
+                    default_contract = {
+                        "task_id": session.task_id,
+                        "mode": "implement",
+                        "root": str(cwd),
+                        "write_roots": [str(cwd)],
+                        "deny_commands": ["^git\\s+push", "^git\\s+remote", "curl[^|]*\\|\\s*(ba)?sh"],
+                        "deny_read": ["~/.ssh/**", "~/.aws/**", "**/.env*"],
+                        "contract": {
+                            "objective": "",
+                            "context": "",
+                            "constraints": [],
+                            "acceptance_criteria": [],
+                            "acceptance_cmd": "",
+                            "out_of_scope": [],
+                            "files": [],
+                        },
+                        "settle": {"max_continuations": 2, "acceptance_timeout_s": 600},
+                        "ask": {"enabled": True},
+                    }
+                    default_contract_file.write_text(json.dumps(default_contract, indent=2), encoding="utf-8")
+                except Exception as e:
+                    logger.debug(f"Could not auto-create default task-contract.json: {e}")
+            if default_contract_file.exists():
+                env["NANOBOT_TASK_CONTRACT"] = str(default_contract_file)
 
         state = Path(self.config.agent_dir).expanduser() if self.config.agent_dir else Path.home() / ".pi"
         extra_rw = [session.session_dir] if session.session_dir else []
