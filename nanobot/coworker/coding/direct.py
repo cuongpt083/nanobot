@@ -22,8 +22,10 @@ EXCLUDE_DIRS = frozenset(
     {
         ".git", ".hg", ".svn", "node_modules", ".venv", "venv", "__pycache__", "dist", "build",
         ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".next", ".nuxt", ".cache",
+        ".coworker",
     }
 )
+EXCLUDE_FILES = frozenset({"task-contract.json"})
 HASH_MAX_BYTES = 5 * 1024 * 1024
 TEXT_DIFF_MAX_BYTES = 64 * 1024
 MANIFEST_NAME = "manifest.json"
@@ -108,6 +110,8 @@ def scan(project: Path, previous: dict[str, FileInfo] | None = None) -> dict[str
     for root, dirs, names in os.walk(project, followlinks=False):
         dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
         for name in names:
+            if name in EXCLUDE_FILES:
+                continue
             full = Path(root) / name
             try:
                 if full.is_symlink():

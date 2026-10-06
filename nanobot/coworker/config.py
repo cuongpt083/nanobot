@@ -133,15 +133,29 @@ class WorkflowConfig(Base):
     max_step_turns: int = Field(default=100, ge=1)
 
 
+class PiPhaseConfig(Base):
+    model: str | None = None
+    thinking: Literal["off", "minimal", "low", "medium", "high", "xhigh", "max"] | None = None
+
+
+class PiPhases(Base):
+    plan: PiPhaseConfig = Field(default_factory=lambda: PiPhaseConfig(thinking="high"))
+    implement: PiPhaseConfig = Field(default_factory=lambda: PiPhaseConfig(thinking="medium"))
+    review: PiPhaseConfig = Field(default_factory=lambda: PiPhaseConfig(thinking="high"))
+
+
 class PiBackendConfig(Base):
     command: list[str] = ["pi"]
     min_version: str = "1.0.0"
+    max_record_mb: int = Field(default=64, ge=1)
+    tool_timeout_minutes: int = Field(default=20, ge=1)
     agent_dir: str | None = None
     tools: list[str] | None = None
     extensions: bool = True
     trust_project_files: bool = False
     pass_env: list[str] = Field(default_factory=list)
     allow_unsandboxed: bool = False
+    phases: PiPhases = Field(default_factory=PiPhases)
 
 
 _AGY_DISALLOWED_FLAGS = {
@@ -224,6 +238,15 @@ class CodingAgentConfig(Base):
     # What to do when a task changed files outside its project (credentials, shell startup files,
     # git hooks, the user's own checkout): ``warn`` reports it, ``fail`` also marks the task failed.
     outside_writes: Literal["warn", "fail"] = "warn"
+
+    plan_approval: Literal["always", "auto", "never"] = "auto"
+    plan_auto_max_steps: int = Field(default=6, ge=1)
+    min_context_chars: int = Field(default=120, ge=0)
+    settle_max_continuations: int = Field(default=2, ge=0, le=5)
+    ask_timeout_minutes: int = Field(default=10, ge=1)
+    ask_user_timeout_minutes: int = Field(default=60, ge=1)
+    wait_max_minutes: int = Field(default=10, ge=1, le=30)
+    review: bool = True
 
 
 class CoworkerConfig(Base):

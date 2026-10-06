@@ -26,6 +26,7 @@ from nanobot.coworker.coding.brief import (
     render_brief,
     render_rules,
 )
+from nanobot.coworker.coding.orchestrator import CodingOrchestrator
 from nanobot.coworker.coding.project import (
     DirectConfirmationError,
     ProjectError,
@@ -70,6 +71,7 @@ class CodingRunner:
         self.workspace_mgr = WorkspaceManager(config.coding, workspace_root)
         self.registry = shared_registry(workspace_root)
         self._active_backends = _ACTIVE_BACKENDS
+        self.orchestrator = CodingOrchestrator(config, workspace_root, self._active_backends)
 
     def admit(
         self,
@@ -218,6 +220,24 @@ class CodingRunner:
         self.registry.save(task)
 
     async def execute_task(
+        self,
+        task: CodingTask,
+        backend: CodingBackend,
+        repo: RepoConfig,
+        *,
+        files: list[str] | None = None,
+        wait: bool = False,
+    ) -> str:
+        """Run the full coding task workflow delegating to the Phase-based CodingOrchestrator."""
+        return await self.orchestrator.execute_task(
+            task,
+            backend,
+            repo,
+            files=files,
+            wait=wait,
+        )
+
+    async def _execute_task_legacy(
         self,
         task: CodingTask,
         backend: CodingBackend,

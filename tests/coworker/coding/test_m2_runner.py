@@ -122,13 +122,14 @@ async def test_happy_path_runner_pi(tmp_path: Path) -> None:
         chat_id="user-1",
     )
 
-    with patch("nanobot.coworker.coding.runner.inject_turn", new_callable=AsyncMock) as mock_inject:
+    with patch("nanobot.coworker.coding.runner.inject_turn", new_callable=AsyncMock), \
+         patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock) as orch_inject:
         with patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:test.txt:created by pi"}):
             msg = await runner.execute_task(task, backend, repo, wait=False)
 
     assert task.status == "succeeded"
     assert "created by pi" in msg or "Task" in msg
-    mock_inject.assert_awaited_once()
+    orch_inject.assert_awaited_once()
 
     # Verify task persisted
     saved = runner.registry.get(task.id)
@@ -141,11 +142,12 @@ async def test_happy_path_runner_pi(tmp_path: Path) -> None:
 async def test_happy_path_runner_agy(tmp_path: Path) -> None:
     repo_dir = _init_repo(tmp_path / "repo_agy")
     coworker_cfg = CoworkerConfig(
-        coding=CodingAgentConfig(
-            enabled=True,
-            default_backend="agy",
-            repos=[RepoConfig(path=str(repo_dir), base_ref="main", acceptance="cat test.txt")],
-            agy=AgyBackendConfig(
+            coding=CodingAgentConfig(
+                enabled=True,
+                default_backend="agy",
+                review=False,
+                repos=[RepoConfig(path=str(repo_dir), base_ref="main", acceptance="cat test.txt")],
+                agy=AgyBackendConfig(
                 command=[sys.executable, FAKE_AGY_SCRIPT],
                 allow_unsandboxed=True,
                 pass_env=["FAKE_AGY_SCENARIO"],

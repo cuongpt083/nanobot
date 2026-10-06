@@ -319,8 +319,9 @@ async def test_direct_task_edits_in_place_and_reports_changes(tmp_path: Path) ->
     task, backend, repo = await _admit(runner, _session(project))
 
     with patch("nanobot.coworker.coding.runner.inject_turn", new_callable=AsyncMock) as inject:
-        with patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:made.txt:by the harness"}):
-            message = await runner.execute_task(task, backend, repo, wait=False)
+        with patch("nanobot.coworker.coding.orchestrator.inject_turn", inject):
+            with patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:made.txt:by the harness"}):
+                message = await runner.execute_task(task, backend, repo, wait=False)
 
     assert task.status == "succeeded"
     assert (project / "made.txt").read_text(encoding="utf-8").startswith("by the harness")
@@ -341,6 +342,11 @@ async def test_snapshot_failure_marks_the_task_and_still_reports(tmp_path: Path)
     task, backend, repo = await _admit(runner, _session(project))
     with (
         patch("nanobot.coworker.coding.runner.inject_turn", new_callable=AsyncMock) as inject,
+        patch(
+            "nanobot.coworker.coding.orchestrator.direct_mod.take_snapshot",
+            side_effect=OSError("disk full"),
+        ),
+        patch("nanobot.coworker.coding.orchestrator.inject_turn", inject),
         patch(
             "nanobot.coworker.coding.runner.direct_mod.take_snapshot",
             side_effect=OSError("disk full"),

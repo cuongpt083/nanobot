@@ -346,14 +346,18 @@ class PiBackend(CodingBackend):
         rules: str,
         session_dir: Path | None,
         resume_session: str | None,
+        no_session: bool = False,
     ) -> list[str]:
         args = list(self.config.command)
         args.extend(["--mode", "rpc", "--name", task_id])
 
-        if session_dir:
-            args.extend(["--session-dir", str(session_dir)])
-        if resume_session:
+        if no_session:
+            args.append("--no-session")
+        elif resume_session:
             args.extend(["--session", resume_session])
+        elif session_dir:
+            args.extend(["--session-dir", str(session_dir)])
+
         if self.config.tools:
             args.extend(["--tools", ",".join(self.config.tools)])
         if not self.config.extensions:
@@ -373,6 +377,7 @@ class PiBackend(CodingBackend):
         rules: str,
         task_id: str,
         session_dir: Path | None = None,
+        no_session: bool = False,
     ) -> BackendRun:
         self._check_sandbox_admission()
         args = self._build_command(
@@ -380,6 +385,7 @@ class PiBackend(CodingBackend):
             rules=rules,
             session_dir=session_dir,
             resume_session=None,
+            no_session=no_session,
         )
         env = _make_child_env(self.config.pass_env, self.config.agent_dir)
         args = self._sandboxed(args, cwd, env, session_dir)

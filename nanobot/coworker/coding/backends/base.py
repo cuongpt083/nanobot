@@ -67,6 +67,7 @@ class BackendEventTool:
     tool_call_id: str | None = None
     parameters: dict[str, Any] = field(default_factory=dict)
     state: Literal["start", "update", "end"] = "start"
+    details: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

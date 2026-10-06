@@ -73,6 +73,19 @@ class CodingTask:
     outside_writes: list[str] = field(default_factory=list)
     finished_at: float = 0.0
 
+    # Phase 4 state tracking
+    phase: Literal["prepare", "plan", "await_approval", "implement", "review", "fix", "deliver"] = "prepare"
+    contract: dict[str, Any] = field(default_factory=dict)
+    pi_session_file: str | None = None
+    entry_cursor: int = 0
+    plan: dict[str, Any] | None = None
+    report: dict[str, Any] | None = None
+    review: dict[str, Any] | None = None
+    fix_round: int = 0
+    questions: list[dict[str, Any]] = field(default_factory=list)
+    phase_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
+    blocked_calls: int = 0
+
     @property
     def run_dir(self) -> Path:
         """Directory the harness runs in: the project (direct), or the worktree / its subdirectory."""

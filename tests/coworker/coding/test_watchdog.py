@@ -78,8 +78,10 @@ async def test_watchdog_idle_timeout(tmp_path: Path) -> None:
         return current_sim_time[0]
 
     with patch("time.time", side_effect=mock_time):
-        with patch("nanobot.coworker.coding.runner.inject_turn", new_callable=AsyncMock):
-            with patch.object(runner.workspace_mgr, "create_worktree", new_callable=AsyncMock) as mock_wt:
+            with patch("nanobot.coworker.coding.runner.inject_turn", new_callable=AsyncMock), \
+                 patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock), \
+                 patch.object(runner.orchestrator.workspace_mgr, "create_worktree", new_callable=AsyncMock) as mock_wt, \
+                 patch.object(runner.workspace_mgr, "create_worktree", new_callable=AsyncMock):
                 mock_wt.return_value = (repo_dir, "coworker/code/test-wt")
 
                 exec_task = asyncio.create_task(runner.execute_task(task, backend, repo, wait=False))
