@@ -28,4 +28,5 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `summarize` | Summarize URLs, files, and YouTube videos |
 | `tmux` | Remote-control tmux sessions |
 | `clawhub` | Search and install skills from ClawHub registry |
+| `coding-discipline` | Root cause before fix, test first when practical, evidence before done claims (condensed from obra/superpowers, MIT) |
 | `skill-creator` | Create new skills |
