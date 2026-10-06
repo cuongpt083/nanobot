@@ -115,6 +115,7 @@ class PiBackend(CodingBackend):
         self._tool_count: int = 0
         self._last_tool: str | None = None
         self._settled_task: asyncio.Task[None] | None = None
+        self.contract_file: Path | None = None
 
     @property
     def name(self) -> str:
@@ -137,13 +138,16 @@ class PiBackend(CodingBackend):
     ) -> list[str]:
         """Wrap the harness in the OS sandbox: only its project and its own state are writable."""
         state = Path(self.config.agent_dir).expanduser() if self.config.agent_dir else Path.home() / ".pi"
+        extra_rw = [session_dir] if session_dir else []
+        if self.contract_file:
+            extra_rw.append(self.contract_file.parent)
         return wrap_argv(
             args,
             policy=self.sandbox_policy,
             cwd=cwd,
             env=env,
             state_dirs=[state],
-            extra_rw=[session_dir],
+            extra_rw=extra_rw,
         )
 
     async def _send_command(
@@ -388,6 +392,8 @@ class PiBackend(CodingBackend):
             no_session=no_session,
         )
         env = _make_child_env(self.config.pass_env, self.config.agent_dir)
+        if self.contract_file:
+            env["NANOBOT_TASK_CONTRACT"] = str(self.contract_file)
         args = self._sandboxed(args, cwd, env, session_dir)
         queue: asyncio.Queue[BackendEvent] = asyncio.Queue()
         self._current_queue = queue
@@ -433,6 +439,8 @@ class PiBackend(CodingBackend):
                 resume_session=run_ref,
             )
             env = _make_child_env(self.config.pass_env, self.config.agent_dir)
+            if self.contract_file:
+                env["NANOBOT_TASK_CONTRACT"] = str(self.contract_file)
             args = self._sandboxed(args, cwd, env, session_dir)
             self.proc = await spawn_process_group(args, cwd=cwd, env=env, stdin_pipe=True)
             if self.proc.stderr:

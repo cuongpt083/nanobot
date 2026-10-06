@@ -162,6 +162,126 @@ async def test_orchestrator_phases_full_flow(tmp_path: Path) -> None:
     assert task.phase == "deliver"
     assert task.pi_session_file is not None
     mock_inject.assert_awaited()
-    # Contract json created in run_dir
-    contract_file = task.run_dir / "task-contract.json"
+    # Contract json created in workspace task dir
+    contract_file = runner.registry.task_dir(task.id) / "task-contract.json"
     assert contract_file.exists()
+
+
+
+@pytest.mark.asyncio
+async def test_await_approval_policy_always_and_auto(tmp_path: Path) -> None:
+    repo_dir = _init_repo(tmp_path / "repo_approval")
+    cfg = CoworkerConfig(
+        coding=CodingAgentConfig(
+            enabled=True,
+            default_backend="pi",
+            plan_approval="always",
+            repos=[RepoConfig(path=str(repo_dir), base_ref="main")],
+            pi=PiBackendConfig(
+                command=[sys.executable, FAKE_PI_SCRIPT],
+                allow_unsandboxed=True,
+                pass_env=["FAKE_PI_SCENARIO"],
+            ),
+        )
+    )
+    runner = CodingRunner(cfg, tmp_path)
+    task, backend, repo = runner.admit(
+        brief="Test approval policy always",
+        session_key="s1",
+        channel="cli",
+        chat_id="u1",
+    )
+    task.contract = CodingContract(
+        objective="Create approval test",
+        context="A full phase test verification " * 5,
+        acceptance_criteria=["approval verified"],
+        mode="plan_first",
+    ).to_dict()
+
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock) as mock_inject:
+        msg = await runner.execute_task(task, backend, repo, wait=False)
+
+    assert task.status == "awaiting_approval"
+    assert "Plan awaiting approval" in (task.error or "")
+    assert "[auto-coding-plan]" in msg
+    assert task.id not in runner._active_backends
+    mock_inject.assert_awaited()
+
+
+
+@pytest.mark.asyncio
+async def test_repo_has_no_polluting_artifacts(tmp_path: Path) -> None:
+    repo_dir = _init_repo(tmp_path / "repo_clean")
+    cfg = CoworkerConfig(
+        coding=CodingAgentConfig(
+            enabled=True,
+            default_backend="pi",
+            repos=[RepoConfig(path=str(repo_dir), base_ref="main", acceptance="cat file.txt")],
+            pi=PiBackendConfig(
+                command=[sys.executable, FAKE_PI_SCRIPT],
+                allow_unsandboxed=True,
+                pass_env=["FAKE_PI_SCENARIO"],
+            ),
+        )
+    )
+    runner = CodingRunner(cfg, tmp_path)
+    task, backend, repo = runner.admit(
+        brief="Create file.txt",
+        session_key="s1",
+        channel="cli",
+        chat_id="u1",
+    )
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock), \
+         patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:file.txt:clean commit"}):
+        await runner.execute_task(task, backend, repo, wait=False)
+
+    assert task.status == "succeeded"
+    wt_path = Path(task.worktree)
+    proc = subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"], cwd=wt_path, capture_output=True, text=True, check=True)
+    tracked_files = proc.stdout.splitlines()
+    assert "file.txt" in tracked_files
+    assert "task-contract.json" not in tracked_files
+    assert not any(f.startswith(".coworker") for f in tracked_files)
+    assert not any(f.startswith("session") for f in tracked_files)
+
+
+@pytest.mark.asyncio
+async def test_direct_mode_has_no_polluting_artifacts(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+    project_dir = tmp_path / "my_project"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "existing.py").write_text("print('hello')\n", encoding="utf-8")
+
+    cfg = CoworkerConfig(
+        coding=CodingAgentConfig(
+            enabled=True,
+            default_backend="pi",
+            non_git="direct",
+            repos=[],
+            pi=PiBackendConfig(
+                command=[sys.executable, FAKE_PI_SCRIPT],
+                allow_unsandboxed=True,
+                pass_env=["FAKE_PI_SCENARIO"],
+            ),
+        )
+    )
+    runner = CodingRunner(cfg, tmp_path)
+    session = SimpleNamespace(
+        metadata={"workspace_scope": {"project_path": str(project_dir), "access_mode": "restricted"}}
+    )
+    with patch("nanobot.coworker.coding.runner._lookup_session", return_value=session):
+        task, backend, repo = await runner.admit_async(
+            brief="Create made.txt",
+            session_key="s1",
+            channel="cli",
+            chat_id="u1",
+        )
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock), \
+         patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:made.txt:hello direct"}):
+        await runner.execute_task(task, backend, repo, wait=False)
+
+    assert task.status == "succeeded"
+    assert task.changes.get("added") == ["made.txt"]
+    assert not (project_dir / "task-contract.json").exists()
+    assert not (project_dir / "session").exists()
+    assert not (project_dir / ".coworker").exists()

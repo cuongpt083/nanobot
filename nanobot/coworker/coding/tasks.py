@@ -22,6 +22,7 @@ TaskStatus = Literal[
     "timed_out",
     "error",
     "interrupted",
+    "awaiting_approval",
 ]
 
 
@@ -111,6 +112,12 @@ class TaskRegistry:
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self._memory_cache: dict[str, CodingTask] = {}
         self._load_and_recover()
+
+    def task_dir(self, task_id: str) -> Path:
+        """Isolated directory for task runtime artifacts (contract, session, review)."""
+        d = self.tasks_dir / task_id
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
     def _load_and_recover(self) -> None:
         """Load saved tasks and mark any previously running tasks as interrupted."""

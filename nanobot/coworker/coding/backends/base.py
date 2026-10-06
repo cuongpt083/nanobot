@@ -161,6 +161,11 @@ def _sandbox_policy(config: CoworkerConfig) -> SandboxPolicy:
     )
 
 
+def sandbox_policy_for(config: CoworkerConfig) -> SandboxPolicy:
+    """Build SandboxPolicy from CoworkerConfig."""
+    return _sandbox_policy(config)
+
+
 def backend_for(name: str, config: CoworkerConfig) -> CodingBackend:
     """Instantiate a coding backend by name."""
     clean = name.strip().lower()

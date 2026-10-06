@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nanobot.coworker.coding.backends.base import BackendEventDone, BackendEventTool
+from nanobot.coworker.coding.backends.base import (
+    BackendEventDone,
+    BackendEventTool,
+    sandbox_policy_for,
+)
 from nanobot.coworker.coding.backends.pi import PiBackend
+from nanobot.coworker.coding.pi.version import resolve_pi_binary
 from nanobot.coworker.coding.tasks import CodingTask
 
 if TYPE_CHECKING:
@@ -77,24 +84,26 @@ async def run_review(
     direct_patch_path: str | None = None,
 ) -> dict[str, Any]:
     """Execute independent review using a fresh, no-session Pi instance."""
-    # Write reviewer contract
     run_dir = task.run_dir
-    review_dir = run_dir / ".coworker" / "review"
-    review_dir.mkdir(parents=True, exist_ok=True)
 
-    # Set up Pi backend for reviewer
-    # Note: reviewer uses tools from config or restricted set, mode review
+    # Set up Pi backend for reviewer using standard coworker sandbox policy
     reviewer_cfg = config.coding.pi.model_copy(deep=True)
-    if not reviewer_cfg.allow_unsandboxed and config.coding.sandbox == "none":
-        reviewer_cfg.allow_unsandboxed = True
-    if config.coding.pi.phases.review.model:
-        # Override model if configured
-        pass
+    resolved_cmd = resolve_pi_binary(reviewer_cfg.command)
+    pi_bin = resolved_cmd[0] if resolved_cmd else "pi"
+    if not shutil.which(pi_bin) and not Path(pi_bin).exists():
+        logger.warning(f"Task {task.id}: Pi binary '{pi_bin}' unavailable; skipping independent review")
+        return {
+            "verdict": "skipped",
+            "findings": [],
+            "summary": f"Review skipped: Pi binary '{pi_bin}' is unavailable on system.",
+        }
+
+    reviewer_cfg.command = resolved_cmd
 
     backend = PiBackend(
         config=reviewer_cfg,
         global_sandbox=config.coding.sandbox,
-        sandbox_policy=None,
+        sandbox_policy=sandbox_policy_for(config),
     )
 
     prompt = render_reviewer_prompt(task, direct_patch_path=direct_patch_path)
@@ -125,9 +134,9 @@ async def run_review(
     except Exception as exc:
         logger.warning(f"Task {task.id}: review execution encountered error: {exc}")
         review_report = {
-            "verdict": "pass",
+            "verdict": "error",
             "findings": [],
-            "summary": f"Review execution encountered error ({exc}); defaulting to pass.",
+            "summary": f"Review execution encountered error ({exc}).",
         }
     finally:
         await backend.abort()

@@ -6,7 +6,7 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
 
@@ -17,6 +17,7 @@ from nanobot.coworker.coding.backends.base import (
     BackendEventTool,
     CodingBackend,
 )
+from nanobot.coworker.coding.backends.pi import PiBackend
 from nanobot.coworker.coding.brief import (
     render_brief,
     render_rules,
@@ -35,6 +36,22 @@ if TYPE_CHECKING:
 
 
 _DELIVERY_FILE_LIMIT = 20
+
+
+def _dict_items(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in cast(list[object], value):
+        if isinstance(item, dict):
+            out.append(cast(dict[str, Any], item))
+    return out
+
+
+def _list_items(value: object) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    return list(cast(list[object], value))
 
 
 
@@ -63,6 +80,10 @@ def format_delivery_message(task: CodingTask) -> str:
         f"**Tokens**: {tokens_info}",
         f"**Acceptance**: {acc_text}",
     ]
+    if task.review:
+        verdict = task.review.get("verdict", "unknown")
+        rev_summary = task.review.get("summary", "")
+        lines.append(f"**Review**: `{verdict}` ({rev_summary})")
     if task.error:
         lines.append(f"**Error**: {task.error}")
     if task.outside_writes:
@@ -176,7 +197,8 @@ class CodingOrchestrator:
 
         run_dir = task.run_dir
         task.status = "running"
-        session_dir = run_dir / ".coworker" / "session"
+        task_dir = self.registry.task_dir(task.id)
+        session_dir = task_dir / "session"
         session_dir.mkdir(parents=True, exist_ok=True)
         task.pi_session_file = str(session_dir)
         self.registry.save(task)
@@ -192,13 +214,16 @@ class CodingOrchestrator:
             mode="plan_first" if getattr(self.config.coding, "mode", "plan_first") == "plan_first" else "auto",
         )
         task.contract = contract_obj.to_dict()
+        contract_path = task_dir / "task-contract.json"
         contract_obj.write_task_contract_json(
-            run_dir / "task-contract.json",
+            contract_path,
             task_id=task.id,
             worktree_root=run_dir,
             bridge_mode="plan" if contract_obj.mode == "plan_first" else "implement",
             ask_enabled=not wait,
         )
+        if isinstance(backend, PiBackend):
+            backend.contract_file = contract_path
 
         watch: guard.WriteWatch | None = None
         try:
@@ -265,6 +290,8 @@ class CodingOrchestrator:
                             if event.details:
                                 task.plan = event.details
                         elif isinstance(event, BackendEventDone):
+                            if event.resume_ref:
+                                task.resume_ref = event.resume_ref
                             break
                         if watchdog_triggered:
                             break
@@ -284,27 +311,45 @@ class CodingOrchestrator:
                 if not wait and self.config.coding.plan_approval == "always":
                     auto_approved = False
                 elif not wait and self.config.coding.plan_approval == "auto":
-                    steps = task.plan.get("plan_steps", []) if task.plan else []
-                    open_q = task.plan.get("open_questions", []) if task.plan else []
+                    steps = _list_items(task.plan.get("plan_steps")) if task.plan else []
+                    open_q = _list_items(task.plan.get("open_questions")) if task.plan else []
                     if len(steps) > self.config.coding.plan_auto_max_steps or open_q:
                         auto_approved = False
 
                 if not auto_approved:
-                    # Post plan for main agent approval
-                    if task.plan:
-                        await inject_turn(
-                            task.session_key,
-                            kind="coding_plan",
-                            content=f"Plan submitted for task {task.id}: {task.plan.get('summary', '')}",
+                    # Plan not approved by auto criteria -> await approval or reject
+                    plan_summary = task.plan.get("summary", "") if task.plan else "Plan ready."
+                    await inject_turn(
+                        session_key=task.session_key,
+                        channel=task.channel,
+                        chat_id=task.chat_id,
+                        kind="coding_plan",
+                        content=f"Plan submitted for task {task.id}: {plan_summary}",
+                        extra={"task_id": task.id, "plan": task.plan or {}},
+                    )
+                    if self.config.coding.plan_approval == "always" or (
+                        self.config.coding.plan_approval == "auto" and not auto_approved
+                    ):
+                        task.status = "awaiting_approval"
+                        task.error = f"Plan awaiting approval for task {task.id}"
+                        task.finished_at = time.time()
+                        self.registry.save(task)
+                        active_b = self._active_backends.pop(task.id, None)
+                        if active_b:
+                            try:
+                                await active_b.abort()
+                            except Exception:
+                                pass
+                        return (
+                            f"[auto-coding-plan] Plan submitted for task `{task.id}`. "
+                            f"(Approval workflow is deferred in current runtime; re-run with `plan_approval='never'` to auto-implement.)"
                         )
-                    # In non-blocking harness, here we would pause. In automated flow, approve to proceed.
-                    auto_approved = True
 
             # 4. IMPLEMENT PHASE
             if not watchdog_triggered:
                 await self._transition_phase(task, "implement")
                 contract_obj.write_task_contract_json(
-                    run_dir / "task-contract.json",
+                    contract_path,
                     task_id=task.id,
                     worktree_root=run_dir,
                     bridge_mode="implement",
@@ -319,7 +364,7 @@ class CodingOrchestrator:
                     implement_prompt += f"\n\nFollow the approved plan:\n{steps_str}"
 
                 run = backend.follow_up(
-                    run_ref=str(session_dir),
+                    run_ref=task.resume_ref or str(session_dir),
                     message=implement_prompt,
                     cwd=run_dir,
                     rules=implement_rules,
@@ -338,6 +383,8 @@ class CodingOrchestrator:
                         elif isinstance(event, BackendEventDone):
                             if event.result and event.result.response:
                                 task.summary = event.result.response
+                            if event.resume_ref:
+                                task.resume_ref = event.resume_ref
                             break
                         if watchdog_triggered:
                             break
@@ -351,19 +398,29 @@ class CodingOrchestrator:
                     await self._transition_phase(task, "review")
                     direct_patch_file = None
                     if is_direct:
-                        patch_dir = run_dir / ".coworker" / "review"
+                        patch_dir = task_dir / "review"
                         patch_dir.mkdir(parents=True, exist_ok=True)
                         patch_path = patch_dir / "changes.patch"
-                        diff_manifest = direct_mod.diff_manifest(before_manifest, Path(task.workdir)) if before_manifest else {}
-                        diff_dump = diff_manifest.to_dict() if hasattr(diff_manifest, "to_dict") else diff_manifest
+                        diff_manifest = direct_mod.diff_manifest(before_manifest, Path(task.workdir)) if before_manifest else None
+                        diff_dump = diff_manifest.to_dict() if diff_manifest is not None else {}
                         patch_path.write_text(json.dumps(diff_dump, indent=2), encoding="utf-8")
                         direct_patch_file = str(patch_path)
 
-                    review_res = await run_review(self.config, task, direct_patch_path=direct_patch_file)
+                    try:
+                        review_res = await asyncio.wait_for(
+                            run_review(self.config, task, direct_patch_path=direct_patch_file),
+                            timeout=min(self.config.coding.timeout_minutes * 60, 300.0),
+                        )
+                    except Exception as exc:
+                        logger.warning(f"Task {task.id}: review timed out or failed: {exc}")
+                        review_res = {"verdict": "error", "summary": f"review timed out or failed ({exc})"}
+
                     task.review = review_res
                     verdict = review_res.get("verdict", "pass")
-                    findings = review_res.get("findings", [])
-                    blocking_findings = [f for f in findings if f.get("severity") in ("blocking", "major")]
+                    findings = _dict_items(review_res.get("findings"))
+                    blocking_findings = [
+                        f for f in findings if f.get("severity") in ("blocking", "major")
+                    ]
 
                     if verdict == "pass" or not blocking_findings or current_round >= max_fix_rounds:
                         break
@@ -376,10 +433,10 @@ class CodingOrchestrator:
                         for f in blocking_findings
                     )
                     fix_run = backend.follow_up(
-                        run_ref=str(session_dir),
+                        run_ref=task.resume_ref or str(session_dir),
                         message=fix_prompt,
                         cwd=run_dir,
-                        rules=implement_rules,
+                        rules=render_rules(task.acceptance),
                         task_id=task.id,
                         session_dir=session_dir,
                     )
@@ -419,14 +476,21 @@ class CodingOrchestrator:
                 logger.warning(f"Task {task.id}: deliver commit error: {exc}")
         elif is_direct and before_manifest:
             diff = direct_mod.diff_manifest(before_manifest, Path(task.workdir))
-            task.changes = diff.to_dict() if hasattr(diff, "to_dict") else diff
-            task.diffstat = diff.summary() if hasattr(diff, "summary") else ""
+            task.changes = diff.to_dict()
+            task.diffstat = diff.summary()
 
-        if watch:
+        if watch is not None:
             try:
-                task.outside_writes = await asyncio.to_thread(watch.check)
+                rep = await asyncio.to_thread(watch.check)
             except Exception:
-                pass
+                logger.exception(f"Task {task.id}: outside-write check failed")
+            else:
+                if rep:
+                    task.outside_writes = rep.lines()
+                    if rep.critical and self.config.coding.outside_writes == "fail":
+                        task.status = "error"
+                        note = "The harness modified sensitive files outside the project directory."
+                        task.error = f"{task.error} {note}" if task.error else note
 
         # Final verdict status
         if task.status not in ("error", "timed_out", "aborted"):

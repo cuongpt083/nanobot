@@ -145,7 +145,7 @@ async def test_happy_path_runner_agy(tmp_path: Path) -> None:
             coding=CodingAgentConfig(
                 enabled=True,
                 default_backend="agy",
-                review=False,
+                review=True,
                 repos=[RepoConfig(path=str(repo_dir), base_ref="main", acceptance="cat test.txt")],
                 agy=AgyBackendConfig(
                 command=[sys.executable, FAKE_AGY_SCRIPT],

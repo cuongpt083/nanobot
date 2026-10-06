@@ -131,7 +131,7 @@ def test_at_agy_says_so_when_coding_is_disabled(env) -> None:
 def test_room_agent_with_the_same_id_is_left_to_the_room(env) -> None:
     env.configure(CoworkerConfig(
         coding=CodingAgentConfig(enabled=True),
-        room=RoomConfig(agents=[RoomAgentConfig(id="agy", backend="agy")]),
+        room=RoomConfig(agents=[RoomAgentConfig(id="agy", backend="pi")]),
     ))
     env.sessions.get_or_create(KEY)
     assert _transform("@agy do it")[0][1]["content"] == "@agy do it"
