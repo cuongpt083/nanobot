@@ -1,8 +1,7 @@
 """Unit tests for tool v2 actions and schema validations."""
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

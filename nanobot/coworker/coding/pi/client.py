@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import shutil
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -149,7 +148,7 @@ class PiClient(CodingRuntime):
             if not default_contract_file.exists():
                 try:
                     import json
-                    from nanobot.coworker.transcript import as_dict
+
                     default_contract = {
                         "task_id": session.task_id,
                         "mode": "implement",

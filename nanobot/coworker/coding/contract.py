@@ -27,7 +27,7 @@ class CodingContract:
         errors: list[str] = []
         if not self.objective or not self.objective.strip():
             errors.append("Contract missing required 'objective': specify a clear, bounded task objective.")
-        
+
         cleaned_ctx = (self.context or "").strip()
         if len(cleaned_ctx) < min_context_chars:
             errors.append(

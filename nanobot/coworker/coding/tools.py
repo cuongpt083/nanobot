@@ -309,11 +309,11 @@ class CodingAgentTool(CoworkerTool):
             t = runner.registry.get(id)
             if not t:
                 return self.payload("error", error=f"Task '{id}' not found.")
-            
+
             # If escalated, inform caller timeout is extended
             if escalated:
                 return self.payload("ok", id=id, question_id=question_id, status="escalated_to_user")
-            
+
             if answer is None:
                 return self.payload("error", error="Either 'answer' or 'escalated=True' is required for 'answer'.")
 
