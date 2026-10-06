@@ -54,7 +54,7 @@ class RoomAgentConfig(Base):
     emoji: str = ""
     bio: str = ""
     preset: str | None = None  # model preset; None = the owner's runtime
-    backend: Literal["pi", "agy"] | None = None  # coding harness backend if used as coder
+    backend: Literal["pi"] | None = None  # coding harness backend if used as coder
     instructions: str = ""
     home: str | None = None  # relative to workspace, e.g. "agents/nutri-coach"
     tools: NamePolicy = Field(default_factory=NamePolicy)

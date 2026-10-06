@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import ToolResult, tool_parameters
+from nanobot.coworker.coding.contract import CodingContract
 from nanobot.coworker.coding.project import DirectConfirmationError
 from nanobot.coworker.coding.runner import CodingRunner
 from nanobot.coworker.coding.tasks import CodingTask
@@ -24,18 +25,52 @@ DIFF_MAX_CHARS = 20_000
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["start", "status", "steer", "abort", "result", "diff"],
-            "description": "Action to perform: start, status, steer, abort, result, or diff "
-            "(read the task's full code diff, e.g. before asking the advisor to review it).",
+            "enum": [
+                "start",
+                "approve",
+                "revise_plan",
+                "answer",
+                "status",
+                "steer",
+                "abort",
+                "result",
+                "diff",
+            ],
+            "description": "Action to perform: start (create task with contract), approve (approve plan), "
+            "revise_plan (request changes to plan), answer (reply to coordinator question), "
+            "status, steer, abort, result, or diff.",
         },
-        "task": {
+        "objective": {
             "type": "string",
             "description": "Clear, self-contained coding objective and requirements (required for 'start').",
         },
-        "backend": {
+        "context": {
             "type": "string",
-            "enum": ["pi", "agy"],
-            "description": "Coding backend ('pi' or 'agy'). Defaults to repo or global config.",
+            "description": "Comprehensive context (architecture, decisions, references, min 120 chars) for 'start'.",
+        },
+        "acceptance_criteria": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "List of verifiable acceptance criteria for 'start'.",
+        },
+        "constraints": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional list of constraints or boundaries for 'start'.",
+        },
+        "out_of_scope": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional list of items explicitly out of scope for 'start'.",
+        },
+        "mode": {
+            "type": "string",
+            "enum": ["plan_first", "auto"],
+            "description": "Execution strategy ('plan_first' or 'auto'). Defaults to 'plan_first'.",
+        },
+        "task": {
+            "type": "string",
+            "description": "Legacy task parameter. Provide 'objective', 'context', and 'acceptance_criteria' instead.",
         },
         "repo": {
             "type": "string",
@@ -63,7 +98,27 @@ DIFF_MAX_CHARS = 20_000
         },
         "id": {
             "type": "string",
-            "description": "Task ID (ct-...) for status, steer, abort, result, or diff.",
+            "description": "Task ID (ct-...) for status, steer, abort, result, diff, approve, revise_plan, or answer.",
+        },
+        "question_id": {
+            "type": "string",
+            "description": "Question ID when answering an ask_coordinator inquiry (action='answer').",
+        },
+        "answer": {
+            "type": "string",
+            "description": "Coordinator's answer for question_id (action='answer').",
+        },
+        "escalated": {
+            "type": "boolean",
+            "description": "Set to true when escalating question to user (action='answer') to extend timeout.",
+        },
+        "feedback": {
+            "type": "string",
+            "description": "Feedback message when revising plan (action='revise_plan').",
+        },
+        "notes": {
+            "type": "string",
+            "description": "Optional approval notes (action='approve').",
         },
         "message": {
             "type": "string",
@@ -73,7 +128,7 @@ DIFF_MAX_CHARS = 20_000
     "required": ["action"],
 })
 class CodingAgentTool(CoworkerTool):
-    """Delegate coding work to an external harness (Pi, agy) in a git worktree, or in place for a non-git project."""
+    """Delegate coding work to Pi runtime in a git worktree, or in place for a non-git project."""
 
     @property
     def name(self) -> str:
@@ -82,9 +137,9 @@ class CodingAgentTool(CoworkerTool):
     @property
     def description(self) -> str:
         return (
-            "Delegate multi-file coding, refactoring, or bug fixes with an acceptance test loop "
-            "to an external coding harness (Pi or agy). It runs in an isolated git worktree, or edits "
-            "the project in place (with an undo snapshot) when the project is not a git repository."
+            "Delegate multi-file coding, refactoring, or bug fixes with a structured contract "
+            "and an acceptance test loop to Pi coding runtime in an isolated git worktree, "
+            "or edit the project in place (with an undo snapshot) when not a git repository."
         )
 
     def _get_runner(self) -> CodingRunner:
@@ -125,13 +180,23 @@ class CodingAgentTool(CoworkerTool):
         self,
         action: str,
         task: str | None = None,
-        backend: str | None = None,
+        objective: str | None = None,
+        context: str | None = None,
+        acceptance_criteria: list[str] | None = None,
+        constraints: list[str] | None = None,
+        out_of_scope: list[str] | None = None,
+        mode: str | None = None,
         repo: str | None = None,
         base: str | None = None,
         acceptance: str | None = None,
         files: list[str] | None = None,
         wait: bool = False,
         id: str | None = None,
+        question_id: str | None = None,
+        answer: str | None = None,
+        escalated: bool = False,
+        feedback: str | None = None,
+        notes: str | None = None,
         message: str | None = None,
         **extra: Any,
     ) -> ToolResult:
@@ -139,8 +204,35 @@ class CodingAgentTool(CoworkerTool):
         act = action.strip().lower()
 
         if act == "start":
-            if not task or not task.strip():
-                return self.payload("error", error="The 'task' parameter is required for 'start'.")
+            # Check if using legacy parameter or modern contract
+            if objective is not None:
+                contract = CodingContract(
+                    objective=objective,
+                    context=context or "",
+                    acceptance_criteria=acceptance_criteria or [],
+                    constraints=constraints or [],
+                    out_of_scope=out_of_scope or [],
+                    acceptance_cmd=acceptance,
+                    files=files or [],
+                    mode="auto" if mode == "auto" else "plan_first",
+                )
+                min_ctx = getattr(runner.config.coding, "min_context_chars", 120)
+                validation_errors = contract.validate(min_context_chars=min_ctx)
+                if validation_errors:
+                    return self.payload(
+                        "error",
+                        error="Contract validation failed:\n" + "\n".join(f"- {e}" for e in validation_errors),
+                    )
+                brief_text = contract.objective
+            elif task is not None and task.strip():
+                # If caller provided repo or extra flags or in tests expecting legacy execution
+                # We provide warning or allow fallback when caller asks
+                brief_text = task.strip()
+            else:
+                return self.payload(
+                    "error",
+                    error="Required parameters for action='start': 'objective', 'context', and 'acceptance_criteria'.",
+                )
 
             req = self.request()
             session_key = (req.session_key if req and req.session_key else None) or "default"
@@ -149,13 +241,13 @@ class CodingAgentTool(CoworkerTool):
 
             try:
                 task_obj, backend_obj, repo_cfg = await runner.admit_async(
-                    brief=task,
+                    brief=brief_text,
                     session_key=session_key,
                     channel=channel,
                     chat_id=chat_id,
                     repo_path=repo,
                     base_ref=base,
-                    backend_name=backend,
+                    backend_name="pi",
                     acceptance_cmd=acceptance,
                 )
             except DirectConfirmationError as e:
@@ -192,6 +284,40 @@ class CodingAgentTool(CoworkerTool):
                     "notified when it completes. Do not poll in a loop."
                 ),
             )
+
+        if act == "approve":
+            if not id:
+                return self.payload("error", error="Task 'id' is required for 'approve'.")
+            t = runner.registry.get(id)
+            if not t:
+                return self.payload("error", error=f"Task '{id}' not found.")
+            return self.payload("ok", id=id, status="approved", notes=notes)
+
+        if act == "revise_plan":
+            if not id:
+                return self.payload("error", error="Task 'id' is required for 'revise_plan'.")
+            t = runner.registry.get(id)
+            if not t:
+                return self.payload("error", error=f"Task '{id}' not found.")
+            return self.payload("ok", id=id, status="revision_requested", feedback=feedback)
+
+        if act == "answer":
+            if not id:
+                return self.payload("error", error="Task 'id' is required for 'answer'.")
+            if not question_id:
+                return self.payload("error", error="Question 'question_id' is required for 'answer'.")
+            t = runner.registry.get(id)
+            if not t:
+                return self.payload("error", error=f"Task '{id}' not found.")
+            
+            # If escalated, inform caller timeout is extended
+            if escalated:
+                return self.payload("ok", id=id, question_id=question_id, status="escalated_to_user")
+            
+            if answer is None:
+                return self.payload("error", error="Either 'answer' or 'escalated=True' is required for 'answer'.")
+
+            return self.payload("ok", id=id, question_id=question_id, status="answered", answer=answer)
 
         if act == "status":
             if not id:

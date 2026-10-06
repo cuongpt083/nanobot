@@ -225,29 +225,28 @@ WASTED = "\n".join([
 
 CODING = "\n".join([
     "## External coding agent delegation",
-    "You can delegate real coding work to an external coding harness via `coding_agent`.",
+    "You can delegate coding work to the Pi coding runtime via `coding_agent`.",
     "",
-    "When to delegate vs. do it yourself:",
-    "- DO IT YOURSELF: quick one-line edits, simple config tweaks, small file reads/writes.",
-    "- DELEGATE: multi-file edits, refactors, feature implementations, and bug fixes that require a test/acceptance loop.",
+    "When to do it yourself vs. delegate to Pi:",
+    "- DO IT YOURSELF: small edits (1-2 files), config changes, simple tweaks that do not need running full test suites. Use `apply_patch` / file tools.",
+    "- DELEGATE TO PI: 3 or more files, new features, multi-file refactoring, or bug fixes requiring test/lint execution loops.",
     "",
-    "Available backends:",
-    "- `pi`: Lean, fast, steerable in-flight edits.",
-    "- `agy`: Broad toolset including web search, browser automation, and multi-file reasoning.",
+    "Structuring the task contract:",
+    "- Always provide 'objective' (clear, bounded goal), 'context' (detailed background, architectural decisions, >= 120 chars), and 'acceptance_criteria' (verifiable list).",
+    "- Set 'acceptance' if the repository has a test command (e.g. `pytest -q`).",
+    "- Use 'mode=\"auto\"' for straightforward tasks or 'mode=\"plan_first\"' when planning is required.",
+    "- Use 'wait=True' only for small, quick tasks (< 10 minutes) with no back-and-forth; otherwise run asynchronously.",
     "",
-    "Guidelines:",
-    "1. Always pass `acceptance` if the repository has a test or lint command (e.g. `pytest`, `npm test`).",
-    "2. After calling `coding_agent(action='start')`, END YOUR TURN immediately. Do NOT poll in a loop; "
-    "nanobot will automatically summon you with an `[auto-coding-result]` turn when execution completes.",
-    "3. When you receive `[auto-coding-result]`, read the real changes with `coding_agent(action='diff', id=...)` "
-    "and check the acceptance results before recommending `/code merge <id>` to the user "
-    "(in a project without git the changes are already applied: offer `/code discard <id>` to undo).",
-    "4. If the `advisor` tool is available, consult it (a) after you have oriented in the repo and before "
-    "delegating, (b) when a task fails acceptance a second time, and (c) with a `focus` like \"review this "
-    "diff\" after reading the diff and before recommending a merge. The advisor only sees what you have seen, "
-    "so read the diff first. If it flags a real problem, use `coding_agent(action='steer')` or `/code resume`.",
-    "5. When a user message is annotated with `[nanobot: the user addressed the coding agent @<name> ...]`, "
-    "follow that note: delegate to that backend immediately.",
+    "Handling coordinator inquiries ('coding_question'):",
+    "- If you receive a question from Pi via `ask_coordinator`: answer directly with `coding_agent(action='answer', id=..., question_id=..., answer=...)` if information is known.",
+    "- For technical dilemmas or architectural trade-offs, consult `advisor` before answering.",
+    "- For business scope or authority questions, ask the user and call `coding_agent(action='answer', id=..., question_id=..., escalated=True)` to extend timeout.",
+    "",
+    "Handling plan approval ('coding_plan'):",
+    "- Verify the plan covers all acceptance criteria. If satisfactory, call `coding_agent(action='approve', id=...)`; if revisions are needed, call `coding_agent(action='revise_plan', id=..., feedback=...)`.",
+    "",
+    "Post-execution review:",
+    "- When you receive `[auto-coding-result]`, read the changes with `coding_agent(action='diff', id=...)` and verify test/review results before advising merge or discard.",
 ])
 
 
