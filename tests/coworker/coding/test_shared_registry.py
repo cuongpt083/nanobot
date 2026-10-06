@@ -50,14 +50,14 @@ async def test_a_second_runner_sees_and_can_abort_the_running_task(tmp_path: Pat
     cfg = CoworkerConfig()
     started: Any = CodingRunner(cfg, tmp_path)
     started.registry.save(_task())
-    runner_mod._ACTIVE_BACKENDS["ct-1"] = FakeBackend()  # what execute_task does while a harness runs
+    runner_mod._ACTIVE_CLIENTS["ct-1"] = FakeBackend()  # what execute_task does while a harness runs
     try:
         later = CodingRunner(cfg, tmp_path)  # e.g. created for a later coding_agent call
         assert later.registry.get("ct-1").status == "running"
         await later.steer("ct-1", "use a flag")
         await later.abort("ct-1")
     finally:
-        runner_mod._ACTIVE_BACKENDS.pop("ct-1", None)
+        runner_mod._ACTIVE_CLIENTS.pop("ct-1", None)
     assert aborted == ["steer:use a flag", "abort"]
     assert later.registry.get("ct-1").status == "aborted"
     await asyncio.sleep(0)

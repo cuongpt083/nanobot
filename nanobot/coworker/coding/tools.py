@@ -9,6 +9,7 @@ from typing import Any
 
 from nanobot.agent.tools.base import ToolResult, tool_parameters
 from nanobot.coworker.coding.contract import CodingContract
+from nanobot.coworker.coding.pi.questions import get_router
 from nanobot.coworker.coding.project import DirectConfirmationError
 from nanobot.coworker.coding.runner import CodingRunner
 from nanobot.coworker.coding.tasks import CodingTask
@@ -224,10 +225,12 @@ class CodingAgentTool(CoworkerTool):
                         error="Contract validation failed:\n" + "\n".join(f"- {e}" for e in validation_errors),
                     )
                 brief_text = contract.objective
+                contract_warnings = contract.quality_warnings()
             elif task is not None and task.strip():
                 # If caller provided repo or extra flags or in tests expecting legacy execution
                 # We provide warning or allow fallback when caller asks
                 brief_text = task.strip()
+                contract_warnings = []
             else:
                 return self.payload(
                     "error",
@@ -257,6 +260,12 @@ class CodingAgentTool(CoworkerTool):
             except Exception as e:
                 return self.payload("error", error=str(e))
 
+            if objective is not None:
+                task_obj.contract = contract.to_dict()
+                if contract.acceptance_cmd:
+                    task_obj.acceptance = contract.acceptance_cmd
+                runner.registry.save(task_obj)
+
             if wait:
                 # Run inline
                 try:
@@ -279,6 +288,7 @@ class CodingAgentTool(CoworkerTool):
                 branch=task_obj.branch,
                 worktree=task_obj.worktree,
                 mode=task_obj.mode,
+                warnings=contract_warnings or None,
                 note=(
                     "Task started in background. END your turn now; you will be automatically "
                     "notified when it completes. Do not poll in a loop."
@@ -288,18 +298,42 @@ class CodingAgentTool(CoworkerTool):
         if act == "approve":
             if not id:
                 return self.payload("error", error="Task 'id' is required for 'approve'.")
-            t = runner.registry.get(id)
-            if not t:
-                return self.payload("error", error=f"Task '{id}' not found.")
-            return self.payload("ok", id=id, status="approved", notes=notes)
+            try:
+                t = runner.claim_approval(id)
+            except RuntimeError as e:
+                return self.payload("error", error=str(e))
+            spawn_background(
+                runner.approve(t, notes=notes),
+                name=f"coding-approve-{t.id}",
+            )
+            return self.payload(
+                "ok",
+                id=id,
+                state="approved",
+                notes=notes,
+                note="Implementing the approved plan in the background. END your turn now.",
+            )
 
         if act == "revise_plan":
             if not id:
                 return self.payload("error", error="Task 'id' is required for 'revise_plan'.")
-            t = runner.registry.get(id)
-            if not t:
-                return self.payload("error", error=f"Task '{id}' not found.")
-            return self.payload("ok", id=id, status="revision_requested", feedback=feedback)
+            if not (feedback or "").strip():
+                return self.payload("error", error="'feedback' is required for 'revise_plan'.")
+            try:
+                t = runner.claim_approval(id)
+            except RuntimeError as e:
+                return self.payload("error", error=str(e))
+            spawn_background(
+                runner.revise_plan(t, feedback=feedback.strip()),
+                name=f"coding-revise-{t.id}",
+            )
+            return self.payload(
+                "ok",
+                id=id,
+                state="revision_requested",
+                feedback=feedback,
+                note="Revising the plan in the background. END your turn now.",
+            )
 
         if act == "answer":
             if not id:
@@ -310,14 +344,22 @@ class CodingAgentTool(CoworkerTool):
             if not t:
                 return self.payload("error", error=f"Task '{id}' not found.")
 
-            # If escalated, inform caller timeout is extended
+            router = get_router(id)
+            if router is None:
+                return self.payload("error", error=f"Task '{id}' has no active question channel.")
+
+            # Escalation extends the deadline to the user-approval window.
             if escalated:
-                return self.payload("ok", id=id, question_id=question_id, status="escalated_to_user")
+                if router.escalate_to_user(question_id):
+                    return self.payload("ok", id=id, question_id=question_id, state="escalated_to_user")
+                return self.payload("error", error=f"No pending question '{question_id}' to escalate.")
 
             if answer is None:
                 return self.payload("error", error="Either 'answer' or 'escalated=True' is required for 'answer'.")
 
-            return self.payload("ok", id=id, question_id=question_id, status="answered", answer=answer)
+            if router.answer_question(question_id, answer):
+                return self.payload("ok", id=id, question_id=question_id, state="answered", answer=answer)
+            return self.payload("error", error=f"No pending question '{question_id}' to answer.")
 
         if act == "status":
             if not id:
@@ -369,6 +411,9 @@ class CodingAgentTool(CoworkerTool):
                 diffstat=t.diffstat,
                 commits=t.commits,
                 acceptance=t.acceptance_output,
+                settle_continuations=t.settle_continuations,
+                review=t.review,
+                export_html_path=t.export_html_path,
                 error=t.error,
             )
 

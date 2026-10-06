@@ -363,9 +363,27 @@ export function CoworkerInspectorPopover({
                         </span>
                       </div>
                       <div className="mt-1 line-clamp-1 text-muted-foreground">{task.brief}</div>
+                      {task.phase ? (
+                        <div className="mt-0.5 text-[10.5px] text-muted-foreground">
+                          {t("coworker.coding.phase", { defaultValue: "Phase" })}:{" "}
+                          <span className="font-mono">{task.phase}</span>
+                          {task.fix_round ? <span> · fix {task.fix_round}</span> : null}
+                        </div>
+                      ) : null}
+                      {task.pending_questions && task.pending_questions.length > 0 ? (
+                        <div className="mt-1 rounded bg-amber-500/10 px-1.5 py-1 text-[10.5px] text-amber-700 dark:text-amber-300">
+                          {t("coworker.coding.pendingQuestion", { defaultValue: "Waiting for an answer" })}:{" "}
+                          {task.pending_questions[0]?.question}
+                        </div>
+                      ) : null}
                       {task.diffstat ? (
                         <div className="mt-0.5 font-mono text-[10.5px] text-muted-foreground">
                           {task.diffstat}
+                        </div>
+                      ) : null}
+                      {task.export_html_path ? (
+                        <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                          {task.export_html_path}
                         </div>
                       ) : null}
                     </div>

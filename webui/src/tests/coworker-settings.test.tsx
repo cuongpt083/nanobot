@@ -120,6 +120,11 @@ describe("CoworkerSettingsEntry", () => {
   beforeEach(() => {
     requestMutation.mockReset();
     vi.restoreAllMocks();
+    vi.spyOn(api, "fetchCoworkerPhaseModels").mockResolvedValue({
+      models: [],
+      thinking_levels: ["low", "medium", "high"],
+      error: null,
+    });
   });
 
   it("loads settings lazily, edits the advisor and saves only that section", async () => {
@@ -197,6 +202,28 @@ describe("CoworkerSettingsEntry", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     expect(updateSpy.mock.calls[0][1].coding?.pi.allow_unsandboxed).toBe(true);
+  });
+
+  it("configures the model per phase and saves it", async () => {
+    vi.spyOn(api, "fetchCoworkerSettings").mockResolvedValue(payload());
+    vi.spyOn(api, "fetchCoworkerPhaseModels").mockResolvedValue({
+      models: [
+        { value: "anthropic/claude-opus-4", label: "anthropic/claude-opus-4", provider: "anthropic", model_id: "claude-opus-4" },
+        { value: "openai/gpt-5", label: "openai/gpt-5", provider: "openai", model_id: "gpt-5" },
+      ],
+      thinking_levels: ["low", "medium", "high"],
+      error: null,
+    });
+    const updateSpy = vi.spyOn(api, "updateCoworkerSettings").mockResolvedValue(payload());
+
+    await openDialog();
+    fireEvent.click(screen.getByRole("button", { name: /^Coding/ }));
+    const planModel = await screen.findByLabelText("plan model");
+    fireEvent.change(planModel, { target: { value: "anthropic/claude-opus-4" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1].coding?.pi.phases?.plan.model).toBe("anthropic/claude-opus-4");
   });
 
   it("shows repositories as optional project profiles and accepts plain folders", async () => {

@@ -58,6 +58,11 @@ async def test_tool_plan_actions_validation():
     assert data_none.get("status") == "error"
     assert "not found" in data_none.get("error", "")
 
+    res_revise_no_feedback = await tool.execute(action="revise_plan", id="ct-nonexistent")
+    data_revise_fb = _parse_payload(res_revise_no_feedback)
+    assert data_revise_fb.get("status") == "error"
+    assert "feedback" in data_revise_fb.get("error", "")
+
 
 @pytest.mark.asyncio
 async def test_tool_answer_action():

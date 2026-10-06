@@ -78,7 +78,7 @@ class CodingTask:
     phase: Literal["prepare", "plan", "await_approval", "implement", "review", "fix", "deliver"] = "prepare"
     contract: dict[str, Any] = field(default_factory=dict)
     pi_session_file: str | None = None
-    entry_cursor: int = 0
+    entry_cursor: str | None = None
     plan: dict[str, Any] | None = None
     report: dict[str, Any] | None = None
     review: dict[str, Any] | None = None
@@ -86,6 +86,8 @@ class CodingTask:
     questions: list[dict[str, Any]] = field(default_factory=list)
     phase_stats: dict[str, dict[str, Any]] = field(default_factory=dict)
     blocked_calls: int = 0
+    settle_continuations: int = 0
+    export_html_path: str | None = None
 
     @property
     def run_dir(self) -> Path:
@@ -111,7 +113,12 @@ class TaskRegistry:
         self.tasks_dir = workspace_root / ".coworker" / "coding-tasks"
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self._memory_cache: dict[str, CodingTask] = {}
+        self._interrupted_at_boot: set[str] = set()
         self._load_and_recover()
+
+    def interrupted_at_boot(self) -> list[CodingTask]:
+        """Tasks that were in-flight when this process started and got marked ``interrupted``."""
+        return [self._memory_cache[i] for i in self._interrupted_at_boot if i in self._memory_cache]
 
     def task_dir(self, task_id: str) -> Path:
         """Isolated directory for task runtime artifacts (contract, session, review)."""
@@ -134,6 +141,7 @@ class TaskRegistry:
                     task.status = "interrupted"
                     task.updated_at = time.time()
                     self.save(task)
+                    self._interrupted_at_boot.add(task.id)
                 self._memory_cache[task.id] = task
             except Exception as e:
                 logger.warning(f"Failed loading coding task from {fpath}: {e}")

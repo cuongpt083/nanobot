@@ -35,6 +35,29 @@ def test_contract_validation_missing_fields():
     assert any("missing 'acceptance_criteria'" in e for e in errors)
 
 
+def test_contract_quality_warnings_for_plan_first_without_acceptance():
+    contract = CodingContract(
+        objective="Implement feature X",
+        context="This is a comprehensive context description providing detailed architecture requirements and background for this task (more than 120 chars).",
+        acceptance_criteria=["ok", "Feature X passes pytest"],
+        mode="plan_first",
+    )
+    warnings = contract.quality_warnings()
+    assert any("acceptance" in w and "command" in w for w in warnings)
+    assert any("acceptance_criteria[0]" in w for w in warnings)
+
+
+def test_contract_quality_warnings_empty_when_measurable():
+    contract = CodingContract(
+        objective="Implement feature X",
+        context="This is a comprehensive context description providing detailed architecture requirements and background for this task (more than 120 chars).",
+        acceptance_criteria=["Feature X passes pytest"],
+        acceptance_cmd="pytest -q",
+        mode="plan_first",
+    )
+    assert contract.quality_warnings() == []
+
+
 def test_contract_write_task_contract_json(tmp_path: Path):
     contract = CodingContract(
         objective="Fix memory leak",

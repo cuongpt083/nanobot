@@ -1,6 +1,12 @@
 # Implementation plan — `coding_agent` tool with Pi and agy backends
 
-Status: **planned, not started**. Written 2026-09-30 for a coding agent to execute later.
+> **Historical.** This document describes the original Pi + agy design. Agy was removed and the
+> runtime was rebuilt on Pi only (PiClient v2: phase orchestrator, independent reviewer, extension
+> `nanobot-bridge`). See [`../coding-pi.md`](../coding-pi.md) and
+> [`pi-coding-runtime-implementation-plan.md`](./pi-coding-runtime-implementation-plan.md) for the
+> current architecture.
+
+Status: **superseded**. Written 2026-09-30 for a coding agent to execute later.
 Target branch: create `feat/coding-agent` from `feat/coworker` (it builds on the coworker extension).
 Supersedes the earlier Pi-only draft (`coding-agent-pi.md`).
 

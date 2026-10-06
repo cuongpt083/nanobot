@@ -54,11 +54,12 @@ _services: CoworkerServices | None = None
 _live_messages: dict[str, list[dict[str, Any]]] = {}
 _background: set[asyncio.Task[Any]] = set()
 _notified_interrupted_rooms: bool = False
+_notified_interrupted_coding: bool = False
 
 
 def bind_services(ctx: ToolContext) -> None:
     """Capture main-loop services; subagent tool contexts lack them and are ignored."""
-    global _services, _notified_interrupted_rooms
+    global _services, _notified_interrupted_rooms, _notified_interrupted_coding
     if ctx.bus is None or ctx.sessions is None:
         return
     _services = CoworkerServices(
@@ -82,6 +83,19 @@ def bind_services(ctx: ToolContext) -> None:
                 spawn_background(
                     notify_interrupted_rooms(Path(ctx.workspace).expanduser().resolve()),
                     name="coworker-notify-interrupted-rooms",
+                )
+        except RuntimeError:
+            pass
+    if not _notified_interrupted_coding:
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                _notified_interrupted_coding = True
+                from nanobot.coworker.coding.resume import notify_interrupted_tasks
+
+                spawn_background(
+                    notify_interrupted_tasks(Path(ctx.workspace).expanduser().resolve()),
+                    name="coworker-notify-interrupted-coding",
                 )
         except RuntimeError:
             pass

@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+
+_VAGUE_CRITERION = re.compile(
+    r"^(ok|done|works|looks good|it works|good enough|fine)[.!]?$",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -41,6 +47,23 @@ class CodingContract:
             )
 
         return errors
+
+    def quality_warnings(self) -> list[str]:
+        """Non-blocking hints; a weak contract still starts, but quality will suffer."""
+        warnings: list[str] = []
+        if self.mode == "plan_first" and not (self.acceptance_cmd or "").strip():
+            warnings.append(
+                "No 'acceptance' command set (e.g. pytest -q). "
+                "The settle gate cannot verify the result automatically."
+            )
+        for index, criterion in enumerate(self.acceptance_criteria):
+            text = (criterion or "").strip()
+            if len(text) < 12 or _VAGUE_CRITERION.fullmatch(text):
+                warnings.append(
+                    f"acceptance_criteria[{index}] looks hard to verify ({text!r}). "
+                    "Prefer a measurable check (test name, command, or observable file/behavior)."
+                )
+        return warnings
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

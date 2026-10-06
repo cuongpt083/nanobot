@@ -29,11 +29,14 @@ from nanobot.coworker.transcript import as_dict
 from nanobot.session.manager import Session
 
 # Participant states: idle | queued | working | waiting | done | error | paused
-ACTIVE_TASK_STATUSES = ("started", "running")
+# In-flight for the participants strip / task list only (not concurrency). Parked plans stay
+# visible as waiting instead of looking finished.
+ACTIVE_TASK_STATUSES = ("started", "running", "awaiting_approval")
 RECENT_FINISHED_TASKS = 3
 _TASK_STATE = {
     "started": "working",
     "running": "working",
+    "awaiting_approval": "waiting",
     "succeeded": "done",
     "failed_acceptance": "error",
     "timed_out": "error",
@@ -68,6 +71,7 @@ def _participant(
 
 
 def _task_summary(task: CodingTask) -> dict[str, Any]:
+    pending_questions = [q for q in task.questions if q.get("status") == "pending"]
     return {
         "id": task.id,
         "backend": task.backend,
@@ -80,6 +84,18 @@ def _task_summary(task: CodingTask) -> dict[str, Any]:
         "created_at": task.created_at,
         "updated_at": task.updated_at,
         "live": dict(task.live),
+        # Phase 5 observability
+        "phase": task.phase,
+        "fix_round": task.fix_round,
+        "blocked_calls": task.blocked_calls,
+        "settle_continuations": task.settle_continuations,
+        "plan": task.plan,
+        "report": task.report,
+        "review": task.review,
+        "questions": list(task.questions),
+        "pending_questions": pending_questions,
+        "phase_stats": dict(task.phase_stats),
+        "export_html_path": task.export_html_path,
     }
 
 

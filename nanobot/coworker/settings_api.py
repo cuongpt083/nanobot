@@ -14,12 +14,14 @@ Write rules:
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import json
 import os
 import re
 import shutil
 import subprocess
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, cast
@@ -152,6 +154,130 @@ def coworker_metrics_payload(
 ) -> dict[str, Any]:
     """Read-only 30-day cache / keep-warm / optimize history for the settings Cache tab."""
     return metrics_store.metrics_payload(days=days, timezone_name=timezone_name)
+
+
+# ---------- per-phase Pi models ----------
+
+_PHASE_MODELS_TTL_S = 600.0
+_phase_models_cache: dict[str, Any] = {"at": 0.0, "payload": None}
+_PHASE_NAMES = ("plan", "implement", "review")
+
+
+def _default_thinking_levels() -> list[str]:
+    return ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+
+
+async def _fetch_phase_models_async() -> dict[str, Any]:
+    from nanobot.coworker.coding.backends.base import sandbox_policy_for
+    from nanobot.coworker.coding.pi.client import PiClient
+    from nanobot.coworker.coding.pi.version import resolve_pi_binary
+    from nanobot.coworker.coding.runtime import SessionSpec
+
+    cfg = load_coworker_config()
+    pi_cfg = cfg.coding.pi
+    resolved = resolve_pi_binary(list(pi_cfg.command))
+    binary = resolved[0] if resolved else "pi"
+    if not (shutil.which(binary) or Path(binary).exists()):
+        return {
+            "models": [],
+            "thinking_levels": _default_thinking_levels(),
+            "error": "Pi binary not found; run `/code doctor`.",
+        }
+
+    client = PiClient(
+        config=pi_cfg,
+        sandbox_policy=sandbox_policy_for(cfg),
+        timeout_minutes=cfg.coding.timeout_minutes,
+        idle_timeout_minutes=cfg.coding.idle_timeout_minutes,
+    )
+    try:
+        await client.start(cwd=Path.cwd(), session=SessionSpec(task_id="ct-phase-models"))
+        raw_models = await client.available_models()
+        try:
+            levels = await client.available_thinking_levels()
+        except Exception:
+            levels = []
+    except Exception as exc:
+        return {
+            "models": [],
+            "thinking_levels": _default_thinking_levels(),
+            "error": f"{exc} (run `/code doctor`)",
+        }
+    finally:
+        try:
+            await client.close()
+        except Exception:
+            pass
+
+    options: list[dict[str, Any]] = []
+    for model in raw_models:
+        provider = str(model.get("provider") or "")
+        model_id = str(model.get("id") or model.get("modelId") or model.get("model") or "")
+        if not model_id:
+            continue
+        value = f"{provider}/{model_id}" if provider else model_id
+        options.append({"value": value, "label": value, "provider": provider, "model_id": model_id})
+    return {
+        "models": options,
+        "thinking_levels": levels or _default_thinking_levels(),
+        "error": None,
+    }
+
+
+def coworker_phase_models_payload(*, refresh: bool = False, detect: bool = True) -> dict[str, Any]:
+    """Available Pi models / thinking levels for the per-phase pickers (10-minute cache)."""
+    if not detect:
+        return {"models": [], "thinking_levels": _default_thinking_levels(), "error": None}
+    now = time.time()
+    cached = _phase_models_cache.get("payload")
+    if (
+        not refresh
+        and cached is not None
+        and (now - float(_phase_models_cache.get("at", 0.0))) < _PHASE_MODELS_TTL_S
+    ):
+        return cast(dict[str, Any], cached)
+    try:
+        payload = asyncio.run(_fetch_phase_models_async())
+    except Exception as exc:
+        payload = {"models": [], "thinking_levels": _default_thinking_levels(), "error": str(exc)}
+    _phase_models_cache["at"] = now
+    _phase_models_cache["payload"] = payload
+    return payload
+
+
+def _check_phase_models(cfg: CoworkerConfig) -> list[str]:
+    """Validate ``coding.pi.phases.*.model`` format; warn about values missing from the cache."""
+    phases = getattr(cfg.coding.pi, "phases", None)
+    if phases is None:
+        return []
+    cached = _phase_models_cache.get("payload")
+    known: set[str] | None = None
+    if isinstance(cached, dict):
+        models = cast("dict[str, Any]", cached).get("models")
+        if models:
+            known = {str(m.get("value")) for m in cast("list[dict[str, Any]]", models)}
+    warnings: list[str] = []
+    for phase_name in _PHASE_NAMES:
+        phase = getattr(phases, phase_name, None)
+        model = getattr(phase, "model", None) if phase is not None else None
+        if not model:
+            continue
+        if "/" not in model:
+            raise CoworkerSettingsError(
+                f"coding.pi.phases.{phase_name}.model: must be 'provider/modelId' (got {model!r})"
+            )
+        if known is not None and model not in known:
+            warnings.append(
+                f"coding.pi.phases.{phase_name}.model: {model!r} is not in the current model list"
+            )
+    implement_model = getattr(getattr(phases, "implement", None), "model", None)
+    review_model = getattr(getattr(phases, "review", None), "model", None)
+    if implement_model and review_model and implement_model == review_model:
+        warnings.append(
+            "coding.pi.phases.review.model matches implement.model; "
+            "use a different (ideally stronger) model so the reviewer stays independent"
+        )
+    return warnings
 
 
 # ---------- update ----------
@@ -420,6 +546,8 @@ def update_coworker_settings(
     if "coding" in submitted:
         _check_pass_env(new)
         _check_repos(new)
+        for warning in _check_phase_models(new):
+            logger.warning("Coworker coding config warning: {}", warning)
 
     for name in submitted:
         dumped = getattr(new, name).model_dump(mode="json", by_alias=True)

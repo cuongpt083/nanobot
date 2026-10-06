@@ -7,6 +7,7 @@ plus row-count pruning, and a memoized payload. Content-free by construction.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
@@ -17,11 +18,28 @@ from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from nanobot.coworker.metrics_store.models import MetricRow
+from nanobot.coworker.metrics_store.models import CodingRunRow, MetricRow
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_DAYS_RETAINED = 40
 MAX_ROWS_RETAINED = 200_000
+MAX_CODING_RUNS_RETAINED = 20_000
+
+_CODING_INSERT_COLUMNS = (
+    "at_ms",
+    "task_id",
+    "backend",
+    "mode",
+    "status",
+    "fix_rounds",
+    "settle_continuations",
+    "blocked_calls",
+    "questions",
+    "total_tokens",
+    "cost",
+    "duration_ms",
+    "phase_stats_json",
+)
 
 _METRIC_COLUMNS = (
     "turns",
@@ -192,6 +210,26 @@ class CoworkerMetricsStore:
                 ON coworker_metrics(at_ms);
             CREATE INDEX IF NOT EXISTS coworker_metrics_kind_at_idx
                 ON coworker_metrics(kind, at_ms);
+            CREATE TABLE IF NOT EXISTS coding_runs (
+                id INTEGER PRIMARY KEY,
+                at_ms INTEGER NOT NULL,
+                task_id TEXT NOT NULL,
+                backend TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                fix_rounds INTEGER NOT NULL,
+                settle_continuations INTEGER NOT NULL,
+                blocked_calls INTEGER NOT NULL,
+                questions INTEGER NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                cost REAL NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                phase_stats_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS coding_runs_at_idx
+                ON coding_runs(at_ms);
+            CREATE INDEX IF NOT EXISTS coding_runs_status_at_idx
+                ON coding_runs(status, at_ms);
             """
         )
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -265,6 +303,70 @@ class CoworkerMetricsStore:
             self._cached_payload = None
             self._prune_if_due(connection)
 
+    def record_coding_run(self, row: CodingRunRow) -> None:
+        values: tuple[object, ...] = (
+            _non_negative(row.at_ms),
+            row.task_id[:64],
+            (row.backend or "pi")[:32],
+            (row.mode or "worktree")[:16],
+            (row.status or "")[:32],
+            _non_negative(row.fix_rounds),
+            _non_negative(row.settle_continuations),
+            _non_negative(row.blocked_calls),
+            _non_negative(row.questions),
+            _non_negative(row.total_tokens),
+            max(0.0, float(row.cost)),
+            _non_negative(row.duration_ms),
+            (row.phase_stats_json or "{}")[:8192],
+        )
+        placeholders = ", ".join("?" for _ in _CODING_INSERT_COLUMNS)
+        with self._lock:
+            connection = self._connect()
+            connection.execute(
+                f"INSERT INTO coding_runs ({', '.join(_CODING_INSERT_COLUMNS)}) "
+                f"VALUES ({placeholders})",
+                values,
+            )
+            self._write_version += 1
+            self._prune_if_due(connection)
+
+    def coding_runs(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        bounded = max(1, min(int(limit), 500))
+        with self._lock:
+            rows = (
+                self._connect()
+                .execute(
+                    "SELECT at_ms, task_id, backend, mode, status, fix_rounds, "
+                    "settle_continuations, blocked_calls, questions, total_tokens, cost, "
+                    "duration_ms, phase_stats_json FROM coding_runs "
+                    "ORDER BY at_ms DESC LIMIT ?",
+                    (bounded,),
+                )
+                .fetchall()
+            )
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                phase_stats = json.loads(row["phase_stats_json"] or "{}")
+            except ValueError:
+                phase_stats = {}
+            out.append({
+                "at_ms": int(row["at_ms"]),
+                "task_id": str(row["task_id"]),
+                "backend": str(row["backend"]),
+                "mode": str(row["mode"]),
+                "status": str(row["status"]),
+                "fix_rounds": int(row["fix_rounds"]),
+                "settle_continuations": int(row["settle_continuations"]),
+                "blocked_calls": int(row["blocked_calls"]),
+                "questions": int(row["questions"]),
+                "total_tokens": int(row["total_tokens"]),
+                "cost": float(row["cost"]),
+                "duration_ms": int(row["duration_ms"]),
+                "phase_stats": phase_stats if isinstance(phase_stats, dict) else {},
+            })
+        return out
+
     def _prune_if_due(self, connection: sqlite3.Connection) -> None:
         utc_day = int(time.time() // 86_400)
         self._writes_since_size_prune += 1
@@ -277,6 +379,7 @@ class CoworkerMetricsStore:
                 (datetime.now(timezone.utc) - timedelta(days=MAX_DAYS_RETAINED)).timestamp() * 1000
             )
             connection.execute("DELETE FROM coworker_metrics WHERE at_ms < ?", (cutoff_ms,))
+            connection.execute("DELETE FROM coding_runs WHERE at_ms < ?", (cutoff_ms,))
         connection.execute(
             """
             DELETE FROM coworker_metrics
@@ -285,6 +388,15 @@ class CoworkerMetricsStore:
             ), -1)
             """,
             (MAX_ROWS_RETAINED,),
+        )
+        connection.execute(
+            """
+            DELETE FROM coding_runs
+            WHERE id <= COALESCE((
+                SELECT id FROM coding_runs ORDER BY id DESC LIMIT 1 OFFSET ?
+            ), -1)
+            """,
+            (MAX_CODING_RUNS_RETAINED,),
         )
         self._last_prune_utc_day = utc_day
         self._writes_since_size_prune = 0

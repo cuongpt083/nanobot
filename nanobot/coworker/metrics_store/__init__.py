@@ -6,6 +6,7 @@ never raises into the agent loop, and reading falls back to an empty payload.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from pathlib import Path
@@ -14,7 +15,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.config.paths import get_data_dir
-from nanobot.coworker.metrics_store.models import MetricKind, MetricRow
+from nanobot.coworker.metrics_store.models import CodingRunRow, MetricKind, MetricRow
 from nanobot.coworker.metrics_store.store import CoworkerMetricsStore
 from nanobot.llm_usage.context import source_from_session_key
 
@@ -156,6 +157,53 @@ def record_ping(
         logger.exception("failed to record coworker cache metric (ping)")
 
 
+def record_coding_run(
+    *,
+    task_id: str,
+    backend: str = "pi",
+    mode: str = "worktree",
+    status: str,
+    fix_rounds: int = 0,
+    settle_continuations: int = 0,
+    blocked_calls: int = 0,
+    questions: int = 0,
+    total_tokens: int = 0,
+    cost: float = 0.0,
+    duration_ms: int = 0,
+    phase_stats: dict[str, Any] | None = None,
+    now: float | None = None,
+) -> None:
+    """Persist one finished coding run; fail-open (never raises into the orchestrator)."""
+    try:
+        row = CodingRunRow(
+            at_ms=int((now if now is not None else time.time()) * 1000),
+            task_id=task_id,
+            backend=backend,
+            mode=mode,
+            status=status,
+            fix_rounds=fix_rounds,
+            settle_continuations=settle_continuations,
+            blocked_calls=blocked_calls,
+            questions=questions,
+            total_tokens=total_tokens,
+            cost=cost,
+            duration_ms=duration_ms,
+            phase_stats_json=json.dumps(phase_stats or {}, ensure_ascii=False),
+        )
+        get_metrics_store().record_coding_run(row)
+    except Exception:
+        logger.exception("failed to record coworker coding run")
+
+
+def coding_runs_payload(*, limit: int = 50) -> dict[str, Any]:
+    """Recent finished coding runs for the settings dashboard."""
+    try:
+        return {"runs": get_metrics_store().coding_runs(limit=limit)}
+    except Exception:
+        logger.exception("failed to query coworker coding runs")
+        return {"runs": []}
+
+
 def metrics_payload(
     *,
     days: int = 30,
@@ -174,13 +222,16 @@ def metrics_payload(
 
 
 __all__ = [
+    "CodingRunRow",
     "CoworkerMetricsStore",
     "MetricKind",
     "MetricRow",
+    "coding_runs_payload",
     "empty_metrics_payload",
     "get_metrics_store",
     "metrics_payload",
     "metrics_store_path",
+    "record_coding_run",
     "record_ping",
     "record_turn",
 ]

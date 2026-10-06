@@ -34,3 +34,22 @@ class MetricRow:
     rewritten_messages: int = 0
     system_holds: int = 0
     duration_ms: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class CodingRunRow:
+    """One finished coding task: outcome, review/fix rounds, blocks, questions, per-phase cost."""
+
+    at_ms: int
+    task_id: str = ""
+    backend: str = "pi"
+    mode: str = "worktree"
+    status: str = "succeeded"
+    fix_rounds: int = 0
+    settle_continuations: int = 0
+    blocked_calls: int = 0
+    questions: int = 0
+    total_tokens: int = 0
+    cost: float = 0.0
+    duration_ms: int = 0
+    phase_stats_json: str = "{}"

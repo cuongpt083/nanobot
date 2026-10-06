@@ -10,11 +10,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from nanobot.coworker.coding.commands import cmd_code
 from nanobot.coworker.coding.contract import CodingContract
-from nanobot.coworker.coding.orchestrator import format_delivery_message
+from nanobot.coworker.coding.orchestrator import CodingOrchestrator, format_delivery_message
 from nanobot.coworker.coding.review import render_reviewer_prompt
 from nanobot.coworker.coding.runner import CodingRunner
-from nanobot.coworker.coding.tasks import CodingTask
+from nanobot.coworker.coding.tasks import CodingTask, reset_shared_registries
 from nanobot.coworker.config import (
     CodingAgentConfig,
     CoworkerConfig,
@@ -34,6 +35,34 @@ def _init_repo(path: Path) -> Path:
     subprocess.run(["git", "add", "README.md"], cwd=path, check=True)
     subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=path, check=True)
     return path
+
+
+def test_usable_session_file_only_under_task_dir(tmp_path: Path) -> None:
+    orch = CodingOrchestrator(CoworkerConfig(), tmp_path, {})
+    task_dir = tmp_path / "artifacts"
+    task_dir.mkdir()
+    inside = task_dir / "session.jsonl"
+    inside.write_text("ok\n", encoding="utf-8")
+    outside = tmp_path / "cwd-session.jsonl"
+    outside.write_text("nope\n", encoding="utf-8")
+    task = CodingTask(
+        id="ct-sess",
+        backend="pi",
+        session_key="s1",
+        channel="cli",
+        chat_id="u1",
+        repo=str(tmp_path),
+        base="main",
+        branch="b",
+        worktree=str(tmp_path),
+        brief="x",
+        pi_session_file=str(inside),
+    )
+    assert orch._usable_session_file(task, task_dir) == inside.resolve()
+    task.pi_session_file = str(outside)
+    assert orch._usable_session_file(task, task_dir) is None
+    task.pi_session_file = str(task_dir / "missing.jsonl")
+    assert orch._usable_session_file(task, task_dir) is None
 
 
 @pytest.mark.asyncio
@@ -95,6 +124,36 @@ async def test_delivery_message_formatting() -> None:
     assert "**Goal**: Sample brief" in msg
     assert "1 file changed" in msg
     assert "/code merge" in msg
+
+
+@pytest.mark.asyncio
+async def test_delivery_message_includes_settle_and_transcript() -> None:
+    task = CodingTask(
+        id="ct-deliv-2",
+        backend="pi",
+        session_key="s1",
+        channel="cli",
+        chat_id="u1",
+        repo="/tmp/repo",
+        base="main",
+        branch="b1",
+        worktree="/tmp/repo",
+        brief="Sample brief",
+        status="succeeded",
+        phase="deliver",
+        settle_continuations=2,
+        export_html_path="/tmp/session.html",
+        review={
+            "verdict": "pass",
+            "summary": "Looks good",
+            "findings": [{"severity": "major", "file": "a.py", "line": 1, "issue": "edge case"}],
+        },
+    )
+    msg = format_delivery_message(task)
+    assert "**Settle continuations**: 2" in msg
+    assert "**Transcript**: `/tmp/session.html`" in msg
+    assert "**Review**: `pass`" in msg
+    assert "edge case" in msg
 
 
 @pytest.mark.asyncio
@@ -202,10 +261,228 @@ async def test_await_approval_policy_always_and_auto(tmp_path: Path) -> None:
         msg = await runner.execute_task(task, backend, repo, wait=False)
 
     assert task.status == "awaiting_approval"
-    assert "Plan awaiting approval" in (task.error or "")
+    assert task.error is None
+    assert task.finished_at == 0.0
     assert "[auto-coding-plan]" in msg
+    assert "coding_agent(action='approve'" in msg
     assert task.id not in runner._active_backends
     mock_inject.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_approve_continues_parked_plan_to_delivery(tmp_path: Path) -> None:
+    repo_dir = _init_repo(tmp_path / "repo_approve")
+    cfg = CoworkerConfig(
+        coding=CodingAgentConfig(
+            enabled=True,
+            default_backend="pi",
+            plan_approval="always",
+            repos=[RepoConfig(path=str(repo_dir), base_ref="main")],
+            pi=PiBackendConfig(
+                command=[sys.executable, FAKE_PI_SCRIPT],
+                allow_unsandboxed=True,
+                pass_env=["FAKE_PI_SCENARIO"],
+            ),
+        )
+    )
+    runner = CodingRunner(cfg, tmp_path)
+    task, backend, repo = runner.admit(
+        brief="Test approval continuation",
+        session_key="s1",
+        channel="cli",
+        chat_id="u1",
+    )
+    task.contract = CodingContract(
+        objective="Create approval test",
+        context="A full phase test verification " * 5,
+        acceptance_criteria=["approval verified"],
+        mode="plan_first",
+    ).to_dict()
+
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock):
+        await runner.execute_task(task, backend, repo, wait=False)
+    assert task.status == "awaiting_approval"
+
+    claimed = runner.claim_approval(task.id)
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock), \
+         patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:approved.txt:ok"}):
+        await runner.approve(claimed)
+
+    assert claimed.status == "succeeded"
+    assert claimed.phase == "deliver"
+
+
+@pytest.mark.asyncio
+async def test_claim_approval_rejects_second_call(tmp_path: Path) -> None:
+    repo_dir = _init_repo(tmp_path / "repo_claim")
+    cfg = CoworkerConfig(
+        coding=CodingAgentConfig(
+            enabled=True,
+            repos=[RepoConfig(path=str(repo_dir), base_ref="main")],
+            pi=PiBackendConfig(command=[sys.executable, FAKE_PI_SCRIPT], allow_unsandboxed=True),
+        )
+    )
+    runner = CodingRunner(cfg, tmp_path)
+    task, _, _ = runner.admit(
+        brief="claim twice",
+        session_key="s1",
+        channel="cli",
+        chat_id="u1",
+    )
+    task.status = "awaiting_approval"
+    task.phase = "await_approval"
+    runner.registry.save(task)
+    runner.claim_approval(task.id)
+    with pytest.raises(RuntimeError, match="not awaiting plan approval"):
+        runner.claim_approval(task.id)
+
+
+def _approval_runner(tmp_path: Path, name: str) -> tuple[CodingRunner, object, object, CodingTask]:
+    repo_dir = _init_repo(tmp_path / name)
+    cfg = CoworkerConfig(
+        coding=CodingAgentConfig(
+            enabled=True,
+            default_backend="pi",
+            plan_approval="always",
+            repos=[RepoConfig(path=str(repo_dir), base_ref="main")],
+            pi=PiBackendConfig(
+                command=[sys.executable, FAKE_PI_SCRIPT],
+                allow_unsandboxed=True,
+                pass_env=["FAKE_PI_SCENARIO"],
+            ),
+        )
+    )
+    runner = CodingRunner(cfg, tmp_path)
+    task, backend, repo = runner.admit(
+        brief="Approval helper",
+        session_key="s1",
+        channel="cli",
+        chat_id="u1",
+    )
+    task.contract = CodingContract(
+        objective="Create approval test",
+        context="A full phase test verification " * 5,
+        acceptance_criteria=["approval verified"],
+        mode="plan_first",
+    ).to_dict()
+    return runner, backend, repo, task
+
+
+@pytest.mark.asyncio
+async def test_revise_plan_parks_again_when_approval_always(tmp_path: Path) -> None:
+    runner, backend, repo, task = _approval_runner(tmp_path, "repo_revise")
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock):
+        await runner.execute_task(task, backend, repo, wait=False)
+    claimed = runner.claim_approval(task.id)
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock):
+        msg = await runner.revise_plan(claimed, feedback="Add an explicit test step")
+    assert claimed.status == "awaiting_approval"
+    assert "[auto-coding-plan]" in msg
+
+
+@pytest.mark.asyncio
+async def test_approve_without_session_file_still_completes(tmp_path: Path) -> None:
+    runner, backend, repo, task = _approval_runner(tmp_path, "repo_nosess")
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock):
+        await runner.execute_task(task, backend, repo, wait=False)
+    task.pi_session_file = str(tmp_path / "missing-session.jsonl")
+    claimed = runner.claim_approval(task.id)
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock), \
+         patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:approved.txt:ok"}):
+        await runner.approve(claimed)
+    assert claimed.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_parked_plan_survives_registry_restart_and_can_be_approved(tmp_path: Path) -> None:
+    runner, backend, repo, task = _approval_runner(tmp_path, "repo_restart")
+    cfg = runner.config
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock):
+        await runner.execute_task(task, backend, repo, wait=False)
+    assert task.status == "awaiting_approval"
+
+    reset_shared_registries()
+    restarted = CodingRunner(cfg, tmp_path)
+    recovered = restarted.registry.get(task.id)
+    assert recovered is not None and recovered.status == "awaiting_approval"
+
+    claimed = restarted.claim_approval(recovered.id)
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock), \
+         patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:approved.txt:ok"}):
+        await restarted.approve(claimed)
+    assert claimed.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_approve_start_failure_marks_error_not_running(tmp_path: Path) -> None:
+    runner, backend, repo, task = _approval_runner(tmp_path, "repo_failstart")
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock):
+        await runner.execute_task(task, backend, repo, wait=False)
+    claimed = runner.claim_approval(task.id)
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock), \
+         patch(
+             "nanobot.coworker.coding.pi.client.PiClient.start",
+             new_callable=AsyncMock,
+             side_effect=RuntimeError("no pi"),
+         ):
+        await runner.approve(claimed)
+    assert claimed.status == "error"
+    assert "no pi" in (claimed.error or "")
+
+
+@pytest.mark.asyncio
+async def test_approve_rejects_session_file_outside_task_dir(tmp_path: Path) -> None:
+    runner, backend, repo, task = _approval_runner(tmp_path, "repo_outsess")
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock):
+        await runner.execute_task(task, backend, repo, wait=False)
+    outside = tmp_path / "not-the-task-dir" / "session.jsonl"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("not a pi session\n", encoding="utf-8")
+    task.pi_session_file = str(outside)
+    claimed = runner.claim_approval(task.id)
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock), \
+         patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:approved.txt:ok"}):
+        await runner.approve(claimed)
+    assert claimed.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_code_approve_and_revise_commands(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from nanobot.command.router import CommandContext
+
+    runner, backend, repo, task = _approval_runner(tmp_path, "repo_cmd")
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock):
+        await runner.execute_task(task, backend, repo, wait=False)
+
+    def _ctx(args: str) -> CommandContext:
+        ctx = MagicMock(spec=CommandContext)
+        ctx.args = args
+        ctx.msg = SimpleNamespace(channel="cli", chat_id="u1", metadata={})
+        ctx.session = None
+        return ctx
+
+    with patch("nanobot.coworker.coding.commands._get_runner", return_value=runner), \
+         patch("nanobot.coworker.coding.commands.spawn_background") as spawn:
+        usage = await cmd_code(_ctx("nope"))
+        assert "approve <id>" in usage.content
+        assert "revise <id>" in usage.content
+
+        approved = await cmd_code(_ctx(f"approve {task.id}"))
+        assert "Approved" in (approved.content or "")
+        spawn.assert_called()
+        spawn.call_args.args[0].close()
+
+    task.status = "awaiting_approval"
+    runner.registry.save(task)
+    with patch("nanobot.coworker.coding.commands._get_runner", return_value=runner), \
+         patch("nanobot.coworker.coding.commands.spawn_background") as spawn:
+        revised = await cmd_code(_ctx(f"revise {task.id} add tests"))
+        assert "Revising" in (revised.content or "")
+        spawn.assert_called()
+        spawn.call_args.args[0].close()
 
 
 

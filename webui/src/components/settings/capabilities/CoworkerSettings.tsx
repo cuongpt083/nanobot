@@ -16,13 +16,21 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/
 import { Input } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, fetchCoworkerSettings, updateCoworkerSettings } from "@/lib/api";
+import {
+  ApiError,
+  fetchCoworkerPhaseModels,
+  fetchCoworkerSettings,
+  updateCoworkerSettings,
+} from "@/lib/api";
 import type {
   CoworkerBackendDetection,
   CoworkerEditableConfig,
+  CoworkerPhaseModelOption,
+  CoworkerPiPhaseConfig,
   CoworkerRepoCheck,
   CoworkerRoomAgentConfig,
   CoworkerSettingsPayload,
+  CoworkerThinkingLevel,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
@@ -601,6 +609,135 @@ function UnsandboxedToggle({
   );
 }
 
+const PHASE_NAMES = ["plan", "implement", "review"] as const;
+type PhaseName = (typeof PHASE_NAMES)[number];
+
+const PHASE_FALLBACKS: Record<PhaseName, string> = {
+  plan: "Plan",
+  implement: "Implement",
+  review: "Review",
+};
+
+function PhaseModelsSection({ state }: { state: CoworkerSettingsState }) {
+  const { t } = useTranslation();
+  const { token } = useClient();
+  const { draft, patch } = state;
+  const [models, setModels] = useState<CoworkerPhaseModelOption[]>([]);
+  const [levels, setLevels] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const tx = (key: string, fallback: string) =>
+    t(`coworker.settings.${key}`, { defaultValue: fallback });
+
+  const load = useCallback(
+    async (refresh: boolean) => {
+      setLoading(true);
+      try {
+        const data = await fetchCoworkerPhaseModels(token, refresh);
+        setModels(data.models);
+        setLevels(data.thinking_levels);
+        setError(data.error);
+      } catch (reason) {
+        setError(reason instanceof ApiError ? reason.message : "Could not load Pi models.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [token],
+  );
+
+  useEffect(() => {
+    void load(false);
+  }, [load]);
+
+  if (!draft) return null;
+  const phases = draft.coding.pi.phases;
+  const current: Record<PhaseName, CoworkerPiPhaseConfig> = {
+    plan: phases?.plan ?? { model: null, thinking: null },
+    implement: phases?.implement ?? { model: null, thinking: null },
+    review: phases?.review ?? { model: null, thinking: null },
+  };
+
+  const setPhase = (name: PhaseName, next: Partial<CoworkerPiPhaseConfig>) =>
+    patch("coding", (prev) => ({
+      ...prev,
+      pi: {
+        ...prev.pi,
+        phases: {
+          plan: current.plan,
+          implement: current.implement,
+          review: current.review,
+          ...prev.pi.phases,
+          [name]: { ...current[name], ...next },
+        },
+      },
+    }));
+
+  const modelOptions = models.map((m) => m.value);
+  const sameReviewModel =
+    current.review.model != null &&
+    current.implement.model != null &&
+    current.review.model === current.implement.model;
+
+  return (
+    <section>
+      <SettingsSectionTitle>{tx("coding.phaseModels", "Model per phase")}</SettingsSectionTitle>
+      <div className="settings-list-inset space-y-3">
+        <p className="text-[12px] text-muted-foreground">
+          {tx(
+            "coding.phaseModelsHelp",
+            "Choose the Pi model and reasoning level for the plan, implement and review phases. Leave a field empty to use Pi's default.",
+          )}
+        </p>
+        {error && <p className="text-[12px] text-amber-600">{error}</p>}
+        <div className="flex justify-end">
+          <Button type="button" variant="outline" size="sm" onClick={() => void load(true)} disabled={loading}>
+            {loading && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            {tx("coding.phaseModelsRefresh", "Refresh models")}
+          </Button>
+        </div>
+        {PHASE_NAMES.map((name) => (
+          <div key={name} className="grid grid-cols-2 gap-2">
+            <label className="space-y-1">
+              <span className="text-[12px] text-muted-foreground">
+                {t(`coworker.settings.coding.phase.${name}`, { defaultValue: PHASE_FALLBACKS[name] })}
+              </span>
+              <PresetSelect
+                value={current[name].model}
+                presets={modelOptions}
+                onChange={(model) => setPhase(name, { model })}
+                emptyLabel={tx("coding.phaseModelDefault", "Pi default")}
+                label={`${name} model`}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[12px] text-muted-foreground">
+                {tx("coding.phaseThinking", "Thinking")}
+              </span>
+              <PresetSelect
+                value={current[name].thinking}
+                presets={levels}
+                onChange={(thinking) => setPhase(name, { thinking: thinking as CoworkerThinkingLevel | null })}
+                emptyLabel={tx("coding.phaseThinkingDefault", "Pi default")}
+                label={`${name} thinking`}
+              />
+            </label>
+          </div>
+        ))}
+        {sameReviewModel && (
+          <p className="text-[12px] text-amber-600">
+            {tx(
+              "coding.phaseModelsReviewHint",
+              "The reviewer uses the same model as the implementer; a different model gives a more independent review.",
+            )}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function CodingTab({ state }: { state: CoworkerSettingsState }) {
   const { t } = useTranslation();
   const { draft, payload, patch } = state;
@@ -779,6 +916,8 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
           />
         </SettingsGroup>
       </section>
+
+      <PhaseModelsSection state={state} />
 
       <details className="settings-list-inset group text-[13px]">
         <summary className="cursor-pointer py-2 text-muted-foreground">{tx("coding.advanced", "Advanced backend options")}</summary>

@@ -1,4 +1,4 @@
-"""Independent reviewer for coding tasks in isolated Pi session."""
+"""Independent reviewer for coding tasks, run in a fresh no-session Pi process."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nanobot.coworker.coding.backends.base import (
-    BackendEventDone,
-    BackendEventTool,
-    sandbox_policy_for,
-)
-from nanobot.coworker.coding.backends.pi import PiBackend
+from nanobot.coworker.coding.backends.base import sandbox_policy_for
+from nanobot.coworker.coding.contract import CodingContract
+from nanobot.coworker.coding.pi import EXTENSION_PATH
+from nanobot.coworker.coding.pi import entries as pi_entries
+from nanobot.coworker.coding.pi.client import PiClient
 from nanobot.coworker.coding.pi.version import resolve_pi_binary
+from nanobot.coworker.coding.runtime import ModelSpec, SessionSpec
 from nanobot.coworker.coding.tasks import CodingTask
 
 if TYPE_CHECKING:
@@ -77,16 +77,32 @@ def render_reviewer_prompt(
     return "\n".join(prompt_lines)
 
 
+def _review_model(config: CoworkerConfig) -> ModelSpec | None:
+    phase_cfg = getattr(getattr(config.coding.pi, "phases", None), "review", None)
+    if phase_cfg is None or (not phase_cfg.model and not phase_cfg.thinking):
+        return None
+    provider: str | None = None
+    model: str | None = phase_cfg.model
+    if model and "/" in model:
+        provider, model = model.split("/", 1)
+    return ModelSpec(provider=provider, model=model, thinking=phase_cfg.thinking)
+
+
 async def run_review(
     config: CoworkerConfig,
     task: CodingTask,
     *,
     direct_patch_path: str | None = None,
+    artifacts_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Execute independent review using a fresh, no-session Pi instance."""
-    run_dir = task.run_dir
+    """Execute independent review using a fresh, no-session Pi process.
 
-    # Set up Pi backend for reviewer using standard coworker sandbox policy
+    ``artifacts_dir`` receives the reviewer's own files (task contract); it must live outside
+    the project/worktree so the review never pollutes the repository.
+    """
+    run_dir = task.run_dir
+    review_dir = artifacts_dir or (run_dir / "review")
+
     reviewer_cfg = config.coding.pi.model_copy(deep=True)
     resolved_cmd = resolve_pi_binary(reviewer_cfg.command)
     pi_bin = resolved_cmd[0] if resolved_cmd else "pi"
@@ -97,40 +113,64 @@ async def run_review(
             "findings": [],
             "summary": f"Review skipped: Pi binary '{pi_bin}' is unavailable on system.",
         }
-
     reviewer_cfg.command = resolved_cmd
 
-    backend = PiBackend(
+    # A review-mode contract drives the extension's read-only policy; no session is kept.
+    review_contract_path = review_dir / "task-contract.json"
+    contract_obj = CodingContract.from_dict(task.contract) if task.contract else CodingContract(
+        objective=task.brief,
+        context=task.brief,
+        acceptance_criteria=[f"Verify {task.brief}"],
+        acceptance_cmd=task.acceptance,
+    )
+    contract_obj.write_task_contract_json(
+        review_contract_path,
+        task_id=f"{task.id}-review",
+        worktree_root=run_dir,
+        bridge_mode="review",
+        ask_enabled=False,
+        plan=task.plan.get("summary", "") if task.plan else None,
+    )
+
+    client = PiClient(
         config=reviewer_cfg,
-        global_sandbox=config.coding.sandbox,
         sandbox_policy=sandbox_policy_for(config),
+        timeout_minutes=config.coding.timeout_minutes,
+        idle_timeout_minutes=config.coding.idle_timeout_minutes,
     )
 
     prompt = render_reviewer_prompt(task, direct_patch_path=direct_patch_path)
-    rules = "## REVIEWER RULES\nStrictly read-only inspection and running verification tests. Do not edit project files. Conclude with report_result(kind='review')."
-
-    logger.info(f"Task {task.id}: starting independent review")
-    run = backend.start(
-        brief=prompt,
-        cwd=run_dir,
-        rules=rules,
-        task_id=f"{task.id}-review",
-        no_session=True,
-    )
-
     review_report: dict[str, Any] = {
         "verdict": "pass",
         "findings": [],
         "summary": "Independent review completed.",
     }
 
+    logger.info(f"Task {task.id}: starting independent review")
     try:
-        async for event in run:
-            if isinstance(event, BackendEventTool) and event.tool_name == "report_result":
-                if event.details:
-                    review_report = event.details
-            elif isinstance(event, BackendEventDone):
-                break
+        await client.start(
+            cwd=run_dir,
+            session=SessionSpec(task_id=f"{task.id}-review"),
+            extension=EXTENSION_PATH if reviewer_cfg.extensions else None,
+            contract_file=review_contract_path,
+            model=_review_model(config),
+        )
+        outcome = await client.run_prompt(prompt)
+        if outcome.status != "succeeded":
+            review_report = {
+                "verdict": "error",
+                "findings": [],
+                "summary": f"Review run ended with status {outcome.status}: {outcome.error or ''}".strip(),
+            }
+        else:
+            try:
+                entries = await client.get_entries()
+            except Exception as exc:
+                logger.warning(f"Task {task.id}: reviewer get_entries failed: {exc}")
+                entries = []
+            report = pi_entries.extract_report(entries, kind="review")
+            if report:
+                review_report = report
     except Exception as exc:
         logger.warning(f"Task {task.id}: review execution encountered error: {exc}")
         review_report = {
@@ -139,6 +179,9 @@ async def run_review(
             "summary": f"Review execution encountered error ({exc}).",
         }
     finally:
-        await backend.abort()
+        try:
+            await client.close()
+        except Exception:
+            logger.debug(f"Task {task.id}: reviewer close failed", exc_info=True)
 
     return review_report

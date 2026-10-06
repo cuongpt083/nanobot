@@ -15,7 +15,6 @@ from nanobot.coworker.coding.runner import CodingRunner
 from nanobot.coworker.coding.tasks import CodingTask, TaskRegistry
 from nanobot.coworker.coding.workspace import WorkspaceError, WorkspaceManager
 from nanobot.coworker.config import (
-    AgyBackendConfig,
     CodingAgentConfig,
     CoworkerConfig,
     PiBackendConfig,
@@ -23,7 +22,6 @@ from nanobot.coworker.config import (
 )
 
 FAKE_PI_SCRIPT = str(Path(__file__).parent / "fake_pi.py")
-FAKE_AGY_SCRIPT = str(Path(__file__).parent / "fake_agy.py")
 
 
 def _init_repo(path: Path) -> Path:
@@ -122,8 +120,7 @@ async def test_happy_path_runner_pi(tmp_path: Path) -> None:
         chat_id="user-1",
     )
 
-    with patch("nanobot.coworker.coding.runner.inject_turn", new_callable=AsyncMock), \
-         patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock) as orch_inject:
+    with patch("nanobot.coworker.coding.orchestrator.inject_turn", new_callable=AsyncMock) as orch_inject:
         with patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:test.txt:created by pi"}):
             msg = await runner.execute_task(task, backend, repo, wait=False)
 
@@ -139,76 +136,6 @@ async def test_happy_path_runner_pi(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_happy_path_runner_agy(tmp_path: Path) -> None:
-    repo_dir = _init_repo(tmp_path / "repo_agy")
-    coworker_cfg = CoworkerConfig(
-            coding=CodingAgentConfig(
-                enabled=True,
-                default_backend="agy",
-                review=True,
-                repos=[RepoConfig(path=str(repo_dir), base_ref="main", acceptance="cat test.txt")],
-                agy=AgyBackendConfig(
-                command=[sys.executable, FAKE_AGY_SCRIPT],
-                allow_unsandboxed=True,
-                pass_env=["FAKE_AGY_SCENARIO"],
-            ),
-        )
-    )
-
-    runner = CodingRunner(coworker_cfg, tmp_path)
-    task, backend, repo = runner.admit(
-        brief="Create test.txt with agy",
-        session_key="sess-agy",
-        channel="cli",
-        chat_id="user-2",
-    )
-
-    with patch("nanobot.coworker.coding.runner.inject_turn", new_callable=AsyncMock) as mock_inject:
-        with patch.dict(os.environ, {"FAKE_AGY_SCENARIO": "write_file:test.txt:created by agy"}):
-            msg = await runner.execute_task(task, backend, repo, wait=True)
-
-    assert task.status == "succeeded"
-    assert "[auto-coding-result]" in msg
-    # wait=True does not inject turn
-    mock_inject.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_acceptance_failure_and_fix_round(tmp_path: Path) -> None:
-    repo_dir = _init_repo(tmp_path / "repo_fix")
-    coworker_cfg = CoworkerConfig(
-        coding=CodingAgentConfig(
-            enabled=True,
-            default_backend="pi",
-            fix_rounds=1,
-            repos=[RepoConfig(path=str(repo_dir), base_ref="main", acceptance="test -f fixed.txt")],
-            pi=PiBackendConfig(
-                command=[sys.executable, FAKE_PI_SCRIPT],
-                allow_unsandboxed=True,
-                pass_env=["FAKE_PI_SCENARIO"],
-            ),
-        )
-    )
-
-    runner = CodingRunner(coworker_cfg, tmp_path)
-    task, backend, repo = runner.admit(
-        brief="Fix issue",
-        session_key="sess-fix",
-        channel="cli",
-        chat_id="user-3",
-    )
-
-    # In first round, file doesn't exist -> acceptance fails.
-    # On follow-up, create fixed.txt -> acceptance passes.
-    with patch("nanobot.coworker.coding.runner.inject_turn", new_callable=AsyncMock):
-        # We simulate follow-up creating the file by having fake_pi create it
-        with patch.dict(os.environ, {"FAKE_PI_SCENARIO": "write_file:fixed.txt:ok"}):
-            await runner.execute_task(task, backend, repo, wait=True)
-
-    assert task.status == "succeeded"
-
-
-@pytest.mark.asyncio
 async def test_backend_resolution_and_missing_binary(tmp_path: Path) -> None:
     repo_dir = _init_repo(tmp_path / "repo_res")
     coworker_cfg = CoworkerConfig(
@@ -219,17 +146,15 @@ async def test_backend_resolution_and_missing_binary(tmp_path: Path) -> None:
                 RepoConfig(path=str(repo_dir), backend="agy"),
             ],
             pi=PiBackendConfig(command=["non_existent_pi_cmd_12345"]),
-            agy=AgyBackendConfig(command=["non_existent_agy_cmd_12345"]),
         )
     )
     runner = CodingRunner(coworker_cfg, tmp_path)
 
-    # Repo default is agy -> tries agy binary -> fails because non_existent_agy_cmd_12345 not found
-    with pytest.raises(RuntimeError, match="Backend 'agy' binary"):
+    # Agy is gone: any configured backend resolves to Pi; a missing Pi binary is reported.
+    with pytest.raises(RuntimeError, match="Pi binary 'non_existent_pi_cmd_12345'"):
         runner.admit(brief="test", session_key="s1", channel="c", chat_id="u")
 
-    # Explicit backend arg "pi" overrides repo default -> tries pi binary -> fails
-    with pytest.raises(RuntimeError, match="Backend 'pi' binary"):
+    with pytest.raises(RuntimeError, match="Pi binary 'non_existent_pi_cmd_12345'"):
         runner.admit(brief="test", session_key="s1", channel="c", chat_id="u", backend_name="pi")
 
 

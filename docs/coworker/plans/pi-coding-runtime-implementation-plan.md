@@ -660,3 +660,50 @@ Phase 1 quyết định độ ổn định; Phase 2 và 4 quyết định chất
 
 - Danh sách repo và lỗi thật cho bộ eval (mục 0.6), do chủ dự án cung cấp.
 - "20%" trong ngưỡng DoD được hiểu là 20 điểm phần trăm (ví dụ 40% → 60%); nếu ý là tăng tương đối 20% (40% → 48%), cần sửa lại mục tiêu, DoD và tiêu chí Phase 4.
+
+## Further Works
+
+_Cập nhật sau khi hoàn thành Phase 0–5 trên nhánh `develop`. Đây là các việc còn nợ/chưa làm, xếp theo ưu tiên gợi ý; sẽ trao đổi và thống nhất trước khi triển khai._
+
+### A. Nợ ngay sau Phase 5 (ưu tiên cao)
+
+- [ ] **Trả lời câu hỏi từ UI**: thêm endpoint mutation (WS `session.coworker.coding.answer` hoặc REST) và nút "trả lời nhanh" trong panel task. Hiện `status.py` chỉ phơi `pending_questions`; trả lời vẫn phải qua agent chính (`coding_agent action="answer"`).
+- [ ] **Phục vụ `export_html`**: route tải file `session.html` của task để inspector có link thật (hiện chỉ hiển thị đường dẫn dạng text).
+- [ ] **Chạy kịch bản eval "khởi động lại giữa chừng"** end-to-end để đóng tiêu chí DoD Phase 5 (resume).
+- [ ] **Kiểm thử tay trên desktop (Tauri)** một lần: xác nhận khối "Model theo phase" hiển thị và lưu đúng.
+
+### B. Nợ Phase 1 (transport v2) — chưa làm
+
+- [ ] Heartbeat `get_state`: im lặng > 60 s → gửi `get_state`; không có response trong 30 s → coi như tiến trình treo.
+- [ ] `coding.pi.tool_timeout_minutes`: trần cho idle timeout khi có tool đang chạy (hiện idle tạm dừng vô hạn khi `active_tools > 0`).
+- [ ] Wall timeout: `abort` → chờ `agent_settled` tối đa 30 s → `close` (hiện abort → close ngay).
+- [ ] Log và ném lỗi giao thức cho response thiếu `id` (hiện bỏ qua im lặng).
+- [ ] `report_result` dùng `outputSchema`/`structuredContent` đúng hợp đồng extension (hiện là `parameters` + `details`).
+
+### C. Nợ Phase 0.5 (gỡ Agy) — chưa làm
+
+- [ ] Xoá `backends/agy.py`, `tests/coworker/coding/fake_agy.py`, `tests/coworker/coding/fixtures/agy-1.2.13/`.
+- [ ] Gỡ `AgyBackendConfig`, trường `agy`, `default_backend`, `RepoConfig.backend`; migration đọc cấu hình cũ → cảnh báo → quy về `pi`.
+- [ ] Dọn tham chiếu `agy` còn lại: `coworker/hook.py`, `coworker/status.py`, `coworker/settings_api.py`, `coding/sandbox.py`, `coding/__init__.py`, `coding/backends/base.py::backend_for`, và WebUI (Coding tab, `types.ts`).
+
+### D. Nợ Phase 4 (orchestrator/reviewer)
+
+- [ ] **Approval continuation**: `awaiting_approval` hiện là ngõ cụt; `approve`/`revise_plan` là stub. Cần giữ/khởi động lại Pi theo session rồi tiếp tục Implement (approve) hoặc quay lại Plan (revise).
+- [ ] **Reviewer read-only bằng code**: thêm `--tools` chỉ-đọc cho tiến trình reviewer (hiện dựa prompt + `mode=review` của extension).
+- [ ] Test Phase 4 còn thiếu: `test_orchestrator_persist.py`, `test_review_isolation.py` (đầy đủ), `test_delivery_message.py`, `test_wait_mode.py`, `test_orchestrator_direct.py`.
+- [ ] Rà/thay `test_m3_integration.py` (đường cũ).
+- [ ] Xoá code chết còn lại: `backends/pi.py`; tách `backends/jsonl.py` + `sandbox_policy_for` khỏi `backends/` rồi gỡ `backends/base.py`.
+
+### E. Nền eval & DoD (Phase 0.6/0.7)
+
+- [ ] `tests/coworker/coding/eval/repos.yaml` + `scenarios/<slug>.yaml` (repo/commit gốc, contract, lệnh acceptance ẩn, nhãn tự-làm/giao-Pi, rubric).
+- [ ] `scripts/coding_eval.py` chạy qua SDK và xuất JSON; `docs/coworker/plans/pi-runtime-baseline.json`.
+- [ ] Chốt nghĩa "20%" trong DoD (20 điểm phần trăm hay tăng tương đối 20%).
+
+### F. Chất lượng & dọn dẹp
+
+- [ ] `basedpyright`: còn ~20 lỗi nợ cũ (chủ yếu `coding/pi/protocol.py` và các module ngoài phạm vi như `llm_proxy/`).
+- [ ] Thêm `pi/extension/README.md` (Phase 2.1 nêu nhưng chưa có).
+- [ ] Per-phase model: nếu Pi từ chối `set_model`/`set_thinking_level`, cân nhắc phương án dự phòng "tiến trình mới mỗi phase" (hiện chỉ warn và giữ model hiện tại).
+- [ ] i18n: thêm khoá `coworker.settings.coding.phase*` cho 10 locale (hiện dùng `defaultValue` nên vẫn hiển thị tiếng Anh).
+- [ ] Ghi chú: `runner.py`/`brief.py`/`backends/` vẫn còn trên đĩa (không còn dùng trong production) — xoá hẳn khi hoàn tất mục C/D.

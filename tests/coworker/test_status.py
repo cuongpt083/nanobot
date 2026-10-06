@@ -95,6 +95,26 @@ def test_participants_reflect_coordinator_advisor_room_and_coding(env) -> None:
     assert [t["id"] for t in status["coding"]["tasks"]] == ["ct-1"]
     assert not any(p["id"] == "ct-2" for p in status["participants"])
 
+    parked = CodingTask(
+        id="ct-wait",
+        backend="pi",
+        session_key=key,
+        channel="cli",
+        chat_id="u",
+        repo="/r",
+        base="main",
+        branch="b",
+        worktree="/w",
+        brief="awaiting plan",
+        status="awaiting_approval",
+        phase="await_approval",
+    )
+    registry.save(parked)
+    status = coworker_session_status(session)
+    waiting = _by_id(status, "ct-wait")
+    assert waiting["kind"] == "coding" and waiting["state"] == "waiting"
+    assert [t["id"] for t in status["coding"]["tasks"]][:2] == ["ct-wait", "ct-1"]
+
 
 def test_unarmed_room_only_lists_teammates_that_are_doing_something(env) -> None:
     from nanobot.coworker.config import CoworkerConfig, RoomAgentConfig, RoomConfig

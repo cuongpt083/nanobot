@@ -487,6 +487,18 @@ export interface CoworkerCodingTask {
     last_event_at?: number;
     rounds?: number;
   };
+  /** Phase 5 fields; absent on older servers. */
+  phase?: string;
+  fix_round?: number;
+  blocked_calls?: number;
+  settle_continuations?: number;
+  plan?: Record<string, unknown> | null;
+  report?: Record<string, unknown> | null;
+  review?: Record<string, unknown> | null;
+  questions?: Array<{ question_id?: string; question?: string; status?: string }>;
+  pending_questions?: Array<{ question_id?: string; question?: string; status?: string }>;
+  phase_stats?: Record<string, { tokens?: number; cost?: number; seconds?: number }>;
+  export_html_path?: string | null;
 }
 
 /** What `git init` would commit for the chat's project; shown to the user before they confirm. */
@@ -2055,6 +2067,26 @@ export interface CoworkerRoomConfig {
   min_context_chars?: number;
 }
 
+export type CoworkerThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export interface CoworkerPiPhaseConfig {
+  model: string | null;
+  thinking: CoworkerThinkingLevel | null;
+}
+
+export interface CoworkerPiPhasesConfig {
+  plan: CoworkerPiPhaseConfig;
+  implement: CoworkerPiPhaseConfig;
+  review: CoworkerPiPhaseConfig;
+}
+
 export interface CoworkerPiBackendConfig {
   command: string[];
   agent_dir: string | null;
@@ -2063,6 +2095,22 @@ export interface CoworkerPiBackendConfig {
   trust_project_files: boolean;
   pass_env: string[];
   allow_unsandboxed: boolean;
+  /** Per-phase model/thinking (plan, implement, review). Absent on older servers. */
+  phases?: CoworkerPiPhasesConfig;
+}
+
+export interface CoworkerPhaseModelOption {
+  value: string;
+  label: string;
+  provider: string;
+  model_id: string;
+}
+
+export interface CoworkerPhaseModelsPayload {
+  models: CoworkerPhaseModelOption[];
+  thinking_levels: CoworkerThinkingLevel[];
+  /** Present when Pi is missing or not logged in. */
+  error: string | null;
 }
 
 export interface CoworkerAgyBackendConfig {

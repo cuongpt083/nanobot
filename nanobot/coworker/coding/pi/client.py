@@ -8,7 +8,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -29,7 +29,12 @@ from nanobot.coworker.coding.runtime import (
     SessionSpec,
     parse_pi_stats,
 )
-from nanobot.coworker.coding.sandbox import WINDOWS_ENV_KEYS, SandboxPolicy, wrap_argv
+from nanobot.coworker.coding.sandbox import (
+    WINDOWS_ENV_KEYS,
+    SandboxPolicy,
+    check_available,
+    wrap_argv,
+)
 from nanobot.coworker.config import PiBackendConfig
 from nanobot.coworker.transcript import as_dict
 
@@ -75,7 +80,7 @@ class PiClient(CodingRuntime):
         self.timeout_minutes = timeout_minutes
         self.idle_timeout_minutes = idle_timeout_minutes
         self.question_router = question_router
-        self.channel = JsonlChannel()
+        self.channel = JsonlChannel(max_record_bytes=config.max_record_mb * 1024 * 1024)
         self._pending_requests: dict[str, asyncio.Future[Response]] = {}
         self._subscriptions: list[EventSubscription] = []
         self._reader_task: asyncio.Task[None] | None = None
@@ -84,6 +89,31 @@ class PiClient(CodingRuntime):
         self._last_response_text = ""
         self._cwd: Path | None = None
         self._session_spec: SessionSpec | None = None
+        self._session_file: str | None = None
+        self._last_leaf_id: str | None = None
+
+    @property
+    def name(self) -> str:
+        return "pi"
+
+    @property
+    def session_file(self) -> str | None:
+        """Absolute path of the Pi session file, captured after the first settle."""
+        return self._session_file
+
+    @property
+    def last_leaf_id(self) -> str | None:
+        """Id of the newest session entry seen by ``get_entries`` (cursor for the next call)."""
+        return self._last_leaf_id
+
+    def check_sandbox_admission(self) -> None:
+        """Refuse early when Pi would run without an OS sandbox and that is not allowed."""
+        if self.sandbox_policy.mode == "none" and not self.config.allow_unsandboxed:
+            raise PermissionError(
+                "Unsandboxed Pi execution is refused because coding.sandbox is 'none' "
+                "and pi.allow_unsandboxed is False."
+            )
+        check_available(self.sandbox_policy)
 
     async def start(
         self,
@@ -97,6 +127,7 @@ class PiClient(CodingRuntime):
         self._cwd = cwd
         self._session_spec = session
 
+        self.check_sandbox_admission()
         await self._preflight()
 
         args = resolve_pi_binary(list(self.config.command))
@@ -174,7 +205,12 @@ class PiClient(CodingRuntime):
                 if not cmds_resp.success:
                     raise RuntimeError(f"Pi get_commands failed: {cmds_resp.error}")
                 cmds_data = as_dict(cmds_resp.data) or {}
-                cmd_list = [c.get("name") for c in cmds_data.get("commands", []) if isinstance(c, dict)]
+                raw_cmds = cmds_data.get("commands", [])
+                cmd_list = [
+                    str(cast("dict[str, Any]", c).get("name"))
+                    for c in cast("list[object]", raw_cmds)
+                    if isinstance(c, dict)
+                ]
                 if "nanobot-mode" not in cmd_list:
                     raise RuntimeError("Pi extension failed to load: nanobot-mode command missing")
         except Exception as e:
@@ -198,12 +234,14 @@ class PiClient(CodingRuntime):
                     title = raw.get("title", "")
                     # Dialog methods need response back to Pi
                     if method in ("select", "confirm", "input", "editor") and req_id:
-                        if self.question_router:
+                        router = self.question_router
+                        if router:
                             task_id = self._session_spec.task_id if self._session_spec else "unknown"
 
                             async def _handle_and_reply(rid: str, meth: str, tit: str, m_raw: dict[str, Any]):
+                                assert router is not None
                                 try:
-                                    res = await self.question_router.handle_extension_ui_request(
+                                    res = await router.handle_extension_ui_request(
                                         request_id=rid,
                                         task_id=task_id,
                                         method=meth,
@@ -211,7 +249,7 @@ class PiClient(CodingRuntime):
                                         message=m_raw.get("message", ""),
                                         options=m_raw.get("options"),
                                     )
-                                    reply = {"type": "extension_ui_response", "id": rid}
+                                    reply: dict[str, Any] = {"type": "extension_ui_response", "id": rid}
                                     if res.get("cancelled"):
                                         reply["cancelled"] = True
                                     elif "confirmed" in res and meth == "confirm":
@@ -254,6 +292,65 @@ class PiClient(CodingRuntime):
         sub = EventSubscription(maxsize=maxsize)
         self._subscriptions.append(sub)
         return sub
+
+    async def get_entries(self, *, since: str | None = None) -> list[dict[str, Any]]:
+        """Read session entries. ``since`` is an entry id (leaf cursor); updates ``last_leaf_id``."""
+        params: dict[str, Any] = {"since": since} if since else {}
+        resp = await self.request("get_entries", params or None)
+        if not resp.success:
+            raise RuntimeError(f"Pi get_entries failed: {resp.error}")
+        data = as_dict(resp.data) or {}
+        leaf = data.get("leafId")
+        if isinstance(leaf, str) and leaf:
+            self._last_leaf_id = leaf
+        raw_entries = data.get("entries")
+        if isinstance(raw_entries, list):
+            out: list[dict[str, Any]] = []
+            for item in cast("list[object]", raw_entries):
+                if isinstance(item, dict):
+                    out.append(cast("dict[str, Any]", item))
+            return out
+        return []
+
+    async def set_model(self, *, provider: str, model: str) -> None:
+        resp = await self.request("set_model", {"provider": provider, "modelId": model})
+        if not resp.success:
+            raise RuntimeError(f"Pi set_model failed: {resp.error}")
+
+    async def set_thinking_level(self, level: str) -> None:
+        resp = await self.request("set_thinking_level", {"level": level})
+        if not resp.success:
+            raise RuntimeError(f"Pi set_thinking_level failed: {resp.error}")
+
+    async def export_html(self, output_path: Path | None = None) -> str | None:
+        params = {"outputPath": str(output_path)} if output_path else None
+        resp = await self.request("export_html", params)
+        if not resp.success:
+            raise RuntimeError(f"Pi export_html failed: {resp.error}")
+        path = (as_dict(resp.data) or {}).get("path")
+        return str(path) if isinstance(path, str) else None
+
+    async def available_thinking_levels(self) -> list[str]:
+        resp = await self.request("get_available_thinking_levels")
+        if not resp.success:
+            raise RuntimeError(f"Pi get_available_thinking_levels failed: {resp.error}")
+        levels = (as_dict(resp.data) or {}).get("levels")
+        if isinstance(levels, list):
+            return [str(level) for level in cast("list[object]", levels)]
+        return []
+
+    async def available_models(self) -> list[dict[str, Any]]:
+        resp = await self.request("get_available_models")
+        if not resp.success:
+            raise RuntimeError(f"Pi get_available_models failed: {resp.error}")
+        raw_models = (as_dict(resp.data) or {}).get("models")
+        if isinstance(raw_models, list):
+            out: list[dict[str, Any]] = []
+            for item in cast("list[object]", raw_models):
+                if isinstance(item, dict):
+                    out.append(cast("dict[str, Any]", item))
+            return out
+        return []
 
     async def request(self, cmd: str, params: dict[str, Any] | None = None, *, timeout: float = 30.0) -> Response:
         req_id = str(uuid.uuid4())
@@ -332,7 +429,11 @@ class PiClient(CodingRuntime):
                     try:
                         stats_resp = await self.request("get_session_stats", timeout=5.0)
                         if stats_resp.success:
-                            self._last_stats = parse_pi_stats(as_dict(stats_resp.data) or {})
+                            stats_data = as_dict(stats_resp.data) or {}
+                            self._last_stats = parse_pi_stats(stats_data)
+                            session_file = stats_data.get("sessionFile")
+                            if isinstance(session_file, str) and session_file:
+                                self._session_file = session_file
                     except Exception:
                         pass
 

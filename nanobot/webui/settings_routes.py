@@ -156,6 +156,8 @@ _SYSTEM_ROUTES = {
 _COWORKER_SETTINGS_PATH = "/api/settings/coworker"
 _COWORKER_SETTINGS_UPDATE_PATH = "/api/settings/coworker/update"
 _COWORKER_METRICS_PATH = "/api/settings/coworker/metrics"
+_COWORKER_PHASE_MODELS_PATH = "/api/settings/coworker/phase-models"
+_COWORKER_PHASE_MODELS_REFRESH_PATH = "/api/settings/coworker/phase-models/refresh"
 
 _SETTINGS_MUTATION_PATHS = frozenset({
     _COWORKER_SETTINGS_UPDATE_PATH,
@@ -305,6 +307,10 @@ class WebUISettingsRouter:
             if not self._authorized(request):
                 return self._unauthorized()
             return await self._handle_coworker_metrics()
+        if path in (_COWORKER_PHASE_MODELS_PATH, _COWORKER_PHASE_MODELS_REFRESH_PATH):
+            if not self._authorized(request):
+                return self._unauthorized()
+            return await self._handle_coworker_phase_models(refresh=path.endswith("/refresh"))
 
         route = self._route(path)
         if route is None:
@@ -533,6 +539,20 @@ class WebUISettingsRouter:
         except Exception:
             self.logger.exception("coworker metrics request failed")
             return self._error_response(500, "coworker metrics request failed")
+        return self._json_response(payload)
+
+    async def _handle_coworker_phase_models(self, *, refresh: bool) -> Response:
+        """Available Pi models and thinking levels for the per-phase model pickers."""
+        from nanobot.coworker.settings_api import coworker_phase_models_payload
+
+        def run() -> dict[str, Any]:
+            return coworker_phase_models_payload(refresh=refresh)
+
+        try:
+            payload = await asyncio.to_thread(run)
+        except Exception:
+            self.logger.exception("coworker phase models request failed")
+            return self._error_response(500, "coworker phase models request failed")
         return self._json_response(payload)
 
     def _model_operations(self) -> model_domain.ModelSettingsOperations:

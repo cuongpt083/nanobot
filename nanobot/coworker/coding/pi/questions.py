@@ -7,6 +7,21 @@ from typing import Any, Callable
 
 from loguru import logger
 
+_ROUTERS: dict[str, "QuestionRouter"] = {}
+
+
+def register_router(task_id: str, router: "QuestionRouter") -> None:
+    """Expose a task's router so the ``coding_agent(action="answer")`` tool can reach it."""
+    _ROUTERS[task_id] = router
+
+
+def get_router(task_id: str) -> "QuestionRouter | None":
+    return _ROUTERS.get(task_id)
+
+
+def unregister_router(task_id: str) -> None:
+    _ROUTERS.pop(task_id, None)
+
 
 @dataclass
 class PendingQuestion:

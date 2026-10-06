@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from nanobot.bus.events import OutboundMessage
-from nanobot.coworker.coding.brief import render_rules
 from nanobot.coworker.coding.init_repo import InitError, format_plan, plan_init, run_init
 from nanobot.coworker.coding.project import (
     ProjectError,
@@ -174,6 +173,12 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
             ])
         if t.error:
             lines.append(f"**Error**: {t.error}")
+        if t.settle_continuations:
+            lines.append(f"**Settle continuations**: {t.settle_continuations}")
+        if t.review:
+            lines.append(f"**Review**: `{t.review.get('verdict', 'unknown')}` ({t.review.get('summary', '')})")
+        if t.export_html_path:
+            lines.append(f"**Transcript**: `{t.export_html_path}`")
         if t.diffstat:
             lines.extend(["**Diffstat**:", "```", t.diffstat, "```"])
         return _reply(ctx, "\n".join(lines))
@@ -278,53 +283,63 @@ async def cmd_code(ctx: CommandContext) -> OutboundMessage:
         except Exception as e:
             return _reply(ctx, f"Error discarding task `{task_id}`: {e}")
 
-    if subcmd == "resume":
-        if len(parts) < 3:
-            return _reply(ctx, "Usage: /code resume <task-id> <message>")
+    if subcmd == "approve":
+        if len(parts) < 2:
+            return _reply(ctx, "Usage: /code approve <task-id> [notes]")
         task_id = parts[1]
-        follow_up_msg = parts[2]
+        notes = parts[2] if len(parts) > 2 else None
+        try:
+            t = runner.claim_approval(task_id)
+        except RuntimeError as e:
+            return _reply(ctx, f"❌ {e}")
+        spawn_background(runner.approve(t, notes=notes), name=f"coding-approve-{t.id}")
+        return _reply(ctx, f"✅ Approved plan for `{task_id}`. Implementing in the background.")
+
+    if subcmd == "revise":
+        if len(parts) < 3:
+            return _reply(ctx, "Usage: /code revise <task-id> <feedback>")
+        task_id = parts[1]
+        feedback = parts[2]
+        try:
+            t = runner.claim_approval(task_id)
+        except RuntimeError as e:
+            return _reply(ctx, f"❌ {e}")
+        spawn_background(runner.revise_plan(t, feedback=feedback), name=f"coding-revise-{t.id}")
+        return _reply(ctx, f"📝 Revising plan for `{task_id}` with your feedback.")
+
+    if subcmd == "resume":
+        if len(parts) < 2:
+            return _reply(ctx, "Usage: /code resume <task-id> [message]")
+        task_id = parts[1]
+        follow_up_msg = parts[2] if len(parts) > 2 else None
         t = runner.registry.get(task_id)
         if not t:
             return _reply(ctx, f"Task '{task_id}' not found.")
-        if not t.resume_ref:
-            return _reply(ctx, f"Task '{task_id}' has no saved session or conversation reference to resume.")
 
         try:
-            repo_cfg = runner.workspace_mgr.validate_task_repo(t.repo)
-            from nanobot.coworker.coding.backends.base import backend_for
-
-            backend = backend_for(t.backend, runner.config)
             run_dir = t.run_dir
             if not run_dir.exists():
                 return _reply(ctx, f"Working directory '{run_dir}' not found.")
             if t.mode == "direct" and runner.registry.count_active_direct(t.workdir):
                 return _reply(ctx, "Another direct coding task is already editing this project.")
 
-            rules = render_rules(t.acceptance)
-
             async def _resume_run() -> None:
-                run = backend.follow_up(
-                    run_ref=t.resume_ref,  # type: ignore[arg-type]
-                    message=follow_up_msg,
-                    cwd=run_dir,
-                    rules=rules,
-                    task_id=t.id,
-                )
-                async for _ in run:
-                    pass
-                t.status = "succeeded"
-                t.finished_at = time.time()
-                runner.registry.save(t)
-                if t.mode == "direct":
-                    await runner.refresh_direct_changes(t)
+                await runner.resume(t, message=follow_up_msg)
 
             spawn_background(_resume_run(), name=f"resume-{task_id}")
-            return _reply(ctx, f"▶️ Resuming task `{task_id}` with follow-up message.")
+            return _reply(ctx, f"▶️ Resuming task `{task_id}` (phase `{t.phase}`).")
         except Exception as e:
             return _reply(ctx, f"Error resuming task `{task_id}`: {e}")
+
+    if subcmd == "doctor":
+        from nanobot.coworker.coding.doctor import render_doctor_report, run_doctor
+
+        checks = await run_doctor(runner.config, runner.workspace_root)
+        return _reply(ctx, render_doctor_report(checks))
 
     return _reply(
         ctx,
         "Usage: /code list | status <id> | diff <id> | steer <id> <msg> | abort <id> | merge <id> "
-        "| discard <id> [force] | resume <id> <msg> | direct allow|revoke|status | init [confirm|cancel]",
+        "| discard <id> [force] | approve <id> [notes] | revise <id> <feedback> | resume <id> [msg] "
+        "| doctor | direct allow|revoke|status | init [confirm|cancel]",
     )

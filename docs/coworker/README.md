@@ -236,64 +236,41 @@ payload shape is re-applied verbatim, so trimming never busts a live cache.
   excerpt) for the user to generalize.
 - Run state: `<workspace>/.coworker/workflow-runs/<slug>/<run-id>/{run.json,trace.jsonl}`.
 
-### Coding agent (Pi & agy)
+### Coding agent (Pi runtime v2)
 
-Delegate heavy coding work (multi-file edits, large refactors, bug fixes requiring a test/acceptance loop)
-to an external coding harness running headless in an isolated git worktree, while nanobot coordinates,
-verifies the results, and reports back in chat.
+Delegate heavy coding work (multi-file edits, refactors, bug fixes with an acceptance loop) to
+**Pi** running headless in an isolated git worktree, while nanobot coordinates a phase state
+machine, runs an **independent reviewer**, and reports back in chat. Agy was removed; Pi is the
+only backend. Full guide: **[coding-pi.md](./coding-pi.md)**.
 
-#### Backends supported
-- **Pi** (`pi`): Lean, fast, steerable in-flight edits (`--mode rpc`).
-- **agy** (`agy`): Google Antigravity CLI with broad research capabilities (`--output-format stream-json`).
-
-#### Setup steps
-1. **Install and authenticate harnesses outside nanobot**:
-   - Pi: `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, configure credentials via `pi auth`.
-   - agy: install `agy` binary, complete interactive login in a terminal.
-2. **Configure repositories in `~/.nanobot/coworker.json`**:
-   ```json
-   {
-     "coding": {
-       "enabled": true,
-       "default_backend": "pi",
-       "repos": [
-         {
-           "path": "/path/to/your/git/repo",
-           "base_ref": "main",
-           "acceptance": "pytest -q"
-         }
-       ],
-       "pi": {
-         "allow_unsandboxed": true
-       },
-       "agy": {
-         "allow_unsandboxed": true
-       }
-     }
-   }
-   ```
+#### Setup
+1. Install and authenticate Pi outside nanobot:
+   `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` then `pi auth`.
+2. Configure repositories in `~/.nanobot/coworker.json` (`coding.enabled`, `coding.repos`,
+   `coding.pi`). Run `/code doctor` to verify version, Node, sandbox, extension, login, and a
+   trial prompt.
 
 #### Usage
-- **Agent tool**: `coding_agent(action="start", task="...", backend="pi|agy", acceptance="...")`
-  Starts a task in the background. The LLM ends its turn immediately and is automatically re-summoned
-  with `[auto-coding-result]` once the harness completes and nanobot verifies acceptance.
-  Other actions: `status`, `steer` (Pi), `abort`, `result` (summary + diffstat + acceptance) and
-  `diff` (read-only full diff, capped at 20 000 chars — read it before asking the advisor to review,
-  since the advisor only sees what the agent has seen).
-- **Slash commands**:
-  - `/code list`: list active and recent coding tasks.
-  - `/code status <id>`: check status, commits, and diffstat of a task.
-  - `/code diff <id>`: inspect full git diff.
-  - `/code steer <id> <message>`: steer a running Pi task mid-flight.
-  - `/code abort <id>`: abort an active task.
-  - `/code merge <id>`: squash-merge verified task changes into the base branch and clean up worktree.
-  - `/code discard <id>`: discard worktree and delete the task branch.
-  - `/code resume <id> <message>`: resume an interrupted or failed task with a new round.
+- **Agent tool**: `coding_agent(action="start", objective=…, context=…, acceptance_criteria=[…],
+  constraints=[…], out_of_scope=[…], acceptance=…, files=[…], mode="plan_first"|"auto")`.
+  The task runs in the background; the coordinator is re-summoned with `[auto-coding-result]` on
+  completion. Other actions: `approve`, `revise_plan`, `answer`, `status`, `steer`, `abort`,
+  `result`, `diff`.
+- **Slash commands**: `/code list | status <id> | diff <id> | steer <id> <msg> | abort <id> |
+  merge <id> | discard <id> [force] | approve <id> [notes] | revise <id> <feedback> |
+  resume <id> [msg] | doctor | direct allow|revoke|status | init [confirm|cancel]`.
+  `approve` / `revise` continue a parked `plan_first` task; `/code resume` still refuses
+  unapproved plans.
+- **Phases**: Prepare → Plan → AwaitApproval → Implement → Review → Fix → Deliver. A fresh
+  no-session Pi process performs the review; blocking findings trigger a fix round.
+- **Per-phase models**: `coding.pi.phases.{plan,implement,review}.{model,thinking}`, editable in
+  the WebUI Coding tab.
+- **`/code resume <id>`**: tasks interrupted by a gateway restart are marked `interrupted` and the
+  chat is notified; resume re-attaches the Pi session and continues.
 
 #### Multi-agent room integration
-A teammate in `room.agents` can have `backend: "pi"` or `backend: "agy"` configured. When the room
-coordinator delegates a coding sub-task to that teammate, it runs through the coding runner with
-isolated worktree and acceptance verification.
+A teammate in `room.agents` with `backend: "pi"` runs through the coding runner with isolated
+worktree and acceptance verification.
 
 ## WebUI
 
