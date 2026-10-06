@@ -19,7 +19,8 @@ from nanobot.providers.base import (
     LLMProvider,
     LLMResponse,
     LLMUsage,
-    ToolCallRequest,
+    ProviderCallContext,
+    ProviderConversationState,
     resolve_stream_idle_timeout_s,
 )
 from nanobot.providers.oauth_model_catalog import (
@@ -28,9 +29,13 @@ from nanobot.providers.oauth_model_catalog import (
     OAuthModelCatalogSnapshot,
 )
 from nanobot.providers.openai_responses import (
+    ResponsesStreamCapture,
+    build_responses_state,
     consume_sse_with_reasoning,
-    convert_messages,
     convert_tools,
+    is_replayable_finish_reason,
+    prepare_responses_input,
+    responses_state_matches,
 )
 from nanobot.providers.registry import ProviderModelSpec, find_by_name
 from nanobot.providers.xai_oauth import (
@@ -87,6 +92,7 @@ class XAIGrokProvider(LLMProvider):
         self.default_model = default_model
         self.proxy = proxy or None
         self._extra_body = dict(extra_body or {})
+        self._fallback_conversation_id = str(uuid.uuid4())
 
     async def _supports_backend_search(self, model: str) -> bool:
         catalog = await asyncio.to_thread(
@@ -114,9 +120,25 @@ class XAIGrokProvider(LLMProvider):
         on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
         on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         on_stream_recover: Callable[[], Awaitable[None]] | None = None,
+        provider_context: ProviderCallContext | None = None,
     ) -> LLMResponse:
         wire_model = _strip_model_prefix(model or self.default_model)
-        system_prompt, input_items = convert_messages(messages)
+        sanitized_messages = self._sanitize_empty_content(messages)
+        sanitized_state = (
+            provider_context.conversation_state if provider_context is not None else None
+        )
+        if sanitized_state is not None:
+            sanitized_state = sanitized_state.with_pending_messages(
+                self._sanitize_empty_content(sanitized_state.pending_messages)
+            )
+        system_prompt, input_items, _replayed = prepare_responses_input(
+            sanitized_messages,
+            state=sanitized_state,
+            provider=self._responses_state_provider(),
+            model=wire_model,
+        )
+        session_id = provider_context.session_id if provider_context is not None else None
+        session_routing_key = _prompt_cache_key(session_id) if session_id else None
 
         stage = "oauth_token"
         try:
@@ -162,6 +184,8 @@ class XAIGrokProvider(LLMProvider):
                 # their documented balanced setting and prevents a search from
                 # stopping after a single unsuccessful lookup.
                 body["max_turns"] = _HOSTED_SEARCH_MAX_TURNS
+            if session_routing_key:
+                body["prompt_cache_key"] = session_routing_key
             if self._extra_body:
                 body.update(
                     {key: value for key, value in self._extra_body.items() if key != "tools"}
@@ -169,7 +193,18 @@ class XAIGrokProvider(LLMProvider):
                 if tools_are_explicit and not isinstance(configured_tools, list):
                     body["tools"] = configured_tools
 
-            headers = _build_headers(token.access, wire_model)
+            effective_cache_key = body.get("prompt_cache_key")
+            conversation_id = (
+                effective_cache_key
+                if isinstance(effective_cache_key, str) and effective_cache_key
+                else self._fallback_conversation_id
+            )
+            wire_body = _without_response_item_ids(body)
+            headers = _build_headers(
+                token.access,
+                wire_model,
+                conversation_id=conversation_id,
+            )
             stage = "xai_request"
             auth_retried = False
             hosted_tool_retried = False
@@ -179,7 +214,7 @@ class XAIGrokProvider(LLMProvider):
                     result = await _request_xai(
                         DEFAULT_XAI_GROK_URL,
                         headers,
-                        body,
+                        wire_body,
                         proxy=self.proxy,
                         on_content_delta=on_content_delta,
                         on_thinking_delta=on_thinking_delta,
@@ -196,7 +231,11 @@ class XAIGrokProvider(LLMProvider):
                         proxy=self.proxy,
                         force_refresh=True,
                     )
-                    headers = _build_headers(token.access, wire_model)
+                    headers = _build_headers(
+                        token.access,
+                        wire_model,
+                        conversation_id=conversation_id,
+                    )
                     stage = "xai_request_after_oauth_refresh"
                 except _XAIIncompleteHostedToolError as exc:
                     retry_usage = _combine_usage(retry_usage, exc.usage)
@@ -212,17 +251,15 @@ class XAIGrokProvider(LLMProvider):
                     )
                     if on_stream_recover is not None:
                         await on_stream_recover()
-                    headers = _build_headers(token.access, wire_model)
+                    headers = _build_headers(
+                        token.access,
+                        wire_model,
+                        conversation_id=conversation_id,
+                    )
 
-            content, tool_calls, finish_reason, usage, reasoning_content = result
-            usage = _combine_usage(retry_usage, usage)
-            return LLMResponse(
-                content=content,
-                tool_calls=tool_calls,
-                finish_reason=finish_reason,
-                usage=usage,
-                reasoning_content=reasoning_content,
-            )
+            usage = _combine_usage(retry_usage, result.usage)
+            result.usage = usage
+            return result
         except Exception as exc:
             response = _xai_error_response(exc)
             logger.warning(
@@ -247,9 +284,28 @@ class XAIGrokProvider(LLMProvider):
         temperature: float = 0.7,
         reasoning_effort: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
+        provider_context: ProviderCallContext | None = None,
     ) -> LLMResponse:
         return await self._call_xai(
-            messages, tools, model, max_tokens, temperature, reasoning_effort, tool_choice
+            messages,
+            tools,
+            model,
+            max_tokens,
+            temperature,
+            reasoning_effort,
+            tool_choice,
+            provider_context=provider_context,
+        )
+
+    async def chat_with_context(
+        self,
+        *,
+        provider_context: ProviderCallContext,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        return await self.chat(
+            **kwargs,
+            provider_context=provider_context,
         )
 
     async def chat_stream(
@@ -265,6 +321,7 @@ class XAIGrokProvider(LLMProvider):
         on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
         on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         on_stream_recover: Callable[[], Awaitable[None]] | None = None,
+        provider_context: ProviderCallContext | None = None,
     ) -> LLMResponse:
         return await self._call_xai(
             messages,
@@ -278,10 +335,37 @@ class XAIGrokProvider(LLMProvider):
             on_thinking_delta,
             on_tool_call_delta,
             on_stream_recover,
+            provider_context=provider_context,
+        )
+
+    async def chat_stream_with_context(
+        self,
+        *,
+        provider_context: ProviderCallContext,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        return await self.chat_stream(
+            **kwargs,
+            provider_context=provider_context,
         )
 
     def get_default_model(self) -> str:
         return self.default_model
+
+    @staticmethod
+    def _responses_state_provider() -> str:
+        return f"xai_grok:{DEFAULT_XAI_GROK_URL.rstrip('/')}"
+
+    def can_resume_conversation_state(
+        self,
+        state: ProviderConversationState,
+        model: str | None = None,
+    ) -> bool:
+        return responses_state_matches(
+            state,
+            provider=self._responses_state_provider(),
+            model=_strip_model_prefix(model or self.default_model),
+        )
 
 
 def _strip_model_prefix(model: str) -> str:
@@ -305,8 +389,44 @@ def _combine_usage(left: LLMUsage | None, right: LLMUsage | None) -> LLMUsage | 
     return left + right
 
 
-def _build_headers(token: str, model: str) -> dict[str, str]:
-    conversation_id = str(uuid.uuid4())
+def _prompt_cache_key(session_id: str) -> str:
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
+_HOSTED_OUTPUT_ITEM_TYPES = frozenset({"x_search_call", "custom_tool_call"})
+
+
+def _without_response_item_ids(request_body: dict[str, Any]) -> dict[str, Any]:
+    """Match xAI's ``store=false`` request-item contract."""
+    if request_body.get("store") is True:
+        return request_body
+    raw_input = request_body.get("input")
+    if not isinstance(raw_input, list):
+        return request_body
+
+    input_items: list[object] = cast(list[object], raw_input)
+    sanitized_input: list[object] = []
+    for raw_item in input_items:
+        if not isinstance(raw_item, dict):
+            sanitized_input.append(raw_item)
+            continue
+        item = cast(dict[str, Any], raw_item)
+        if item.get("type") in _HOSTED_OUTPUT_ITEM_TYPES:
+            continue
+        sanitized_input.append({key: value for key, value in item.items() if key != "id"})
+
+    body = dict(request_body)
+    body["input"] = sanitized_input
+    return body
+
+
+def _build_headers(
+    token: str,
+    model: str,
+    *,
+    conversation_id: str | None = None,
+) -> dict[str, str]:
+    sticky_id = conversation_id or str(uuid.uuid4())
     return {
         "Authorization": f"Bearer {token}",
         "X-XAI-Token-Auth": "xai-grok-cli",
@@ -314,11 +434,11 @@ def _build_headers(token: str, model: str) -> dict[str, str]:
         "x-grok-client-version": XAI_CLIENT_VERSION,
         "x-grok-client-identifier": "nanobot",
         "x-grok-client-mode": "headless",
-        "x-grok-conv-id": conversation_id,
+        "x-grok-conv-id": sticky_id,
         "x-grok-req-id": str(uuid.uuid4()),
         "x-grok-model-override": model,
-        "x-grok-session-id": conversation_id,
-        "x-grok-agent-id": str(uuid.uuid4()),
+        "x-grok-session-id": sticky_id,
+        "x-grok-agent-id": sticky_id,
         "User-Agent": f"nanobot/{__version__} (python)",
         "accept": "text/event-stream",
         "content-type": "application/json",
@@ -376,7 +496,7 @@ async def _request_xai(
     on_content_delta: Callable[[str], Awaitable[None]] | None = None,
     on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
     on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-) -> tuple[str, list[ToolCallRequest], str, LLMUsage | None, str | None]:
+) -> LLMResponse:
     active_hosted_tools: dict[str, dict[str, Any]] = {}
     stream_output_emitted = False
 
@@ -420,7 +540,14 @@ async def _request_xai(
                 content = await response.aread()
                 raw = content.decode("utf-8", "ignore")
                 raise _build_xai_http_error(response.status_code, response.headers, raw)
-            result = await consume_sse_with_reasoning(
+            capture = ResponsesStreamCapture()
+            (
+                content,
+                tool_calls,
+                finish_reason,
+                usage,
+                reasoning_content,
+            ) = await consume_sse_with_reasoning(
                 response,
                 on_content_delta=(_forward_content_delta if on_content_delta is not None else None),
                 # Always observe tool events so protocol validation also works for
@@ -430,8 +557,9 @@ async def _request_xai(
                     _forward_thinking_delta if on_thinking_delta is not None else None
                 ),
                 on_response_event=_on_response_event,
+                capture=capture,
             )
-            if result[2] != "error" and active_hosted_tools:
+            if finish_reason != "error" and active_hosted_tools:
                 active = list(active_hosted_tools.values())
                 for event in active:
                     await _track_and_forward_tool_event(
@@ -444,8 +572,23 @@ async def _request_xai(
                     )
                 raise _XAIIncompleteHostedToolError(
                     active,
-                    usage=result[3],
+                    usage=usage,
                     stream_output_emitted=stream_output_emitted,
+                )
+            result = LLMResponse(
+                content=content,
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+                usage=usage,
+                reasoning_content=reasoning_content,
+            )
+            if capture.completed and is_replayable_finish_reason(finish_reason):
+                result.provider_state = build_responses_state(
+                    provider=f"xai_grok:{url.rstrip('/')}",
+                    model=str(body.get("model") or ""),
+                    input_items=cast(list[dict[str, Any]], body.get("input") or []),
+                    output_items=capture.output_items,
+                    usage=usage,
                 )
             return result
 
