@@ -1,7 +1,7 @@
 const CACHE_PREFIX = "nanobot-static-";
 const CACHE_NAME = `${CACHE_PREFIX}v3`;
 const ICON_CACHE_PREFIX = "nanobot-icons-";
-const ICON_CACHE_NAME = `${ICON_CACHE_PREFIX}v1`;
+const ICON_CACHE_NAME = `${ICON_CACHE_PREFIX}v2`;
 const ICON_CACHE_LIMIT = 128;
 const ASSET_MANIFEST_PATH = "/asset-manifest.json";
 const PRECACHE = ["/", "/manifest.json", ASSET_MANIFEST_PATH];
