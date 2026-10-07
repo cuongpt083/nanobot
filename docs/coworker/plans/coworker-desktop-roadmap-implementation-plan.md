@@ -15,8 +15,8 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 
 | Phase | Việc | Ước lượng | Trạng thái | Cổng |
 | --- | --- | --- | --- | --- |
-| 0 | Baseline WebView2 + eval | 1–1,5 ngày | chưa | Có số đo ổn định, 2 lần chạy |
-| 0.5 | Gỡ Pi room guest (Lựa chọn A) + dọn tàn dư agy | 1–1,5 ngày | chưa | Toàn bộ room guest chạy AgentRuntime; tests room xanh, 156 coding tests pass |
+| 0 | Baseline WebView2 + eval | 1–1,5 ngày | một phần (chờ số đo & eval run) | Có số đo ổn định, 2 lần chạy |
+| 0.5 | Gỡ Pi room guest (Lựa chọn A) + dọn tàn dư agy | 1–1,5 ngày | xong (`abff70c8`) | Toàn bộ room guest chạy AgentRuntime; tests room xanh, 156 coding tests pass |
 | 1 | F3 brief / envelope | 2–3 ngày | chưa | Token guest −40% vs `full`; envelope hợp lệ ≥ 90% |
 | 2 | Mermaid P2a (ELK, pan/zoom, viewport) | 2–3 ngày | chưa | Sequence 15 participant đọc được; Ctrl+cuộn zoom sơ đồ |
 | 3 | F2 FTS5 (chưa tóm tắt) | 2–3 ngày | chưa | Recall@5 ≥ 0,8; p95 < 200 ms |
@@ -155,13 +155,13 @@ Nhánh: `feat/desktop-roadmap-p0`. Không viết tối ưu.
 
 ### 0.1 – Fixture WebView2
 
-- [ ] Tạo session fixture ~300 tin: code block dài, ≥ 3 sơ đồ Mermaid (kể cả sequence 15 participant), markdown bảng.
-- [ ] Script seed: sinh JSONL ~300 tin (code + ≥ 3 Mermaid, 1 sequence 15 participant) rồi nạp qua SDK / import session. Không đo tay một phiên ngẫu nhiên.
+- [x] Tạo session fixture ~300 tin: code block dài, ≥ 3 sơ đồ Mermaid (kể cả sequence 15 participant), markdown bảng (`docs/coworker/plans/chat-300-fixture.jsonl`).
+- [x] Script seed: sinh JSONL ~300 tin (code + ≥ 3 Mermaid, 1 sequence 15 participant) rồi nạp qua SDK / import session (`scripts/gen_chat_fixture.py`).
 - [ ] Quy trình đo trên Desktop Windows (không chỉ `bun run dev`): WebView2 remote debugging (CDP, `remote-debugging-port`) **hoặc** `performance.mark` / `performance.measure` trong WebUI ghi ra log. Ghi đủ lệnh vào baseline JSON (`machine`, `commit`, `method`).
 
 ### 0.2 – Số đo (ghi `docs/coworker/plans/desktop-perf-baseline.json`)
 
-Mỗi số: trung vị 3 lần, máy và commit.
+Mỗi số: trung vị 3 lần, máy và commit. (Chờ người dùng đo trên WebView2 thực tế).
 
 | Metric | Định nghĩa |
 | --- | --- |
@@ -182,9 +182,9 @@ Ngưỡng Phase 6 (chốt sau khi có số; giá trị dưới là **đề xuấ
 
 `scripts/coworker_eval.py` **đã có**, 6 kịch bản trong `tests/coworker/eval/scenarios/` (`crm-followup`, `edutech-course`, `nutritech-plan`, `persona-nutri`, `presale-design`, `script-update`). **Chưa có** `persona_delegation`, `recall_queries`, `repeat_tasks`.
 
-- [ ] Chạy 6 kịch bản hiện có 2 lần, lưu `docs/coworker/plans/coworker-eval-baseline.json`.
-- [ ] Skeleton YAML cho `recall_queries` (F2) và `repeat_tasks` (F1). **`persona_delegation` viết và chạy baseline `full` ở đầu Phase 1**, trước mọi đổi brief/envelope.
-- [ ] Spike Streamdown (không đoán): `webui/src/components/` không có chữ `mermaid`; diagram đi qua chunk Streamdown. Đọc option mermaid của đúng phiên Streamdown đang ghim; thử `mode=streaming` với khối chưa đóng. Ghi `docs/coworker/plans/mermaid-streamdown-note.md` (5–15 dòng + cách override: prop Streamdown vs custom `code`/`pre`).
+- [ ] Chạy 6 kịch bản hiện có 2 lần, lưu `docs/coworker/plans/coworker-eval-baseline.json` (chờ xác nhận model LLM & budget).
+- [x] Skeleton YAML cho `recall_queries` (F2) và `repeat_tasks` (F1). **`persona_delegation` viết và chạy baseline `full` ở đầu Phase 1**, trước mọi đổi brief/envelope.
+- [x] Spike Streamdown (không đoán): `webui/src/components/` không có chữ `mermaid`; diagram đi qua chunk Streamdown. Đọc option mermaid của đúng phiên Streamdown đang ghim; thử `mode=streaming` với khối chưa đóng. Ghi `docs/coworker/plans/mermaid-streamdown-note.md` (commit `7db5ba87`).
 
 ### Test / tiêu chí xong
 

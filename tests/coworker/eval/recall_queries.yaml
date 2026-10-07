@@ -1,6 +1,9 @@
 # Evaluator test queries for F2 (FTS5 Session Search & Recall)
-# Target: Recall@5 >= 0.8 across accented/unaccented Vietnamese and technical terms.
-# Ground truth matches refer to planted facts in chat-300-fixture.jsonl
+# Target: Recall@5 >= 0.8 across 30 labeled queries (including accented Vietnamese,
+# unaccented Vietnamese, and English technical terms/function names).
+# Current state: Skeleton of 15 queries mapping to planted facts in chat-300-fixture.jsonl.
+# Additional 15 queries (e.g. further technical-English names and error codes) will be added
+# to reach the full 30-query set for F2 acceptance gating.
 
 queries:
   - id: RQ01
