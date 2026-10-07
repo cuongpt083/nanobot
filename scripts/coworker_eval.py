@@ -190,11 +190,13 @@ class CoworkerEvaluator:
         scenarios_dir: Path | None = None,
         runner_preset: str = "gemini-3.8-flash-tiered",
         judge_preset: str = "claude-opus-5-5",
+        advisor_preset: str | None = None,
         dry_run: bool = False,
     ) -> None:
         self.scenarios_dir = scenarios_dir or DEFAULT_SCENARIOS_DIR
         self.runner_preset = runner_preset
         self.judge_preset = judge_preset
+        self.advisor_preset = advisor_preset
         self.dry_run = dry_run
 
     def load_scenarios(self, scenario_slug: str | None = None) -> list[dict[str, Any]]:
@@ -349,8 +351,13 @@ Respond ONLY with a JSON object matching this schema:
             RoomAgentConfig(**a) for a in room_agents_data
         ] if room_agents_data else base_cfg.room.agents
 
+        advisor_cfg = (
+            base_cfg.advisor.model_copy(update={"preset": self.advisor_preset})
+            if self.advisor_preset
+            else base_cfg.advisor
+        )
         eval_cfg = CoworkerConfig(
-            advisor=base_cfg.advisor,
+            advisor=advisor_cfg,
             room=RoomConfig(
                 enabled=True,
                 agents=agents_list,
@@ -514,6 +521,7 @@ Respond ONLY with a JSON object matching this schema:
                 "platform": f"{platform.system()} {platform.machine()}",
                 "runner_preset": self.runner_preset,
                 "judge_preset": self.judge_preset,
+                "advisor_preset": self.advisor_preset or "default",
                 "dry_run": self.dry_run,
                 "phase": "Phase 0 Baseline",
             },
@@ -536,6 +544,12 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Run with mock provider/judge (no tokens consumed)")
     parser.add_argument("--runner-preset", type=str, default="gemini-3.8-flash-tiered", help="Runner model preset")
     parser.add_argument("--judge-preset", type=str, default="claude-opus-5-5", help="Judge model preset")
+    parser.add_argument(
+        "--advisor-preset",
+        type=str,
+        default=None,
+        help="Advisor model preset (overrides coworker advisor config preset)",
+    )
     parser.add_argument(
         "--scenarios-dir",
         type=Path,
@@ -567,6 +581,7 @@ def main() -> int:
         scenarios_dir=args.scenarios_dir,
         runner_preset=args.runner_preset,
         judge_preset=args.judge_preset,
+        advisor_preset=args.advisor_preset,
         dry_run=args.dry_run,
     )
 
