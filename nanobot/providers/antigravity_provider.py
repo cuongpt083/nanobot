@@ -52,7 +52,11 @@ _SKIP_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
 _tool_id_counter = 0
 _VALID_TOOL_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
-_THINKING_BUDGETS = {"minimal": 1024, "low": 2048, "medium": 8192, "high": 16384}
+# Content-policy stops: retrying the same request will not change the outcome.
+_NON_RETRYABLE_FINISH_REASONS = frozenset(
+    {"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY"}
+)
+_THINKING_BUDGETS ={"minimal": 1024, "low": 2048, "medium": 8192, "high": 16384}
 
 
 def _gen_tool_id(name: str) -> str:
@@ -292,6 +296,31 @@ class AntigravityProvider(LLMProvider):
         return contents
 
     @staticmethod
+    def _normalize_turn_order(contents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Repair turn ordering so Gemini accepts the history.
+
+        History trimming or empty assistant messages can leave a leading model turn,
+        blank model turns, or consecutive same-role turns, which Gemini rejects with
+        "function call turn comes immediately after a user turn or after a function
+        response turn".
+        """
+        normalized: list[dict[str, Any]] = []
+        for turn in contents:
+            parts = turn["parts"]
+            if turn["role"] == "model" and all(p == {"text": ""} for p in parts):
+                continue
+            if not normalized and turn["role"] == "model":
+                continue
+            if normalized and normalized[-1]["role"] == turn["role"]:
+                normalized[-1] = {
+                    "role": turn["role"],
+                    "parts": [*normalized[-1]["parts"], *parts],
+                }
+            else:
+                normalized.append(turn)
+        return normalized
+
+    @staticmethod
     def _tool_name(tool: dict[str, Any]) -> str:
         name = tool.get("name")
         if isinstance(name, str):
@@ -340,7 +369,7 @@ class AntigravityProvider(LLMProvider):
     ) -> dict[str, Any]:
         adapter = self._adapter
         wire_model = normalize_model_id(self._strip_prefix(model), adapter.model_aliases)
-        contents = self._convert_messages(messages, wire_model)
+        contents = self._normalize_turn_order(self._convert_messages(messages, wire_model))
 
         request: dict[str, Any] = {"contents": contents}
 
@@ -488,6 +517,7 @@ class AntigravityProvider(LLMProvider):
         tool_calls: list[ToolCallRequest] = []
         usage: LLMUsage | None = None
         finish_reason = "stop"
+        raw_finish_reason: str | None = None
 
         try:
             async for line in response.aiter_lines():
@@ -514,6 +544,7 @@ class AntigravityProvider(LLMProvider):
                     )
                     reason = candidate.get("finishReason")
                     if isinstance(reason, str):
+                        raw_finish_reason = reason
                         finish_reason = self._map_finish_reason(reason)
                 usage = self._extract_usage(data, usage)
         finally:
@@ -521,6 +552,22 @@ class AntigravityProvider(LLMProvider):
 
         if tool_calls:
             finish_reason = "tool_calls"
+        elif finish_reason == "error" and not content_parts:
+            logger.warning(
+                "Antigravity stream ended with finishReason={} and no output (model={})",
+                raw_finish_reason, wire_model,
+            )
+            return LLMResponse(
+                content=(
+                    "Error calling LLM: Antigravity stream ended with "
+                    f"finishReason={raw_finish_reason} and no output"
+                ),
+                finish_reason="error",
+                error_kind="empty_response",
+                error_code=(raw_finish_reason or "").lower() or None,
+                error_should_retry=raw_finish_reason not in _NON_RETRYABLE_FINISH_REASONS,
+                usage=usage,
+            )
         return LLMResponse(
             content="".join(content_parts) or None,
             tool_calls=tool_calls,

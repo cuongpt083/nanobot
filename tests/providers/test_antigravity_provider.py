@@ -259,6 +259,48 @@ async def test_chat_stream_parses_text_thinking_tools_and_usage(
     assert captured["headers"]["user-agent"].startswith("antigravity/")
 
 
+def test_convert_messages_repairs_turn_order() -> None:
+    provider = _provider()
+    contents = provider._normalize_turn_order(provider._convert_messages(
+        [
+            {"role": "assistant", "content": "orphan", "tool_calls": [
+                {"id": "c0", "function": {"name": "a", "arguments": "{}"}}
+            ]},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": ""},
+            {"role": "user", "content": "again"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c1", "function": {"name": "a", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "c1", "name": "a", "content": "ok"},
+        ],
+        "gemini-3-flash",
+    ))
+    assert [c["role"] for c in contents] == ["user", "model", "user"]
+    assert [p["text"] for p in contents[0]["parts"]] == ["hi", "again"]
+
+
+async def test_empty_stream_with_error_finish_reason_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=_sse({"response": {"candidates": [{"finishReason": "SAFETY"}]}}),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    monkeypatch.setattr(provider_module, "get_antigravity_oauth_token", lambda **k: _token())
+    provider = _provider()
+    provider._http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    response = await provider.chat_stream([{"role": "user", "content": "hi"}])
+    assert response.finish_reason == "error"
+    assert response.error_kind == "empty_response"
+    assert "SAFETY" in (response.content or "")
+    assert response.error_should_retry is False
+
+
 async def test_chat_returns_oauth_error_without_login(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
