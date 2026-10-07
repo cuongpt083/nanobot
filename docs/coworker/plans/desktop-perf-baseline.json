@@ -5,7 +5,7 @@
     "method": "WebUI performance.mark / performance.measure + rAF sampler via window.__nanobotPerf (gated by localStorage.nanobot_perf_record = '1')",
     "phase": "Phase 0 Baseline",
     "status": "instrumentation_ready",
-    "note": "Client-side WebUI marks are wired in main.tsx and ThreadShell. To record metrics in installed desktop app or dev server: set localStorage.setItem('nanobot_perf_record', '1'), reload, and run window.__nanobotPerf.dump(). Click-to-splash and click-to-chrome start from OS process spawn, while navigation-based chrome time is measured from webui_index_exec to webui_shell_mount_ms."
+    "note": "Client-side WebUI marks are wired in main.tsx and ThreadShell. To record metrics in installed desktop app or dev server: set localStorage.setItem('nanobot_perf_record', '1'), reload, and run window.__nanobotPerf.dump(). Click-to-splash and click-to-chrome start from OS process spawn, while navigation-based chrome time is measured as measure('webui_shell_mount_ms', 'webui_index_exec', 'thread_shell_mounted')."
   },
   "metrics": {
     "time_to_splash_ms": null,
@@ -13,8 +13,16 @@
     "time_to_interactive_ms": null,
     "scroll_fps_p1": null,
     "stream_fps_p1": null,
-    "composer_blocked": false
+    "composer_blocked": null
   },
+  "pending_user_run": [
+    "time_to_splash_ms",
+    "time_to_chrome_ms",
+    "time_to_interactive_ms",
+    "scroll_fps_p1",
+    "stream_fps_p1",
+    "composer_blocked"
+  ],
   "manual_collection_instructions": {
     "enable": "localStorage.setItem('nanobot_perf_record', '1')",
     "measure_scroll": "window.__nanobotPerf.startFpsSampling(); /* cuộn danh sách 300 tin */ window.__nanobotPerf.stopFpsSampling();",
