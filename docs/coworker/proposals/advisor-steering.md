@@ -1,6 +1,13 @@
 # Đề xuất: Advisor dẫn hướng coordinator — bắt lệch sớm, giữ đúng hướng
 
-- Status: **draft, chưa triển khai**. Viết 2026-10-07. Branch: `develop`.
+- Status: **đã triển khai Phase 0–5** (2026-10-07), chưa đo trên phiên thật. Branch: `develop`.
+- Cờ tắt trong `coworker.json` → `advisor`: `evidencePack`, `ledger`, `midRunCheckpoints`, `commitGate`,
+  `refillSteps` (0 = ngân sách cố định), `checkpointFiles`, `executorProfiles` (glob model → ghi đè
+  `firstConsultGap` / `reconsultGap` / `checkpointFiles` / `commitGate`). Mặc định: tất cả bật,
+  `executorProfiles` rỗng (chưa có profile nào cho flash-tier — thêm khi đã có số liệu).
+- Số liệu: `metrics_store.tool_summary()` (token theo tool, §5) và `metrics_store.advisor_summary()` (KPI steering).
+- Code: `nanobot/coworker/advisor/{evidence,ledger,checkpoint,policy,state,tool,consult}.py`, `coworker/hook.py`;
+  điểm mở rộng lõi duy nhất: `AgentHook.before_execute_tool` có thể trả `str` để thay kết quả tool (C2).
 - Phạm vi: `nanobot/coworker/advisor/*`, `nanobot/coworker/hook.py`, `nanobot/coworker/directives.py`,
   một điểm mở rộng nhỏ ở `nanobot/agent/hook.py` + `runner.py` (chỉ cho C2).
 - Liên quan: `docs/coworker/plans/advisor-interaction.md` (nudge trong run, discussion gate, stuck — đã làm).
