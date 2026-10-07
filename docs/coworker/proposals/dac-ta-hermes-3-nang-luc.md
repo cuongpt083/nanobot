@@ -1,6 +1,7 @@
 # Đặc tả tính năng: Port 3 năng lực từ Hermes Agent vào nanobot fork
 
 2026-10-06 · Cuong Fam
+*(Lưu ý: Kế hoạch triển khai tại `docs/coworker/plans/coworker-desktop-roadmap-implementation-plan.md` áp dụng thứ tự ưu tiên F3 → F2 → F1 cho local desktop; về Pi, chỉ gỡ Pi khỏi Room guest backend, giữ nguyên phân hệ `/code` và `coding_agent` độc lập).*
 
 ## Bối cảnh và nguyên tắc chung
 

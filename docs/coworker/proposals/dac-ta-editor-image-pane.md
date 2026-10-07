@@ -1,6 +1,7 @@
 # Đặc tả tính năng: Text Editor Pane & Image Review Pane cho nanobot
 
 2026-10-07 · Cuong Fam
+*(Lưu ý: Kế hoạch triển khai tại `docs/coworker/plans/coworker-desktop-roadmap-implementation-plan.md` chuẩn hóa các quyết định kiến trúc: staged write theo quy tắc file ngoài drafts hoặc tab đang mở; kho lưu phiên bản ảnh dùng OS tempdir ephemeral, không lưu lâu dài trong workspace).*
 
 ## Bối cảnh và mục tiêu
 

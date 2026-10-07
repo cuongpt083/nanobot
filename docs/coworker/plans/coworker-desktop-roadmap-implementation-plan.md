@@ -16,6 +16,7 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | Phase | Việc | Ước lượng | Trạng thái | Cổng |
 | --- | --- | --- | --- | --- |
 | 0 | Baseline WebView2 + eval | 1–1,5 ngày | chưa | Có số đo ổn định, 2 lần chạy |
+| 0.5 | Gỡ Pi room guest (Lựa chọn A) + dọn tàn dư agy | 1–1,5 ngày | chưa | Toàn bộ room guest chạy AgentRuntime; tests room xanh, 156 coding tests pass |
 | 1 | F3 brief / envelope | 2–3 ngày | chưa | Token guest −40% vs `full`; envelope hợp lệ ≥ 90% |
 | 2 | Mermaid P2a (ELK, pan/zoom, viewport) | 2–3 ngày | chưa | Sequence 15 participant đọc được; Ctrl+cuộn zoom sơ đồ |
 | 3 | F2 FTS5 (chưa tóm tắt) | 2–3 ngày | chưa | Recall@5 ≥ 0,8; p95 < 200 ms |
@@ -23,9 +24,9 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | 5 | F2 summarize + UI duyệt skill | 2–3 ngày | chưa | Tóm tắt cache; duyệt nháp trên WebUI/Desktop |
 | 6 | P2b ảo hóa / P3 time-to-chrome | 0–3 ngày | có điều kiện | Chỉ khi baseline còn jank / chờ lâu |
 | 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | chưa | Mở 1 MB < 1 s; không qua Tauri `invoke` |
-| 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa | Agent ghi đều qua bước duyệt |
-| 9 | Image G3 (Konva + skill) | 4–5 ngày | chưa | Sửa nhiều vùng một lần gửi |
-| 10 | BrowserSkill P0–P4 | 8–12 ngày | cuối | 0 session treo trước khi bật `interact` |
+| 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa | File ngoài drafts hoặc tab đang mở đều qua staged review |
+| 9 | Image G3 (Konva + skill) | 4–5 ngày | chưa | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
+| 10 | BrowserSkill P0–P4 (local-only, no Docker) | 8–12 ngày | cuối | 0 session treo trước khi bật `interact` |
 
 Đánh dấu `- [x]` trong từng phase khi xong và đã qua cổng. Không sang phase sau nếu cổng fail, trừ khi có quyết định dừng/bỏ rõ ràng.
 
@@ -76,7 +77,7 @@ Lý do, không phải quên spec:
 - Monaco-as-IDE: LSP, debugger, terminal, marketplace.
 - LLM tự tính tọa độ / mask / ghép ảnh.
 - Browser `interact` trước khi P1 đạt 0 session treo.
-- Gỡ toàn bộ Pi coding subsystem. Hermes F3 ghi "Pi sẽ bị gỡ" — chỉ gỡ Pi khỏi Room guest backend (Lựa chọn A) để F3 bao phủ 100% delegation; hệ thống `/code` độc lập vẫn được giữ.
+- Gỡ toàn bộ Pi coding subsystem. Hermes F3 ghi "Pi sẽ bị gỡ" — ngoài phạm vi; chỉ gỡ Pi khỏi Room guest backend (Phase 0.5) để F3 bao phủ 100% room delegation, còn phân hệ `/code` và `coding_agent` độc lập vẫn giữ nguyên.
 - Docker runtime cho BrowserSkill hoặc Desktop coworker (giữ kiến trúc local Windows thuần).
 - Viết lại WebUI; tối ưu macOS/Linux trước Windows.
 
@@ -190,6 +191,27 @@ Ngưỡng Phase 6 (chốt sau khi có số; giá trị dưới là **đề xuấ
 - File baseline JSON đã commit (hoặc đính kèm PR) với 3 lần đo.
 - Ghi chú Streamdown có bằng chứng (screenshot hoặc log render).
 - Không đổi hành vi product.
+
+---
+
+## Phase 0.5 – Gỡ Pi Room Guest & Dọn Dẹp "agy" (1–1,5 ngày)
+
+Nhánh: `feat/desktop-roadmap-p0-5-pi-guest-cleanup`.
+
+Mục tiêu: Đưa toàn bộ room guest về chạy qua `AgentRuntime`, chuẩn bị tiền đề cho Phase 1 (F3 brief/envelope) bao phủ 100% room delegation mà không bị phân nhánh `CodingRunner`. Giữ nguyên phân hệ `/code` và `coding_agent` độc lập.
+
+### 0.5.1 – Gỡ Pi khỏi Room Guest
+- [ ] Bỏ trường `backend` trong `RoomAgentConfig` (`nanobot/coworker/config.py`).
+- [ ] Xóa nhánh xử lý `CodingRunner` trong `_run_guest` (`nanobot/coworker/room/scheduler.py`). Toàn bộ delegation gọi `AgentRuntime`.
+- [ ] Cập nhật các test liên quan tới room guest runner.
+
+### 0.5.2 – Dọn dẹp tàn dư "agy"
+- [ ] Xóa cấu hình / hằng số `"agy"` còn sót ở `nanobot/coworker/hook.py`, `status.py`, `settings_api.py`, `config.py`, `backends/base.py`.
+- [ ] Giữ nguyên Pi là backend duy nhất cho `/code` CLI (`CodingRunner`, `backends/pi.py`, `nanobot-bridge.ts`).
+
+### Cổng Phase 0.5
+- Toàn bộ test của room pass: `uv run --no-sync pytest tests/coworker/room tests/coworker/delegate -q`.
+- 156 tests của coding subsystem vẫn pass: `uv run --no-sync pytest tests/coworker/coding -q`.
 
 ---
 
@@ -550,7 +572,7 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. Chốt Q2 trước khi merge.
 ### 8.1 – Staged write
 
 - [ ] Tool `file_write_staged`: ghi vùng chờ, kèm `base_version`.
-- [ ] Agent **không** ghi file thật trừ `auto_accept` dirs (ED-11, mặc định tắt).
+- [ ] Quy tắc: Mọi file agent ghi ngoài thư mục nháp (ví dụ `.coworker/drafts/`) hoặc đang có tab mở trong editor (webview báo về qua WebSocket, gateway là SoT) đều bắt buộc qua staged write. Ghi trực tiếp chỉ cho phép nếu nằm trong thư mục nháp và không mở tab.
 - [ ] `changes.list` / `changes.resolve` (hunk hoặc cả file).
 - [ ] ED-16: version lệch → từ chối, agent phải đọc lại.
 
@@ -598,6 +620,7 @@ Không làm IM-17, không LLM mask/coords, không model vẽ chữ Việt.
 - [ ] Schema `nanobot.image-annotations/v1`.
 - [ ] IM-11: gửi chat kèm mask, annotated image, JSON.
 - [ ] Tools: `image_annotations_read`, `image_edit`, `image_composite`, `render_text`, `image_version_save`.
+- [ ] Kho lưu phiên bản ảnh: Lưu tại OS temporary directory (`tempfile.gettempdir()/nanobot-image-versions/<session>/`), hoàn toàn ngoài workspace người dùng. Ephemeral, tự dọn dẹp theo session kết thúc/reboot/TTL. Gateway cấp route đọc ảnh tạm trong thư mục này có scoped allowance (`resolve_allowed_path`).
 - [ ] Skill `image-region-edit` (built-in coworker): phân loại vùng, gộp không chồng, prompt EN, báo cáo theo số vùng.
 - [ ] IM-12…14: version mới, slider trước/sau, gửi lại giữ region.
 
