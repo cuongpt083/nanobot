@@ -1,11 +1,11 @@
 {
   "metadata": {
     "platform": "Windows AMD64",
-    "git_commit": "3a0cddcf",
+    "git_commit": "d37f44da",
     "method": "WebUI performance.mark / performance.measure + rAF sampler via window.__nanobotPerf (gated by localStorage.nanobot_perf_record = '1')",
     "phase": "Phase 0 Baseline",
     "status": "instrumentation_ready",
-    "note": "Client-side WebUI marks are wired in main.tsx and ThreadShell. To record metrics in installed desktop app or dev server: set localStorage.setItem('nanobot_perf_record', '1'), reload, and run window.__nanobotPerf.dump(). Click-to-splash and click-to-chrome start from OS process spawn, while navigation-based chrome time is measured from webui_index_exec."
+    "note": "Client-side WebUI marks are wired in main.tsx and ThreadShell. To record metrics in installed desktop app or dev server: set localStorage.setItem('nanobot_perf_record', '1'), reload, and run window.__nanobotPerf.dump(). Click-to-splash and click-to-chrome start from OS process spawn, while navigation-based chrome time is measured from webui_index_exec to webui_shell_mount_ms."
   },
   "metrics": {
     "time_to_splash_ms": null,

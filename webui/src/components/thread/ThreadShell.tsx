@@ -795,7 +795,7 @@ export function ThreadShell({
 
   useEffect(() => {
     desktopPerf.mark("thread_shell_mounted");
-    desktopPerf.measure("time_to_chrome", "webui_index_exec", "thread_shell_mounted");
+    desktopPerf.measure("webui_shell_mount_ms", "webui_index_exec", "thread_shell_mounted");
   }, []);
   const showTemporaryChatControl =
     !hideHeader && !session && !loading && !!onTemporaryChatEnabledChange;
