@@ -198,6 +198,55 @@ class CoworkerEvaluator:
         self.judge_preset = judge_preset
         self.advisor_preset = advisor_preset
         self.dry_run = dry_run
+        self._patcher_port: int | None = None
+
+    def _get_patcher_port(self) -> int:
+        if self._patcher_port is None:
+            import socket
+
+            with socket.socket() as s:
+                s.bind(("127.0.0.1", 0))
+                self._patcher_port = s.getsockname()[1]
+        return self._patcher_port
+
+    def _make_bot(self) -> Any:
+        from nanobot.agent.hooks import create_file_edit_activity_hook
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.agent.tools.mcp import MCPProvider
+        from nanobot.agent.tools.registry import ToolRegistry
+        from nanobot.config.loader import load_config, resolve_config_env_vars
+        from nanobot.llm_usage import record_llm_call
+        from nanobot.nanobot import Nanobot
+        from nanobot.providers.image_generation import image_gen_provider_configs
+
+        config = load_config()
+        if (
+            config.providers.anthropic_oauth
+            and config.providers.anthropic_oauth.patcher
+            and config.providers.anthropic_oauth.patcher.enabled
+        ):
+            config.providers.anthropic_oauth.patcher.port = self._get_patcher_port()
+
+        cfg = resolve_config_env_vars(config)
+        tools = ToolRegistry()
+        mcp_provider = MCPProvider.from_config(cfg, tools)
+
+        from nanobot.providers.factory import build_provider_snapshot
+
+        def snapshot_loader(*args: Any, **kwargs: Any) -> Any:
+            return build_provider_snapshot(cfg, *args, **kwargs)
+
+        loop = AgentLoop.from_config(
+            cfg,
+            image_generation_provider_configs=image_gen_provider_configs(cfg),
+            hook_factories=[create_file_edit_activity_hook],
+            tool_registry=tools,
+            provider_snapshot_loader=snapshot_loader,
+        )
+        if hasattr(loop.provider, "set_llm_call_observer"):
+            loop.provider.set_llm_call_observer(record_llm_call)
+
+        return Nanobot(loop, config=cfg, mcp_provider=mcp_provider)
 
     def load_scenarios(self, scenario_slug: str | None = None) -> list[dict[str, Any]]:
         yaml_files = sorted(self.scenarios_dir.glob("*.yaml"))
@@ -230,10 +279,8 @@ class CoworkerEvaluator:
             scores = {c["name"]: 5.0 for c in criteria if isinstance(c, dict)}
             return 5.0, scores, [], "Dry-run synthetic evaluation (all criteria passed)."
 
-        from nanobot.nanobot import Nanobot
-
         judge_prompt = self._build_judge_prompt(scenario, transcript_content, delegations)
-        async with Nanobot.from_config() as bot:
+        async with self._make_bot() as bot:
             session = bot._loop.sessions.get_or_create(f"eval:judge:{scenario['id']}:{time.time()}")
             session.metadata[SESSION_MODEL_PRESET_METADATA_KEY] = self.judge_preset
             res = await bot.run(judge_prompt, session_key=session.key)
@@ -342,7 +389,6 @@ Respond ONLY with a JSON object matching this schema:
                 content="[Dry run output]",
             )
 
-        from nanobot.nanobot import Nanobot
 
         # Configure room agents for this scenario
         base_cfg = load_coworker_config()
@@ -377,7 +423,7 @@ Respond ONLY with a JSON object matching this schema:
         revision_count = 0
 
         try:
-            async with Nanobot.from_config() as bot:
+            async with self._make_bot() as bot:
                 # Start background AgentLoop to process review turns from MessageBus
                 loop_task = asyncio.create_task(bot._loop.run())
 
