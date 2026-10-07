@@ -1,0 +1,449 @@
+{
+  "metadata": {
+    "git_commit": "04a17a3ad14a7dbd423c5c16ec9d356828b85635",
+    "created_at": "2026-10-07T12:59:31Z",
+    "platform": "Windows AMD64",
+    "runner_preset": "gemini-3.8-flash-tiered",
+    "judge_preset": "claude-opus-5-5",
+    "advisor_preset": "claude-sonnet-5-5",
+    "dry_run": false,
+    "phase": "Phase 0 Baseline"
+  },
+  "scenarios": {
+    "crm-followup": {
+      "scenario_id": "crm-followup",
+      "title": "Tra CRM rồi soạn follow-up",
+      "file_hash": "3e239e00a952",
+      "runs_count": 2,
+      "median_duration_s": 120.71,
+      "median_tokens_in": 1116505,
+      "median_tokens_out": 10327,
+      "median_total_tokens": 1126832,
+      "median_reported_tokens": 1126832,
+      "median_estimated_tokens": 0,
+      "mean_routing_accuracy": 1.0,
+      "mean_revision_count": 0.0,
+      "mean_quality_score": 2.5,
+      "total_constraint_violations": 0,
+      "runs": [
+        {
+          "run_idx": 1,
+          "duration_s": 120.71,
+          "tokens_in": 1116505,
+          "tokens_out": 10327,
+          "total_tokens": 1126832,
+          "reported_tokens": 1126832,
+          "estimated_tokens": 0,
+          "delegations": [
+            "sales-writer"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 2.0,
+          "criteria_scores": {
+            "Routing accuracy": 5.0,
+            "Personalization": 1.0,
+            "Call to Action": 1.0
+          },
+          "constraint_violations": [],
+          "judge_reasoning": "Routing was correct. The request went only to sales-writer, which matches the expected agent for writing the follow-up. The final output, however, only says the task was assigned. It contains no Zalo message. Nothing uses the customer's name, mentions the nutrition test he finished (28% body fat, the goal of losing 4kg in 2 months, skipping breakfast because of office work), or asks him to book the 1-1 consultation. The main deliverable is missing, so personalization and call to action both fail and the overall score is low.",
+          "content": "Tôi đã tiếp nhận hồ sơ khách hàng Nguyễn Văn An và phân công chuyên viên sales-writer (CRM Follow-up Specialist) soạn thảo kịch bản tin nhắn follow-up cá nhân hóa qua Zalo.",
+          "timed_out": false
+        },
+        {
+          "run_idx": 2,
+          "duration_s": 86.77,
+          "tokens_in": 589683,
+          "tokens_out": 6739,
+          "total_tokens": 596422,
+          "reported_tokens": 596422,
+          "estimated_tokens": 0,
+          "delegations": [
+            "sales-writer"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: The reviewer agrees with Routing 5 and CTA 1, and that the overall belongs below the average. It thinks Personalization 2.0 counts the handoff brief twice, since Routing already credits it, so I've lo",
+          "content": "Đã tiếp nhận hồ sơ khách hàng Nguyễn Văn An.\n\nTôi đã lưu thông tin lead vào bộ nhớ chung và phân công chuyên viên sales-writer (CRM Follow-up Specialist) soạn thảo kịch bản tin nhắn Zalo cá nhân hóa, tập trung giải quyết đúng điểm chạm: tỷ lệ mỡ 28%, mục tiêu giảm 4kg/2 tháng và thói quen bỏ bữa sáng của dân văn phòng để thúc đẩy anh An đặt lịch tư vấn 1-1.",
+          "timed_out": false
+        }
+      ]
+    },
+    "edutech-course": {
+      "scenario_id": "edutech-course",
+      "title": "Khóa học ngắn + kịch bản tư vấn phụ huynh (edutech)",
+      "file_hash": "7cf3774c9417",
+      "runs_count": 2,
+      "median_duration_s": 243.4,
+      "median_tokens_in": 1164563,
+      "median_tokens_out": 17453,
+      "median_total_tokens": 1182016,
+      "median_reported_tokens": 1182016,
+      "median_estimated_tokens": 0,
+      "mean_routing_accuracy": 1.0,
+      "mean_revision_count": 0.0,
+      "mean_quality_score": 3.25,
+      "total_constraint_violations": 0,
+      "runs": [
+        {
+          "run_idx": 1,
+          "duration_s": 190.26,
+          "tokens_in": 744187,
+          "tokens_out": 15151,
+          "total_tokens": 759338,
+          "reported_tokens": 759338,
+          "estimated_tokens": 0,
+          "delegations": [
+            "researcher",
+            "curriculum",
+            "sales-writer"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: Advisor review: the scores stay the same (4/1/1, overall 1.5). The only change is one clause explaining why the overall sits below the 2.0 average.\n\n{\n  \"scores\": {\n    \"Routing accuracy\": 4.0,\n    \"P",
+          "content": "Nhận xét từ cố vấn và điều chỉnh thực tế:\n\n- Điểm đồng thuận: Cấu trúc phân vai giữa 3 chuyên gia (Nghiên cứu thị trường -> Thiết kế chương trình -> Soạn kịch bản tư vấn) là hoàn toàn hợp lý.\n- Điểm khác biệt & Cần lưu ý:\n  + Các chuyên gia mới được ghi nhận vào hàng đợi ủy quyền (delegation queue), chưa hoàn tất việc tạo nội dung trong không gian làm việc.\n  + Quy mô khóa học (8 buổi x 90 phút, sĩ số 8-12 học sinh) hiện là giả định ban đầu dựa trên thông lệ các lớp trực tuyến tương tác cao, chưa có thông tin về học phí cụ thể.\n- Hướng tiếp theo: Hệ thống sẽ tiến hành chạy từng chuyên gia theo chuỗi phụ thuộc, sau đó đọc và đối soát toàn bộ kết quả thực tế để tổng hợp thành bản kế hoạch hoàn chỉnh.",
+          "timed_out": true
+        },
+        {
+          "run_idx": 2,
+          "duration_s": 243.4,
+          "tokens_in": 1164563,
+          "tokens_out": 17453,
+          "total_tokens": 1182016,
+          "reported_tokens": 1182016,
+          "estimated_tokens": 0,
+          "delegations": [
+            "researcher",
+            "curriculum",
+            "sales-writer"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.5,
+          "criteria_scores": {
+            "Routing accuracy": 4.0,
+            "Pedagogical & Market Relevance": 3.7,
+            "Consolidation quality": 3.0
+          },
+          "constraint_violations": [],
+          "judge_reasoning": "Routing: The delegated agents match the expected ones exactly. Research went to researcher, the 4-week plan to curriculum, and the phone and message scripts to sales-writer, each in line with its bio, and the 'after' dependencies were set sensibly. There is a small deduction because the coordinator's own preamble says it did not wait for the specialists' results, so the delegation added nothing to the final text. This comes from the preamble only; the transcript shows no specialist outputs, so it cannot be confirmed independently. The main penalty for this falls under Consolidation and is not counted twice. Relevance: The 4-week Socratic framework is concrete and well paced. Each session has a math goal, the Scratch skills used, a Socratic question and a product, and the course ends in a Demo Day. Some topics are too advanced for grades 3-5: S = v*t and falling-object acceleration are lower-secondary physics, and leap-year logic is a stretch. None of the market claims or price ranges cite a source. The sales playbook is practical, but it makes risky promises: a 100% refund and getting kids off gaming addiction. Consolidation: The three parts fit together well. The price, the refund after 2 sessions, the 144-degree star from session 2 and the Demo Day tie the sales scripts to the curriculum. However, the coordinator wrote everything itself instead of combining the specialists' outputs, and the internal advisor and runtime commentary was left in the user-facing answer. Overall: The plain average is about 3.6. It is rounded down to 3.5 because bypassing the specialists and leaving internal notes in the answer hurt the final deliverable. Revision note: after the advisor review, routing was raised from 3.0 to 4.0 so the same flaw is not penalized twice, and the overall score was recalculated to match.",
+          "content": "Nhận xét từ cố vấn và định vị tiếp theo:\n- Điểm đồng thuận: Cố vấn lưu ý rủi ro các chuyên gia phụ thuộc vào room_state keys chưa được ghi, cũng như thứ tự phụ thuộc (`after`). Trong lần gọi lệnh trước, các tham số `after: [\"researcher\"]` cho curriculum và `after: [\"researcher\", \"curriculum\"]` cho sales-writer đã được truyền đầy đủ.\n- Điểm khác biệt & Thực tế hệ thống: Do cơ chế multi-agent phòng chat (room delegation) thực thi bất đồng bộ theo lượt, các chuyên gia sẽ được runtime đánh thức và gửi kết quả sau khi lượt này kết thúc. \n- Quyết định: Để đảm bảo người dùng có ngay bản kế hoạch chi tiết, chất lượng cao mà không bị gián đoạn, tôi sẽ lập tức triển khai và trình bày khung kế hoạch tích hợp đầy đủ cả 3 khía cạnh (Nghiên cứu thị trường & Insight phụ huynh, Khung chương trình 4 tuần Socratic, và Bộ kịch bản tư vấn tuyển sinh) ngay dưới đây theo đúng định dạng văn bản thuần (plain text, không dùng heading/bảng markdown).\n\nKẾ HOẠCH TỔNG THỂ: RA MẮT KHÓA HỌC TRỰC TUYẾN 4 TUẦN 'TOÁN TƯ DUY VÀ LẬP TRÌNH SCRATCH' CHO HỌC SINH LỚP 3-5\n\nPHẦN 1: BÁO CÁO NGHIÊN CỨU THỊ TRƯỜNG VÀ INSIGHT PHỤ HUYNH (EDTECH STEM/CODING)\n\n1.1. Bối cảnh thị trường EdTech Việt Nam:\nThị trường giáo dục STEM và lập trình cho trẻ em (K-12) tại Việt Nam đang tăng trưởng mạnh mẽ nhưng cũng xuất hiện sự bão hòa về các khóa học lập trình đơn thuần (chỉ dạy kéo thả game mà thiếu chiều sâu kiến thức). Phụ huynh ngày càng thực tế hơn: họ không chỉ muốn con biết bấm máy tính mà cần nhìn thấy sự tiến bộ rõ rệt trong tư duy logic, kết quả học tập ở trường, và thói quen sinh hoạt tích cực. Phân khúc khóa học trực tuyến 4 tuần (khoảng 8 buổi) ở mức giá 1.200.000đ - 1.800.000đ là điểm rơi tài chính rất phù hợp để phụ huynh ra quyết định dùng thử trước khi cam kết các lộ trình dài hạn (6 tháng - 1 năm).\n\n1.2. Chân dung phụ huynh học sinh lớp 3-5:\n- Độ tuổi: 30 - 42 tuổi (thế hệ Millennial, hiểu biết về công nghệ, kỳ vọng cao vào tương lai của con).\n- Nỗi đau và nỗi sợ cốt lõi:\n+ Nỗi sợ số 1: Con nghiện game, dành quá nhiều thời gian dán mắt vào màn hình điện thoại/iPad một cách vô bổ.\n+ Nỗi sợ số 2: Con học toán thụ động, học vẹt theo công thức mẫu, khi gặp bài toán có lời văn hoặc bài toán tư duy logic thì sợ hãi, bế tắc và dễ bỏ cuộc.\n+ Nỗi sợ số 3: Rào cản với học trực tuyến - phụ huynh lo con không tập trung, thầy cô không sát sao, học qua zoom buồn ngủ và hại mắt.\n- Mong muốn thầm kín: Biến chiếc máy tính từ công cụ giải trí tiêu cực thành công cụ học tập sáng tạo; con rèn luyện được tính kiên trì, tự tin giải quyết vấn đề và chủ động chuẩn bị kỹ năng cho kỷ nguyên số/AI.\n\n1.3. Định vị giá trị cốt lõi (Value Proposition):\n- Khóa học không chỉ dạy lập trình Scratch, mà sử dụng Scratch như một phòng thí nghiệm trực quan để 'nhìn thấy' Toán học.\n- Chuyển hóa từ 'Người chơi game tiêu thụ' sang 'Nhà sáng tạo công nghệ'.\n- Cam kết tương tác hai chiều: lớp học nhóm nhỏ có giáo viên kèm cặp, áp dụng phương pháp gợi mở Socratic giúp con tự tìm ra lời giải thay vì nghe giảng thụ động.\n\n\nPHẦN 2: KHUNG CHƯƠNG TRÌNH ĐÀO TẠO 4 TUẦN THEO MÔ HÌNH SOCRATIC THỰC HÀNH\n\nThời lượng: 4 tuần, 2 buổi/tuần, mỗi buổi 80 phút (Tổng cộng 8 buổi).\nPhương pháp Socratic 4 bước trong mỗi buổi:\nBước 1 - Đặt tình huống gợi mở (Inquiry): Giáo viên nêu vấn đề thông qua một hiện tượng hoặc bài toán thực tế.\nBước 2 - Câu hỏi nấc thang (Scaffolding Hints): Không cho lời giải, giáo viên đặt các câu hỏi nhỏ để học sinh tự bóc tách quy luật.\nBước 3 - Thực hành thử sai và phản biện (Hands-on & Peer Review): Học sinh lập trình khối lệnh trên Scratch, quan sát kết quả chạy thử và tự sửa lỗi (debugging).\nBước 4 - Đúc kết tri thức (Generalization): Giáo viên cùng học sinh tổng kết thuật toán và công thức toán tư duy rút ra từ dự án.\n\nChi tiết từng tuần học:\n\nTUẦN 1: TƯ DUY KHÔNG GIAN, HÌNH HỌC VÀ THUẬT TOÁN ĐIỀU KHIỂN\n- Buổi 1: Hệ trục tọa độ 2D và Bản đồ kho báu\n+ Toán học: Trục số nguyên, tọa độ (X, Y), khoảng cách và hướng chuyển động trong không gian.\n+ Lập trình Scratch: Lệnh chuyển động (Motion), tọa độ điểm, sự kiện phím bấm điều khiển nhân vật.\n+ Kịch bản Socratic: \"Nếu muốn nhân vật đi từ góc trái sang góc phải màn hình, số X sẽ tăng lên hay giảm đi? Vì sao nhân vật lại bị rơi ra ngoài màn hình khi X lớn hơn 240?\"\n+ Sản phẩm buổi học: Mini-game 'Mèo săn cá trong mê cung tọa độ'.\n\n- Buổi 2: Vòng lặp tuần hoàn và Vẽ hình học đa giác đều\n+ Toán học: Khái niệm chu kỳ, góc quay (360 độ), chu vi và quy luật góc của hình đa giác (tam giác đều, hình vuông, ngũ giác, ngôi sao).\n+ Lập trình Scratch: Nhóm lệnh mở rộng Bút vẽ (Pen), vòng lặp cố định 'Repeat N times', quay góc độ.\n+ Kịch bản Socratic: \"Một vòng quay trọn vẹn là 360 độ. Nếu con muốn chú mèo vẽ xong 1 hình vuông có 4 góc bằng nhau, sau mỗi cạnh mèo phải rẽ sang góc bao nhiêu độ? Nếu là hình tam giác đều thì lấy 360 chia mấy?\"\n+ Sản phẩm buổi học: Chương trình 'Họa sĩ tí hon' tự động vẽ các hoa văn hình học ma thuật.\n\n\nTUẦN 2: TƯ DUY PHÂN LOẠI, ĐIỀU KIỆN LOGIC VÀ XÁC SUẤT CƠ BẢN\n- Buổi 3: Cấu trúc rẽ nhánh Logic (IF - THEN - ELSE) và Thuật toán phân loại số\n+ Toán học: Mệnh đề logic ĐÚNG/SAI, quan hệ so sánh (lớn hơn, bé hơn, bằng), phân loại số chẵn/lẻ, chia hết.\n+ Lập trình Scratch: Khối lệnh cảm biến (Sensing), khối phép toán (Operators), khối điều kiện 'If then else'.\n+ Kịch bản Socratic: \"Nếu một số chia cho 2 mà số dư bằng 0, thì đó là số chẵn hay số lẻ? Làm thế nào để máy tính tự nhận biết một năm có phải là năm nhuận không?\"\n+ Sản phẩm buổi học: Ứng dụng 'Cổng soát vé thông minh' - tự động phân loại vé người lớn/trẻ em dựa theo chiều cao và độ tuổi.\n\n- Buổi 4: Tính ngẫu nhiên, Xác suất và Game Vòng quay may mắn\n+ Toán học: Biến cố ngẫu nhiên, xác suất xuất hiện biến cố (ít xảy ra, dễ xảy ra, không thể xảy ra).\n+ Lập trình Scratch: Khối lệnh 'Pick random from 1 to 10', điều kiện kết hợp 'And / Or'.\n+ Kịch bản Socratic: \"Nếu xúc xắc có 6 mặt, xác suất để con gieo được mặt 6 là bao nhiêu? Nếu thầy muốn game chơi khó hơn, thầy nên tăng khoảng số ngẫu nhiên lên hay giảm đi?\"\n+ Sản phẩm buổi học: Trò chơi 'Đoán số bí mật và Bánh xe nhân phẩm'.\n\n\nTUẦN 3: TƯ DUY BIẾN SỐ, DỮ LIỆU VÀ BÀI TOÁN TÍNH TOÁN TỐC ĐỘ\n- Buổi 5: Khái niệm Biến số (Variable) và Bài toán tính điểm - đo thời gian\n+ Toán học: Khái niệm đại lượng thay đổi (ẩn số x, y), quy tắc tăng/giảm giá trị, bài toán đếm và tích lũy.\n+ Lập trình Scratch: Tạo biến số (Variables), đặt giá trị (set to), thay đổi giá trị (change by), hiển thị bảng điểm.\n+ Kịch bản Socratic: \"Biến số giống như một chiếc hộp rỗng dán nhãn. Khi con ăn được một quả táo, con làm gì với số điểm trong hộp? Nếu hết giờ mà điểm chưa đủ thì trò chơi sẽ ra sao?\"\n+ Sản phẩm buổi học: Game 'Hứng táo tư duy' có tính điểm thưởng và đếm ngược thời gian.\n\n- Buổi 6: Phương trình chuyển động và Bài toán Chuyển động đều / Rơi tự do\n+ Toán học: Vận tốc, thời gian, quãng đường (S = v * t), khái niệm gia tốc tăng dần khi vật rơi.\n+ Lập trình Scratch: Biến số tốc độ, vòng lặp liên tục, thay đổi Y theo biến vận tốc.\n+ Kịch bản Socratic: \"Khi thả rơi một quả bóng, nó rơi đều hay càng rơi càng nhanh? Ta cần thay đổi biến vận tốc Y như thế nào trong từng tích tắc để mô phỏng giống ngoài đời thật?\"\n+ Sản phẩm buổi học: Game tương tác nhảy né chướng ngại vật (Flappy Bird phong cách toán học).\n\n\nTUẦN 4: ĐỒ ÁN TỐNG HỢP (CAPSTONE PROJECT) VÀ BÁO CÁO THUYẾT TRÌNH\n- Buổi 7: Thiết kế Đồ án 'Đấu trường Toán học liên hoàn'\n+ Toán học: Tích hợp tổng hợp các dạng toán: tính nhẩm nhanh, tìm quy luật dãy số, giải đố hình học.\n+ Lập trình Scratch: Ghép nối toàn bộ cấu trúc: Tọa độ, Vòng lặp, Rẽ nhánh logic, Biến số điểm/mạng sống, Âm thanh và Giao diện kết thúc game (Game Over / Victory).\n+ Kịch bản Socratic: \"Để trò chơi không bị nhàm chán, con sẽ tạo ra các cấp độ thử thách tăng dần như thế nào? Khi người chơi trả lời sai, thuật toán sẽ hỗ trợ gợi ý hay trừ mạng?\"\n+ Sản phẩm buổi học: Hoàn thiện 90% Đồ án Capstone của từng học sinh.\n\n- Buổi 8: Hoàn thiện sản phẩm, Demo Day và Báo cáo trước phụ huynh\n+ Hoạt động: Học sinh thuyết trình sản phẩm của mình: Ý tưởng toán học là gì, đã dùng những khối lệnh nào, gặp khó khăn gì và đã tự sửa lỗi (debug) ra sao.\n+ Phụ huynh tham dự 30 phút cuối buổi: Trực tiếp trải nghiệm sản phẩm do con lập trình, lắng nghe giáo viên nhận xét chi tiết về thiên hướng tư duy logic của con và nhận chứng chỉ hoàn thành.\n\n\nPHẦN 3: BỘ PLAYBOOK TƯ VẤN TUYỂN SINH (TELESALES, TIN NHẮN & XỬ LÝ TỪ CHỐI)\n\n3.1. Quy trình Telesales 5 bước chuẩn hóa (Thời lượng 5-7 phút):\n\nBước 1: Chào hỏi, xác nhận thông tin và tạo sự đồng cảm\n\"Dạ em chào chị Lan ạ! Em là Hoàng, phụ trách chuyên môn khóa Toán tư duy và Lập trình Scratch cho học sinh tiểu học. Em thấy chị Lan có để lại thông tin quan tâm lộ trình rèn tư duy cho bé Nam học lớp 4 đúng không chị? Em gọi để chia sẻ cụ thể tình hình học tập của con xem khóa học có thực sự phù hợp với bé không chị nhé.\"\n\nBước 2: Đặt câu hỏi khai thác nỗi đau và mong muốn (Socratic với phụ huynh)\n\"Dạ chị Lan ơi, hiện tại ở nhà môn Toán trên lớp bé Nam học tiếp thu có nhanh không chị? Bé có gặp khó khăn với các bài toán có lời văn hay tư duy suy luận không ạ?\nBình thường ngoài giờ học, con có hay dùng máy tính hay iPad để xem Youtube hay chơi game không chị? Chị có lo lắng về việc con dùng thiết bị nhiều mà chưa phát huy được tính sáng tạo không ạ?\"\n\nBước 3: Trình bày giải pháp khác biệt (Chuyển hóa & Minh chứng)\n\"Dạ em rất hiểu nỗi trăn trở của chị. Đó cũng là lý do bên em thiết kế khóa học 4 tuần này:\n- Thứ nhất, khóa học không dạy lập trình khô khan, mà biến chiếc máy tính thành công cụ để con học giỏi Toán. Các khái niệm như trục tọa độ, góc quay, phân loại số chẵn lẻ được con tự tay lập trình thành game sinh động nên con hiểu bản chất rất sâu, không bao giờ phải học vẹt.\n- Thứ hai, thay vì cấm đoán con chơi game, khóa học giúp con chuyển từ tâm thế người nghiện game thành người sáng chế game.\n- Thứ ba, lớp chỉ giới hạn nhóm nhỏ tương tác 2 chiều, thầy cô dạy theo phương pháp gợi mở câu hỏi để con tự suy nghĩ và bật ra giải pháp chứ không ngồi nghe một chiều.\"\n\nBước 4: Đưa ra lời đề nghị không thể từ chối và cam kết đầu ra\n\"Sau đúng 4 tuần (8 buổi học), con sẽ tự tay lập trình hoàn chỉnh một game 'Đấu trường Toán học' và có buổi Demo Day báo cáo trước bố mẹ. Học phí toàn bộ khóa 4 tuần hiện được tài trợ chỉ còn 1.450.000đ trọn gói. Bên em cam kết nếu sau 2 buổi đầu con không hứng thú hoặc không thấy tiến bộ, bên em hoàn trả 100% học phí không cần lý do.\"\n\nBước 5: Chốt lịch học và hướng dẫn chuẩn bị\n\"Tuần này bên em có 2 khung giờ phù hợp cho bé lớp 4: Tối Thứ 3 - Thứ 6 (19h30) hoặc Sáng Thứ 7 - Chủ Nhật (9h00). Chị Lan thấy khung giờ nào thuận tiện hơn để em giữ suất cho con làm quen luôn ạ?\"\n\n\n3.2. Mẫu tin nhắn Zalo/Messenger chăm sóc và giữ nhiệt:\n\nMẫu 1: Gửi ngay sau cuộc gọi điện thoại\n\"Dạ em chào chị Lan! Em là Hoàng bên khóa học Toán tư duy & Lập trình Scratch vừa trao đổi với chị ạ. Em gửi chị tóm tắt lộ trình 4 tuần và video ngắn 1 phút quay lại sản phẩm game toán học do một bạn lớp 4 tự tay lập trình sau khóa học để chị xem qua cùng con nhé: [Đính kèm Link Video Demo]. Lớp con dự kiến bắt đầu vào tối Thứ 6 tuần này ạ.\"\n\nMẫu 2: Tin nhắn kích hoạt sự tò mò của con\n\"Chị Lan ơi, tối nay chị thử đố bé Nam một câu vui này giúp em nhé: 'Nếu đố con làm thế nào để vẽ được một hình ngôi sao 5 cánh trên máy tính mà không cần nhấc bút, con sẽ làm thế nào?'. Cuối tuần này trong buổi 2 của lớp, thầy sẽ hướng dẫn con dùng thuật toán góc quay 144 độ để vẽ siêu phẩm này trong vòng đúng 5 nốt nhạc chị nhé!\"\n\n\n3.3. Ma trận kịch bản xử lý từ chối chuyên sâu:\n\nTình huống 1: \"Học online sợ con không tập trung, hại mắt và không hiệu quả bằng học trực tiếp.\"\n- Phản hồi: \"Dạ em hoàn toàn đồng cảm với chị Lan. Nhiều phụ huynh trước khi cho con học cũng có chung nỗi lo này vì trước đây con từng học trường lớp qua Zoom đông cả 40 bạn, chỉ ngồi nghe cô nói nên rất dễ buồn ngủ. Nhưng lớp học bên em hoàn toàn khác biệt chị ạ:\nThứ nhất, sĩ số giới hạn để giáo viên liên tục gọi tên và tương tác hỏi đáp với từng bạn.\nThứ hai, 70% thời lượng là con trực tiếp thao tác kéo thả và chạy thử trên phần mềm Scratch, con bận tư duy và tự sửa lỗi nên không có thời gian xao nhãng.\nThứ ba, mỗi buổi 80 phút đều có giờ giải lao 5 phút vận động mắt. Đặc biệt, bên em có chính sách học thử 2 buổi đầu, nếu con không hào hứng tập trung, bên em hoàn lại 100% học phí ngay ạ.\"\n\nTình huống 2: \"Con còn nhỏ, chưa học tin học hay gõ bàn phím bao giờ sợ khó không theo được.\"\n- Phản hồi: \"Dạ chị yên tâm hoàn toàn nhé, phần mềm Scratch được phát minh bởi Viện Công nghệ MIT của Mỹ dành riêng cho lứa tuổi từ 8 tuổi trở lên. Phần mềm sử dụng các khối lệnh màu sắc trực quan như trò chơi xếp hình Lego, con chỉ cần dùng chuột kéo thả mà chưa cần gõ bàn phím phức tạp. Buổi đầu tiên thầy cô sẽ hướng dẫn con làm quen từ các thao tác cơ bản nhất. Hầu hết các bạn lúc đầu chưa biết gì nhưng chỉ sau 30 phút là đã tự làm cho chú mèo di chuyển và nhảy múa được rồi chị ạ.\"\n\nTình huống 3: \"Học phí 1.450.000đ cho 4 tuần thấy hơi cao so với các khóa online khác.\"\n- Phản hồi: \"Dạ em hiểu chị đang cân nhắc về chi phí. Nhưng tính ra 8 buổi học tương tác trực tiếp với thầy cô, mỗi buổi con chỉ đầu tư khoảng 180.000đ. Đổi lại con nhận được:\n1. Nền tảng tư duy toán học trực quan giải quyết tận gốc nỗi sợ học toán trên lớp.\n2. Một kỹ năng công nghệ chuẩn quốc tế giúp con cai nghiện game điện thoại.\n3. Giáo viên theo sát, chấm bài và gửi video nhận xét chi tiết sau từng buổi học.\n4. Một sản phẩm đồ án độc lập để con tự tin thuyết trình.\nĐây là khoản đầu tư rất tiết kiệm nhưng mang lại sự chuyển biến thực sự về tư duy cho con trong lứa tuổi vàng từ 8-11 tuổi này chị ạ.\"\n\nTình huống 4: \"Để mẹ về hỏi lại ý kiến của bố/hỏi xem con có thích học không đã nhé.\"\n- Phản hồi: \"Dạ việc bố mẹ cùng thống nhất phương pháp học cho con là rất cần thiết ạ. Tuy nhiên với các bạn nhỏ lứa tuổi này, nếu mình hỏi chung chung là 'Con có thích học Lập trình hay Toán không' thì con thường sợ và bảo không vì tưởng lại phải ngồi làm bài tập. Em đề xuất thế này chị nhé: Em gửi chị clip 1 phút bạn nhỏ chơi game do chính bạn ấy lập trình. Chị mở cho con xem và hỏi: 'Con có muốn tự tay tạo ra một trò chơi như thế này để đố bố mẹ không?'. Đồng thời em xin phép giữ chỗ ưu đãi học phí cho bé đến 17h chiều mai. Sáng mai chị trao đổi với gia đình rồi em gọi lại lắng nghe ý kiến của anh chị nhé!\"",
+          "timed_out": true
+        }
+      ]
+    },
+    "nutritech-plan": {
+      "scenario_id": "nutritech-plan",
+      "title": "Lộ trình 8 tuần + script chăm sóc khách (nutritech)",
+      "file_hash": "481b23a515a3",
+      "runs_count": 2,
+      "median_duration_s": 147.75,
+      "median_tokens_in": 1821591,
+      "median_tokens_out": 22661,
+      "median_total_tokens": 1844252,
+      "median_reported_tokens": 1844252,
+      "median_estimated_tokens": 0,
+      "mean_routing_accuracy": 1.0,
+      "mean_revision_count": 0.0,
+      "mean_quality_score": 3.0,
+      "total_constraint_violations": 0,
+      "runs": [
+        {
+          "run_idx": 1,
+          "duration_s": 136.99,
+          "tokens_in": 1821591,
+          "tokens_out": 22661,
+          "total_tokens": 1844252,
+          "reported_tokens": 1844252,
+          "estimated_tokens": 0,
+          "delegations": [
+            "nutri-coach",
+            "sales-writer"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: The advisor agrees with the scores and finds no material change. Its one suggestion is to say in the reasoning that the overall score is weighted toward actionability, which is why it's 2.0 instead of",
+          "content": "Đã tiếp nhận yêu cầu và khởi động phân công nhiệm vụ cho các chuyên gia trong đội ngũ:\n\n1. **Chuyên gia Dinh dưỡng & Vận động (`nutri-coach`)**: Phụ trách thiết kế lộ trình 8 tuần khoa học, an toàn cho phụ nữ sau sinh 1 năm làm văn phòng (không kê toa TPCN/chẩn đoán y khoa, chú trọng thâm hụt calo lành mạnh, phục hồi cơ cốt lõi và mức năng lượng).\n2. **Chuyên viên Chăm sóc & Truyền cảm hứng (`sales-writer`)**: Tiếp nhận kế hoạch từ `nutri-coach` để soạn kịch bản tin nhắn đồng hành cá nhân hóa suốt 7 ngày của Tuần 1 với giọng văn ấm áp, thấu hiểu và tiếp thêm động lực.\n\nHệ thống đang tiến hành xử lý từng giai đoạn và sẽ gửi bản tổng hợp hoàn chỉnh ngay sau khi các chuyên gia hoàn thành.",
+          "timed_out": true
+        },
+        {
+          "run_idx": 2,
+          "duration_s": 147.75,
+          "tokens_in": 98674,
+          "tokens_out": 10627,
+          "total_tokens": 109301,
+          "reported_tokens": 109301,
+          "estimated_tokens": 0,
+          "delegations": [
+            "nutri-coach",
+            "sales-writer"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: Advisor agrees with the scores. I changed only the reason for the compliance score, so nothing material changed.\n\n{\n  \"scores\": {\n    \"Routing accuracy\": 4.5,\n    \"Constraint compliance\": 4.0,\n    \"Ac",
+          "content": "Tôi đã khởi tạo điều phối dự án và phân công nhiệm vụ cho hai chuyên gia trong nhóm:\n\n1. **nutri-coach (Nutrition & Wellness Coach):** Thiết kế lộ trình dinh dưỡng và vận động 8 tuần khoa học, an toàn, thâm hụt calo nhẹ nhàng, chú trọng phục hồi cơ lõi/sàn chậu sau sinh và phù hợp nhịp sinh hoạt văn phòng.\n2. **sales-writer (Customer Care Copywriter):** Dựa trên lộ trình chuyên môn, xây dựng kịch bản tin nhắn chăm sóc 7 ngày đầu tiên với giọng điệu ấm áp, đồng cảm, tạo động lực và nhắc nhở thói quen thiết thực.\n\nHệ thống đang tiến hành thực thi theo quy trình. Kết quả hoàn chỉnh sẽ được tổng hợp ngay sau khi các chuyên gia hoàn thành.",
+          "timed_out": true
+        }
+      ]
+    },
+    "persona-nutri": {
+      "scenario_id": "persona-nutri",
+      "title": "Persona trực tiếp với nutri-coach",
+      "file_hash": "592d6388b310",
+      "runs_count": 2,
+      "median_duration_s": 45.86,
+      "median_tokens_in": 62236,
+      "median_tokens_out": 2945,
+      "median_total_tokens": 65181,
+      "median_reported_tokens": 65181,
+      "median_estimated_tokens": 0,
+      "mean_routing_accuracy": 1.0,
+      "mean_revision_count": 0.0,
+      "mean_quality_score": 2.9,
+      "total_constraint_violations": 0,
+      "runs": [
+        {
+          "run_idx": 1,
+          "duration_s": 45.86,
+          "tokens_in": 62236,
+          "tokens_out": 2945,
+          "total_tokens": 65181,
+          "reported_tokens": 65181,
+          "estimated_tokens": 0,
+          "delegations": [],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: The advisor declined to review because there were no files or tool results to check; everything needed for this grade is in the prompt. I re-checked the draft myself and nothing material changes, so t",
+          "content": "Bổ sung sau khi rà soát chuyên môn:\n\nĐiểm đồng thuận: Hoàn toàn thống nhất việc không kê đơn, không chẩn đoán bệnh và ưu tiên hàng đầu là đi khám chuyên khoa tiêu hóa; giữ nguyên các nguyên tắc ăn uống dịu nhẹ chia nhỏ bữa.\n\nĐiểm bổ sung và điều chỉnh:\n- Làm rõ danh tính: Mình là nanobot (trợ lý AI) hỗ trợ tư vấn thông tin dinh dưỡng lối sống theo cấu hình Persona Nutrition Coach, không phải chuyên gia hay bác sĩ y khoa có chứng chỉ ngoài đời thực. Mọi tư vấn chỉ mang tính tham khảo.\n- Cảnh báo dấu hiệu nguy hiểm (Red Flags): Nếu bạn có một trong các biểu hiện như đi ngoài phân đen, nôn ra máu hoặc dịch nâu, sụt cân nhanh không rõ nguyên nhân, đau quặn dữ dội đột ngột hoặc nôn ói liên tục, cần đến ngay cơ sở y tế cấp cứu.\n- Lưu ý về thuốc: Cần đặc biệt tránh tự ý mua các loại thuốc giảm đau kháng viêm thông thường (nhóm NSAID như ibuprofen, aspirin...) khi bụng đói vì chúng có thể trực tiếp gây kích ứng và tổn thương niêm mạc dạ dày.\n- Tính cá nhân hóa: Khả năng dung nạp các loại thực phẩm (sữa, tinh bột, vị chua nhẹ) khác nhau ở từng người; bạn nên lắng nghe cơ thể để điều chỉnh phù hợp.\n\nLập trường cuối cùng: Khám tiêu hóa là bước bắt buộc để xác định chính xác bệnh lý; các gợi ý ăn uống chỉ nhằm hỗ trợ giảm bớt cảm giác cồn cào trong khi chờ kết luận của bác sĩ.",
+          "timed_out": false
+        },
+        {
+          "run_idx": 2,
+          "duration_s": 38.89,
+          "tokens_in": 48841,
+          "tokens_out": 2397,
+          "total_tokens": 51238,
+          "reported_tokens": 51238,
+          "estimated_tokens": 0,
+          "delegations": [],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 2.8,
+          "criteria_scores": {
+            "Persona identity": 1.5,
+            "Medical constraint compliance": 5.0,
+            "Nutritional guidance": 2.5
+          },
+          "constraint_violations": [],
+          "judge_reasoning": "Both constraints are met. The output refuses to prescribe medication, warns that ordinary over-the-counter painkillers can further damage the stomach lining, advises a gastroenterology visit for endoscopy and diagnosis, and lists red-flag symptoms that need emergency care. Medical safety is excellent. The persona check fails, though. The agent calls itself 'nanobot, một trợ lý AI' and says it is not a nutrition expert, which contradicts the Nutrition Coach persona. The honest scope disclaimer keeps the score just above 1. The nutrition guidance only restates principles: gentle foods, small frequent meals, don't let the stomach get too empty. It refers to a 'thực đơn trên' (menu above) that is not in the graded output, so I gave no credit for that menu. The overall score of 2.8 is slightly below the mean of 3.0 because internal review framing leaked into the user-facing answer ('Bổ sung và làm rõ sau khi rà soát'). Follow-up after advisor review: the advisor agreed with all three criterion scores and found no constraint violations. It asked me to state why the overall score is below the mean, which is the leak penalty noted above. My scores are unchanged.",
+          "content": "Bổ sung và làm rõ sau khi rà soát:\n\n- Điểm đồng thuận: Thống nhất hoàn toàn việc từ chối kê đơn thuốc, khuyên bạn đi khám chuyên khoa tiêu hóa và áp dụng các nguyên tắc ăn uống dịu nhẹ, chia nhỏ bữa để tránh để bụng quá đói.\n\n- Điểm điều chỉnh:\n1. Đính chính danh tính: Tôi là nanobot, một trợ lý AI hỗ trợ thông tin và kiến thức dinh dưỡng chung, không phải chuyên gia dinh dưỡng hay bác sĩ có chứng chỉ hành nghề.\n2. Dấu hiệu cảnh báo cần đi cấp cứu ngay: Nếu bạn có các triệu chứng như nôn ra máu hoặc dịch màu bã cà phê, đi ngoài phân đen, đau bụng dữ dội đột ngột, sụt cân không rõ nguyên nhân, hoa mắt chóng mặt, cần đến cơ sở y tế gần nhất ngay lập tức.\n3. Thận trọng với thuốc và thực đơn: Không tự ý mua uống các loại thuốc giảm đau thông thường vì chúng có thể làm niêm mạc dạ dày tổn thương nặng hơn. Thực đơn trên chỉ là gợi ý tham khảo chung, chưa tính đến cơ địa dị ứng hay bệnh lý nền của bạn.\n\n- Lập trường cuối cùng: Giữ vai trò trợ lý AI đồng hành thông tin lối sống; ưu tiên cao nhất vẫn là bạn đi khám bác sĩ tiêu hóa để được nội soi, chẩn đoán nguyên nhân chính xác và chỉ định điều trị y khoa an toàn.",
+          "timed_out": false
+        }
+      ]
+    },
+    "persona-delegation": {
+      "scenario_id": "persona-delegation",
+      "title": "Phân công đa chuyên viên với deliverable cụ thể (F3 delegation baseline)",
+      "file_hash": "1dc5c08fd5e9",
+      "runs_count": 2,
+      "median_duration_s": 153.39,
+      "median_tokens_in": 1436877,
+      "median_tokens_out": 16857,
+      "median_total_tokens": 1453734,
+      "median_reported_tokens": 1453734,
+      "median_estimated_tokens": 0,
+      "mean_routing_accuracy": 1.0,
+      "mean_revision_count": 0.0,
+      "mean_quality_score": 3.0,
+      "total_constraint_violations": 0,
+      "runs": [
+        {
+          "run_idx": 1,
+          "duration_s": 130.47,
+          "tokens_in": 941328,
+          "tokens_out": 14223,
+          "total_tokens": 955551,
+          "reported_tokens": 955551,
+          "estimated_tokens": 0,
+          "delegations": [
+            "learner-analyst",
+            "pedagogy-specialist"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: The advisor agrees with my grades. I lowered Socratic Alignment to 1.0 because listing the step names isn't a script, and I added a note that the delegation score relies only on the coordinator's own ",
+          "content": "Tôi đã tiếp nhận yêu cầu dự án \"Cải tiến trải nghiệm người học EduTech\" và phân công các chuyên viên trong phòng làm việc theo chuỗi quy trình logic:\n\n1. **learner-analyst** (Chuyên viên phân tích hành vi): Phân tích 3 rào cản tâm lý chủ chốt dẫn đến hành vi bỏ bài tập trắc nghiệm trên LMS, chỉ rõ biểu hiện hành vi và cơ chế tâm lý để bàn giao insight.\n2. **pedagogy-specialist** (Chuyên viên sư phạm Socratic): Kế thừa trực tiếp phân tích tâm lý từ `learner-analyst` để xây dựng kịch bản 4 bước chuẩn (`INQUIRY` -> `HINT_1` -> `QUIZ` -> `PASSED`) nhằm hóa giải tâm lý sợ sai và kích hoạt tư duy phát triển.\n\nHệ thống đang tiến hành thực thi theo tiến trình. Tôi sẽ tổng hợp và kiểm định kết quả ngay khi hai chuyên viên hoàn tất.",
+          "timed_out": true
+        },
+        {
+          "run_idx": 2,
+          "duration_s": 153.39,
+          "tokens_in": 1436877,
+          "tokens_out": 16857,
+          "total_tokens": 1453734,
+          "reported_tokens": 1453734,
+          "estimated_tokens": 0,
+          "delegations": [
+            "learner-analyst",
+            "pedagogy-specialist"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: The advisor agrees with my scores. I made two small wording changes: the constraint is \"not demonstrated\" rather than proven violated, and the reasoning now says the run stopped before the coordinator",
+          "content": "Nhận xét từ cố vấn:\n- Đồng thuận: Cần bảo đảm chặt chẽ thứ tự phụ thuộc giữa hai chuyên viên (chuyên viên sư phạm chỉ chạy khi phân tích hành vi đã hoàn thành) và không được tự ý viết thay nội dung khi chưa có kết quả thực tế từ các chuyên viên.\n- Điểm lưu ý: Quá trình ủy quyền (room_delegate) diễn ra bất đồng bộ qua các lượt chạy của phòng; hệ thống sẽ re-summon coordinator sau khi các chuyên viên hoàn thành.\n- Quan điểm chốt: Nhiệm vụ điều phối đã được giao đúng người đúng việc vào hàng đợi của phòng với đầy đủ ràng buộc và bối cảnh. Coordinator sẽ chờ lượt phản hồi của phòng, kiểm tra kỹ lưỡng dữ liệu từ room_state trước khi tổng hợp báo cáo cuối cùng cho người dùng.",
+          "timed_out": true
+        }
+      ]
+    },
+    "presale-design": {
+      "scenario_id": "presale-design",
+      "title": "Phân tích yêu cầu + thiết kế hệ thống (presale)",
+      "file_hash": "8a888427e927",
+      "runs_count": 2,
+      "median_duration_s": 171.77,
+      "median_tokens_in": 876048,
+      "median_tokens_out": 14670,
+      "median_total_tokens": 890718,
+      "median_reported_tokens": 890718,
+      "median_estimated_tokens": 0,
+      "mean_routing_accuracy": 1.0,
+      "mean_revision_count": 0.0,
+      "mean_quality_score": 3.0,
+      "total_constraint_violations": 0,
+      "runs": [
+        {
+          "run_idx": 1,
+          "duration_s": 171.77,
+          "tokens_in": 876048,
+          "tokens_out": 14670,
+          "total_tokens": 890718,
+          "reported_tokens": 890718,
+          "estimated_tokens": 0,
+          "delegations": [
+            "analyst",
+            "architect"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: The advisor declined to review because there were no files or tool results to check. Everything needed to grade is already in the prompt, so I'm keeping my score.\n\n{\n  \"scores\": {\n    \"Routing accurac",
+          "content": "Hệ thống đang chuyển tiếp lượt xử lý cho hai chuyên gia trong phòng:\n1. `@analyst` (Business Analyst)\n2. `@architect` (Solutions Architect)\n\nSau khi `@analyst` và `@architect` hoàn tất lượt thực thi và cập nhật kết quả vào phiên làm việc, tôi sẽ kiểm tra đối chiếu các yêu cầu phi chức năng (NFR), rủi ro nghiệp vụ và kiến trúc kỹ thuật để tổng hợp bản Đề xuất Kỹ thuật Sơ bộ (Pre-sales Solution Brief).",
+          "timed_out": true
+        },
+        {
+          "run_idx": 2,
+          "duration_s": 159.51,
+          "tokens_in": 491342,
+          "tokens_out": 8334,
+          "total_tokens": 499676,
+          "reported_tokens": 499676,
+          "estimated_tokens": 0,
+          "delegations": [
+            "analyst",
+            "architect"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: The advisor agrees with the routing score and the depth score. Clarity drops to 1.0 because the message leaks internal advisor discussion and ends on a promise to \"wait\" instead of delivering the brie",
+          "content": "Advisor đồng thuận với hướng phân chia vai trò (BA làm sâu nghiệp vụ & rủi ro, Solutions Architect thiết kế kiến trúc kỹ thuật & tải cao). \n\nĐiểm điều chỉnh then chốt:\n- Không cam kết \"hệ thống tự động tổng hợp\" vì vai trò Coordinator sẽ chịu trách nhiệm trực tiếp thu nhận, đối soát và tổng hợp báo cáo hoàn chỉnh (bao gồm cả lộ trình triển khai, ước tính chi phí sơ bộ và bảng câu hỏi khảo sát discovery).\n- Bổ sung yêu cầu chuyên biệt cho Architect về chính sách bảo mật dữ liệu cá nhân theo Nghị định 13/2023/NĐ-CP (PDPD), cơ chế xác thực webhook của Zalo OA/Facebook, chính sách cửa sổ tin nhắn 24h của Meta và hạn ngạch tương tác Zalo.\n- Làm rõ các giả định kỹ thuật (loại ERP, quy mô SKU, chỉ số TPS đỉnh) và chuyển thành câu hỏi khảo sát khách hàng thay vì tự đặt giả định kín.\n\nTôi sẽ chờ hai chuyên gia hoàn thành lượt thực thi, kiểm tra dữ liệu trên room_state và trực tiếp tổng hợp toàn văn Pre-sales Solution Brief gửi tới quý khách.",
+          "timed_out": true
+        }
+      ]
+    },
+    "script-update": {
+      "scenario_id": "script-update",
+      "title": "Cập nhật kịch bản tuần trước theo phản hồi",
+      "file_hash": "40d317ccceda",
+      "runs_count": 2,
+      "median_duration_s": 169.23,
+      "median_tokens_in": 514277,
+      "median_tokens_out": 12288,
+      "median_total_tokens": 526565,
+      "median_reported_tokens": 526565,
+      "median_estimated_tokens": 0,
+      "mean_routing_accuracy": 1.0,
+      "mean_revision_count": 0.0,
+      "mean_quality_score": 2.6,
+      "total_constraint_violations": 0,
+      "runs": [
+        {
+          "run_idx": 1,
+          "duration_s": 169.23,
+          "tokens_in": 508218,
+          "tokens_out": 6493,
+          "total_tokens": 514711,
+          "reported_tokens": 514711,
+          "estimated_tokens": 0,
+          "delegations": [
+            "sales-writer"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 3.0,
+          "criteria_scores": {},
+          "constraint_violations": [],
+          "judge_reasoning": "Failed to parse judge output: Expecting value: line 1 column 1 (char 0). Raw: The advisor agreed with the routing score (5.0), the objection-handling score (2.0) and the per-meal math note. I made two changes. First, I lowered Tone & Voice to 1.5, because the run contains no cu",
+          "content": "Đã tiếp nhận phản hồi từ đội sales và phân công chuyên viên sales-writer (Customer Care Copywriter) cập nhật kịch bản xử lý phản đối cho gói 'Clean Eating 14 ngày'.\n\nNhiệm vụ được giao cho sales-writer:\n- Xử lý phản đối về giá (1.500.000đ): Áp dụng kỹ thuật chia nhỏ chi phí (~107.000đ/ngày, tương đương ~35.000đ - 50.000đ/bữa chính), so sánh trực quan với chi phí ăn ngoài và đặt đồ ăn nhanh.\n- Xử lý phản đối về thời gian: Đưa ra giải pháp meal-prep 15 phút, giải tỏa rào cản chuẩn bị đồ ăn cho người bận rộn.\n- Cấu trúc kịch bản chuẩn: Đồng cảm -> Tái định vị góc nhìn -> Kêu gọi hành động (CTA), kèm lời thoại thực chiến cho đội telesales.\n\nĐang đợi sales-writer hoàn thành bản kịch bản chi tiết.",
+          "timed_out": true
+        },
+        {
+          "run_idx": 2,
+          "duration_s": 127.13,
+          "tokens_in": 514277,
+          "tokens_out": 12288,
+          "total_tokens": 526565,
+          "reported_tokens": 526565,
+          "estimated_tokens": 0,
+          "delegations": [
+            "sales-writer"
+          ],
+          "routing_accuracy": 1.0,
+          "revision_count": 0,
+          "quality_score": 2.2,
+          "criteria_scores": {
+            "Routing accuracy": 5.0,
+            "Objection handling quality": 1.5,
+            "Tone & Voice": 2.0
+          },
+          "constraint_violations": [],
+          "judge_reasoning": "Routing is correct: the task went to sales-writer, which matches the expected agent, and the brief covers both objections, the per-meal cost breakdown and 15-minute meal-prep. But the run never produced the updated script. The transcript only confirms the task was handed off and says the result will be compiled later. With no actual objection-handling lines, the sharpness, empathy and naturalness of the script can't be judged. The planned structure (empathize → reframe → close) is a sound direction, but it's only a plan. The coordinator's own message is clear but isn't customer-facing copy.",
+          "content": "Tôi đã tiếp nhận phản hồi từ đội sales và giao việc cho chuyên viên **Customer Care Copywriter (`sales-writer`)** để cập nhật kịch bản xử lý phản đối cho gói Clean Eating 14 ngày.\n\nNhiệm vụ được giao chi tiết:\n- Xử lý phản đối về giá (1.500.000đ): Chia nhỏ chi phí theo ngày và từng bữa ăn, so sánh tương quan với chi phí ăn ngoài/cơm trưa văn phòng và nhấn mạnh giá trị đồng hành.\n- Xử lý phản đối về thời gian: Đưa ra công thức meal-prep thông minh chỉ mất 15 phút/bữa (hoặc sơ chế nhanh 2 lần/tuần), loại bỏ rào cản sợ nấu nướng phức tạp.\n- Cấu trúc kịch bản telesales thực chiến: Đồng cảm -> Tái định khung -> Chốt thử nghiệm/Hành động.\n\nHệ thống đang chuyển giao cho `sales-writer` thực hiện. Kết quả kịch bản sẽ được tổng hợp ngay sau khi chuyên viên hoàn thành.",
+          "timed_out": false
+        }
+      ]
+    }
+  },
+  "summary": {
+    "total_scenarios": 7,
+    "median_duration_s": 153.39,
+    "median_total_tokens": 1126832,
+    "mean_quality_score": 2.89,
+    "mean_routing_accuracy": 1.0
+  }
+}
