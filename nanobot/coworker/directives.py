@@ -77,11 +77,41 @@ ADVISOR = "\n".join([
     'surface the conflict in one more advisor call ("I found X, you suggest Y, which constraint breaks '
     'the tie?") before committing.',
     "",
+    "How to write `focus`: state the facts, not a verdict you want confirmed — goal · your current plan · "
+    "what you changed (files) · what you are unsure about. \"Is everything sound?\" invites a rubber stamp; "
+    "the advisor treats unverified claims (tests pass, committed, saved) as unverified. To have it review a "
+    "file you just wrote, pass it in `files` — the harness attaches the current content from disk.",
+    "",
+    "The advisor keeps a ledger: its open Must-fix / Verify items are pinned below under 'Advisor "
+    "commitments' and it may name a next checkpoint. Do those items or tell the user why you are not; "
+    "a `[nanobot-advisor]` note on a tool result is a checkpoint the advisor or the harness asked for — "
+    "act on it before going further.",
+    "",
     'Status handling: { status: "insufficient_context" } → orient, then call again (free). '
     '{ status: "max_uses_exceeded" } or { status: "advisor_error" } → continue with your own judgment; '
     "do not retry in a loop.",
     "",
 ])
+
+COMMITMENTS_MAX_CHARS = 1500
+
+
+def advisor_commitments(ledger_text: str) -> str:
+    """Pinned system section with the advisor's open ledger (survives trim/compaction, unlike a tool result)."""
+    if not ledger_text.strip():
+        return ""
+    body = ledger_text.strip()
+    if len(body) > COMMITMENTS_MAX_CHARS:
+        body = body[:COMMITMENTS_MAX_CHARS].rstrip() + "\n…"
+    return "\n".join([
+        "## Advisor commitments (open)",
+        "Standing guidance from your advisor. Only the advisor closes items: do each Must fix / Verify item "
+        "(with evidence) or tell the user why not before you report the task done. Respect Do not / Pitfalls "
+        "for the rest of the session.",
+        "",
+        body,
+    ])
+
 
 ADVISOR_BRAINSTORM = "\n".join([
     "## Advisor (brainstorm mode)",

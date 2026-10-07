@@ -15,7 +15,13 @@ from typing import Any
 from loguru import logger
 
 from nanobot.config.paths import get_data_dir
-from nanobot.coworker.metrics_store.models import CodingRunRow, MetricKind, MetricRow
+from nanobot.coworker.metrics_store.models import (
+    AdvisorConsultRow,
+    CodingRunRow,
+    MetricKind,
+    MetricRow,
+    ToolResultRow,
+)
 from nanobot.coworker.metrics_store.store import CoworkerMetricsStore
 from nanobot.llm_usage.context import source_from_session_key
 
@@ -195,6 +201,55 @@ def record_coding_run(
         logger.exception("failed to record coworker coding run")
 
 
+def record_tool_result(
+    *, tool: str, result_chars: int, elided: bool = False, is_error: bool = False,
+    now: float | None = None,
+) -> None:
+    """Persist one tool-result size; fail-open (never raises into the loop)."""
+    try:
+        get_metrics_store().record_tool_result(ToolResultRow(
+            at_ms=int((now if now is not None else time.time()) * 1000),
+            tool=tool, result_chars=result_chars, elided=elided, is_error=is_error,
+        ))
+    except Exception:
+        logger.exception("failed to record coworker tool metric")
+
+
+def record_advisor_consult(
+    *, model: str, verdict: str = "", must_fix: int = 0, open_items: int = 0,
+    work_steps_since_last: int = 0, evidence_pack: bool = False, prompt_chars: int = 0,
+    elided_advice: bool = False, checkpoint_set: bool = False, after_write: bool = False,
+    now: float | None = None,
+) -> None:
+    """Persist one successful advisor consult; fail-open."""
+    try:
+        get_metrics_store().record_advisor_consult(AdvisorConsultRow(
+            at_ms=int((now if now is not None else time.time()) * 1000),
+            model=model, verdict=verdict, must_fix=must_fix, open_items=open_items,
+            work_steps_since_last=work_steps_since_last, evidence_pack=evidence_pack,
+            prompt_chars=prompt_chars, elided_advice=elided_advice,
+            checkpoint_set=checkpoint_set, after_write=after_write,
+        ))
+    except Exception:
+        logger.exception("failed to record advisor consult metric")
+
+
+def tool_summary(*, days: int = 7) -> list[dict[str, Any]]:
+    try:
+        return get_metrics_store().tool_summary(days=days)
+    except Exception:
+        logger.exception("failed to query coworker tool metrics")
+        return []
+
+
+def advisor_summary(*, days: int = 30) -> dict[str, Any]:
+    try:
+        return get_metrics_store().advisor_summary(days=days)
+    except Exception:
+        logger.exception("failed to query advisor metrics")
+        return {}
+
+
 def coding_runs_payload(*, limit: int = 50) -> dict[str, Any]:
     """Recent finished coding runs for the settings dashboard."""
     try:
@@ -222,16 +277,22 @@ def metrics_payload(
 
 
 __all__ = [
+    "AdvisorConsultRow",
     "CodingRunRow",
     "CoworkerMetricsStore",
     "MetricKind",
     "MetricRow",
+    "ToolResultRow",
+    "advisor_summary",
     "coding_runs_payload",
     "empty_metrics_payload",
     "get_metrics_store",
     "metrics_payload",
     "metrics_store_path",
+    "record_advisor_consult",
     "record_coding_run",
     "record_ping",
+    "record_tool_result",
     "record_turn",
+    "tool_summary",
 ]

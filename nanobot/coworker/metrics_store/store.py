@@ -18,12 +18,19 @@ from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from nanobot.coworker.metrics_store.models import CodingRunRow, MetricRow
+from nanobot.coworker.metrics_store.models import (
+    AdvisorConsultRow,
+    CodingRunRow,
+    MetricRow,
+    ToolResultRow,
+)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_DAYS_RETAINED = 40
 MAX_ROWS_RETAINED = 200_000
 MAX_CODING_RUNS_RETAINED = 20_000
+MAX_TOOL_ROWS_RETAINED = 100_000
+MAX_CONSULT_ROWS_RETAINED = 20_000
 
 _CODING_INSERT_COLUMNS = (
     "at_ms",
@@ -230,6 +237,30 @@ class CoworkerMetricsStore:
                 ON coding_runs(at_ms);
             CREATE INDEX IF NOT EXISTS coding_runs_status_at_idx
                 ON coding_runs(status, at_ms);
+            CREATE TABLE IF NOT EXISTS tool_metrics (
+                id INTEGER PRIMARY KEY,
+                at_ms INTEGER NOT NULL,
+                tool TEXT NOT NULL,
+                result_chars INTEGER NOT NULL,
+                elided INTEGER NOT NULL,
+                is_error INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS tool_metrics_at_idx ON tool_metrics(at_ms);
+            CREATE TABLE IF NOT EXISTS advisor_consults (
+                id INTEGER PRIMARY KEY,
+                at_ms INTEGER NOT NULL,
+                model TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                must_fix INTEGER NOT NULL,
+                open_items INTEGER NOT NULL,
+                work_steps_since_last INTEGER NOT NULL,
+                evidence_pack INTEGER NOT NULL,
+                prompt_chars INTEGER NOT NULL,
+                elided_advice INTEGER NOT NULL,
+                checkpoint_set INTEGER NOT NULL,
+                after_write INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS advisor_consults_at_idx ON advisor_consults(at_ms);
             """
         )
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -302,6 +333,92 @@ class CoworkerMetricsStore:
             self._cached_payload_key = None
             self._cached_payload = None
             self._prune_if_due(connection)
+
+    def record_tool_result(self, row: ToolResultRow) -> None:
+        with self._lock:
+            connection = self._connect()
+            connection.execute(
+                "INSERT INTO tool_metrics (at_ms, tool, result_chars, elided, is_error) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    _non_negative(row.at_ms),
+                    (row.tool or "")[:80],
+                    _non_negative(row.result_chars),
+                    int(bool(row.elided)),
+                    int(bool(row.is_error)),
+                ),
+            )
+            self._prune_if_due(connection)
+
+    def record_advisor_consult(self, row: AdvisorConsultRow) -> None:
+        with self._lock:
+            connection = self._connect()
+            connection.execute(
+                "INSERT INTO advisor_consults (at_ms, model, verdict, must_fix, open_items, "
+                "work_steps_since_last, evidence_pack, prompt_chars, elided_advice, "
+                "checkpoint_set, after_write) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    _non_negative(row.at_ms),
+                    (row.model or "")[:240],
+                    (row.verdict or "")[:16],
+                    _non_negative(row.must_fix),
+                    _non_negative(row.open_items),
+                    _non_negative(row.work_steps_since_last),
+                    int(bool(row.evidence_pack)),
+                    _non_negative(row.prompt_chars),
+                    int(bool(row.elided_advice)),
+                    int(bool(row.checkpoint_set)),
+                    int(bool(row.after_write)),
+                ),
+            )
+            self._prune_if_due(connection)
+
+    def tool_summary(self, *, days: int = 7) -> list[dict[str, Any]]:
+        """Per-tool call count and result volume (chars; ~4 chars/token) over the last ``days``."""
+        cutoff_ms = int((time.time() - days * 86_400) * 1000)
+        with self._lock:
+            connection = self._connect()
+            rows = connection.execute(
+                "SELECT tool, COUNT(*) AS calls, SUM(result_chars) AS chars, "
+                "SUM(elided) AS elided, SUM(is_error) AS errors "
+                "FROM tool_metrics WHERE at_ms >= ? GROUP BY tool ORDER BY chars DESC",
+                (cutoff_ms,),
+            ).fetchall()
+        return [
+            {
+                "tool": row["tool"],
+                "calls": int(row["calls"]),
+                "result_chars": int(row["chars"] or 0),
+                "approx_tokens": int(row["chars"] or 0) // 4,
+                "elided": int(row["elided"] or 0),
+                "errors": int(row["errors"] or 0),
+            }
+            for row in rows
+        ]
+
+    def advisor_summary(self, *, days: int = 30) -> dict[str, Any]:
+        """Steering KPIs: redo rate, open items at consult time, elision, checkpoints."""
+        cutoff_ms = int((time.time() - days * 86_400) * 1000)
+        with self._lock:
+            connection = self._connect()
+            row = connection.execute(
+                "SELECT COUNT(*) AS n, "
+                "SUM(CASE WHEN verdict IN ('revise','stop') AND after_write = 1 THEN 1 ELSE 0 END) AS redo, "
+                "SUM(open_items) AS open_items, SUM(elided_advice) AS elided, "
+                "SUM(evidence_pack) AS evidence, SUM(checkpoint_set) AS checkpoints "
+                "FROM advisor_consults WHERE at_ms >= ?",
+                (cutoff_ms,),
+            ).fetchone()
+        n = int(row["n"] or 0)
+        return {
+            "consults": n,
+            "redo": int(row["redo"] or 0),
+            "redo_rate": (int(row["redo"] or 0) / n) if n else None,
+            "open_items": int(row["open_items"] or 0),
+            "elided_advice": int(row["elided"] or 0),
+            "with_evidence": int(row["evidence"] or 0),
+            "checkpoints_set": int(row["checkpoints"] or 0),
+        }
 
     def record_coding_run(self, row: CodingRunRow) -> None:
         values: tuple[object, ...] = (
@@ -380,6 +497,8 @@ class CoworkerMetricsStore:
             )
             connection.execute("DELETE FROM coworker_metrics WHERE at_ms < ?", (cutoff_ms,))
             connection.execute("DELETE FROM coding_runs WHERE at_ms < ?", (cutoff_ms,))
+            connection.execute("DELETE FROM tool_metrics WHERE at_ms < ?", (cutoff_ms,))
+            connection.execute("DELETE FROM advisor_consults WHERE at_ms < ?", (cutoff_ms,))
         connection.execute(
             """
             DELETE FROM coworker_metrics
@@ -398,6 +517,19 @@ class CoworkerMetricsStore:
             """,
             (MAX_CODING_RUNS_RETAINED,),
         )
+        for table, limit in (
+            ("tool_metrics", MAX_TOOL_ROWS_RETAINED),
+            ("advisor_consults", MAX_CONSULT_ROWS_RETAINED),
+        ):
+            connection.execute(
+                f"""
+                DELETE FROM {table}
+                WHERE id <= COALESCE((
+                    SELECT id FROM {table} ORDER BY id DESC LIMIT 1 OFFSET ?
+                ), -1)
+                """,
+                (limit,),
+            )
         self._last_prune_utc_day = utc_day
         self._writes_since_size_prune = 0
 

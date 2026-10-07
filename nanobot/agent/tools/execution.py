@@ -163,7 +163,14 @@ async def _execute_tool_call(
             return handled
         return payload, event
 
-    await hook.before_execute_tool(context, tool_call, tool, params)
+    replacement = await hook.before_execute_tool(context, tool_call, tool, params)
+    if isinstance(replacement, str):
+        event = {
+            "name": tool_call.name,
+            "status": "error",
+            "detail": replacement.replace("\n", " ").strip()[:120],
+        }
+        return replacement, event
     try:
         with (
             file_read_context(tool_call.id, read_results)

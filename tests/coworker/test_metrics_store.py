@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from nanobot.coworker.metrics_store.models import MetricRow
+from nanobot.coworker.metrics_store.models import AdvisorConsultRow, MetricRow, ToolResultRow
 from nanobot.coworker.metrics_store.store import (
     MAX_DAYS_RETAINED,
     SCHEMA_VERSION,
@@ -146,3 +146,20 @@ def test_age_pruning_drops_rows_beyond_retention(tmp_path: Path) -> None:
     )
     store.record(MetricRow(at_ms=old_ms, kind="turn", source="user"))
     assert store.count() == 0
+
+
+def test_tool_and_advisor_metrics_round_trip(tmp_path) -> None:
+    store = CoworkerMetricsStore(tmp_path / "m.sqlite3")
+    store.record_tool_result(ToolResultRow(at_ms=int(time.time() * 1000), tool="read_file", result_chars=8000, elided=True))
+    store.record_tool_result(ToolResultRow(at_ms=int(time.time() * 1000), tool="read_file", result_chars=400))
+    store.record_tool_result(ToolResultRow(at_ms=int(time.time() * 1000), tool="rg", result_chars=100, is_error=True))
+    summary = {row["tool"]: row for row in store.tool_summary()}
+    assert summary["read_file"]["calls"] == 2 and summary["read_file"]["approx_tokens"] == 2100
+    assert summary["read_file"]["elided"] == 1 and summary["rg"]["errors"] == 1
+    now = int(time.time() * 1000)
+    store.record_advisor_consult(AdvisorConsultRow(at_ms=now, verdict="revise", must_fix=2, open_items=2, after_write=True, evidence_pack=True))
+    store.record_advisor_consult(AdvisorConsultRow(at_ms=now, verdict="proceed"))
+    kpi = store.advisor_summary()
+    assert kpi["consults"] == 2 and kpi["redo"] == 1 and kpi["redo_rate"] == 0.5
+    assert kpi["with_evidence"] == 1 and kpi["open_items"] == 2
+    store.close()

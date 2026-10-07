@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -24,11 +26,15 @@ from nanobot.agent.hook import (
 )
 from nanobot.agent.tools.context import current_request_context
 from nanobot.coworker import directives, metrics_store
+from nanobot.coworker.advisor import ledger as advisor_ledger
 from nanobot.coworker.advisor import policy
 from nanobot.coworker.advisor import state as advisor_state
-from nanobot.coworker.advisor.consult import breaker_open_seconds
+from nanobot.coworker.advisor.checkpoint import hits as checkpoint_hits
+from nanobot.coworker.advisor.checkpoint import parse_checkpoint
+from nanobot.coworker.advisor.consult import TOOL_RESULT_MAX_CHARS, breaker_open_seconds
+from nanobot.coworker.advisor.evidence import WRITE_TOOLS, git_summary, params_paths
 from nanobot.coworker.advisor.stuck import StuckTracker, failure_signature
-from nanobot.coworker.advisor.tool import ADVISOR_TOOL
+from nanobot.coworker.advisor.tool import ADVISOR_TOOL, project_root_for
 from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import cache_policy, keepalive, keepalive_state, metrics, optimizer
@@ -191,6 +197,44 @@ def _annotate_stuck(
     return out if out is not None else messages
 
 
+NOTE_PREFIX = "[nanobot-advisor]"
+
+
+def _annotate_notes(
+    messages: list[dict[str, Any]], notes: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Append each stored advisor/harness note to its tool result (stable bytes, idempotent)."""
+    if not notes:
+        return messages
+    out: list[dict[str, Any]] | None = None
+    for i, message in enumerate(messages):
+        if message.get("role") != "tool":
+            continue
+        note = notes.get(str(message.get("tool_call_id") or ""))
+        if not note:
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            if note in content:
+                continue
+            annotated: dict[str, Any] = {**message, "content": f"{content}\n\n{note}"}
+        elif isinstance(content, list):
+            blocks = cast("list[Any]", content)
+            if any(
+                note in str(cast("dict[str, Any]", b).get("text", ""))
+                for b in blocks
+                if isinstance(b, dict)
+            ):
+                continue
+            annotated = {**message, "content": [*blocks, {"type": "text", "text": note}]}
+        else:
+            continue
+        if out is None:
+            out = list(messages)
+        out[i] = annotated
+    return out if out is not None else messages
+
+
 def _tool_name(definition: dict[str, Any]) -> str:
     fn = as_dict(definition.get("function"))
     return str(fn.get("name")) if fn is not None else str(definition.get("name") or "")
@@ -207,6 +251,16 @@ class CoworkerHook(AgentHook):
         self._nudged = False
         self._last_runtime: Any | None = None
         self._stuck = StuckTracker()
+        # Steering counters since the advisor was last consulted (seeded in before_run).
+        self._gap = 0
+        self._files: set[str] = set()
+        self._written = 0
+        self._consulted = False
+        self._reviewed_since_write = True  # nothing written yet = nothing to review
+        self._c1_fired = False
+        self._c3_fired = False
+        self._gated = False  # done-gate continuation already issued this run
+        self._gated_at_write = -1  # commit gate already blocked once for this write count
 
     # ---------- lifecycle ----------
 
@@ -221,6 +275,11 @@ class CoworkerHook(AgentHook):
 
     async def before_run(self, context: AgentRunHookContext) -> None:
         mark_turn_running(self._key)
+        scan = policy.scan_run(context.messages)
+        self._gap, self._files = scan.gap, set(scan.files)
+        self._written, self._consulted = scan.written_total, scan.consulted
+        reviewed = policy.consult_after_last_write(context.messages)
+        self._reviewed_since_write = True if reviewed is None else reviewed
         if not self._is_genuine_candidate():
             return
         last_user = next((m for m in reversed(context.messages) if m.get("role") == "user"), None)
@@ -249,16 +308,131 @@ class CoworkerHook(AgentHook):
         self._iter_ctx = context
         remember_live_messages(self._key, context.messages)
 
+    @staticmethod
+    def _record_tool_size(tool_call: ToolCallRequest, result: Any) -> None:
+        """Content-free size of every tool result entering the context (steering baseline)."""
+        text = getattr(result, "content", result)
+        chars = len(text) if isinstance(text, str) else len(str(text or ""))
+        metrics_store.record_tool_result(
+            tool=tool_call.name,
+            result_chars=chars,
+            elided=chars > TOOL_RESULT_MAX_CHARS,
+            is_error=isinstance(result, BaseException)
+            or getattr(result, "is_error", False) is True,
+        )
+
+    # ---------- steering ----------
+
+    def _steering_eligible(self) -> bool:
+        """Only genuine user runs (and finished coding results) are steered, never automated turns."""
+        if is_automated_turn(self._turn.metadata, self._key):
+            return False
+        return self._kind == KIND_CODING_RESULT or (self._kind is None and self._genuine_text is not None)
+
+    def _executor_model(self) -> str | None:
+        request = current_request_context()
+        runtime = request.runtime if request else self._last_runtime
+        return getattr(runtime, "model", None) if runtime else None
+
+    @staticmethod
+    def _advisor_usable(eff: advisor_state.AdvisorEffective) -> bool:
+        """Budget left and the advisor model not tripped by the circuit breaker."""
+        if eff.uses >= eff.max_uses:
+            return False
+        try:
+            return breaker_open_seconds(runtime_for_preset(eff.preset).model) <= 0
+        except Exception:
+            return False
+
+    def _steer(
+        self,
+        tool_call: ToolCallRequest,
+        params: Any,
+        result: Any,
+        session: Any,
+        eff: advisor_state.AdvisorEffective,
+    ) -> None:
+        """Mid-run checkpoints (C1/C3), the advisor's own checkpoint (B4) and stop reminder (B3)."""
+        cfg = load_coworker_config().advisor
+        name = tool_call.name
+        if name == ADVISOR_TOOL:
+            text = getattr(result, "content", result)
+            self._gap, self._c1_fired = 0, False
+            self._files.clear()
+            self._consulted = True
+            if isinstance(text, str) and text.lstrip().startswith("ADVISOR ("):
+                self._reviewed_since_write = True
+            return
+        if not self._steering_eligible():
+            return
+        is_work = policy.is_work_tool(name)
+        if is_work:
+            self._gap += 1
+            advisor_state.count_work_step(session)
+        typed_args = as_dict(params) or as_dict(tool_call.arguments) or {}
+        paths = params_paths(name, typed_args)
+        is_write = name in WRITE_TOOLS
+        if is_write:
+            self._files.update(paths)
+            self._written += 1
+            self._reviewed_since_write = False
+        if eff.mode != advisor_state.MODE_CODING or not (cfg.ledger or cfg.mid_run_checkpoints):
+            return
+        ledger = advisor_state.ledger(session) if cfg.ledger else None
+        notes: list[str] = []
+        if ledger is not None and is_write and ledger.get("verdict") == "stop":
+            blockers = (ledger.get("must_fix") or ["see the advisor ledger"])[0]
+            notes.append(f"advisor verdict is STOP ({blockers}) — resolve it or consult again before more writes")
+        checkpoint = parse_checkpoint(ledger.get("next_checkpoint")) if ledger else None
+        command = str(typed_args.get("command") or typed_args.get("cmd") or "")
+        if (
+            checkpoint is not None
+            and not advisor_state.checkpoint_fired(session)
+            and checkpoint_hits(checkpoint, tool=name, paths=paths, command=command)
+        ):
+            advisor_state.mark_checkpoint_fired(session)
+            notes.append(
+                f"the advisor asked to be consulted at this point ({ledger.get('next_checkpoint') if ledger else ''}) "
+                "— call advisor() now"
+            )
+        if cfg.mid_run_checkpoints and self._advisor_usable(eff):
+            pol = policy.resolve_policy(
+                cfg, self._executor_model(), steps_override=checkpoint.steps if checkpoint else None
+            )
+            if is_write and not self._consulted and not self._c3_fired:
+                self._c3_fired = True
+                notes.append(
+                    "first file write of this run with no successful advisor consult yet — consult before "
+                    "going further (the advisor's plan is the checkpoint, not a difficulty judgment)"
+                )
+            if not self._c1_fired and (
+                self._gap >= pol.reconsult_gap or len(self._files) >= pol.checkpoint_files
+            ):
+                self._c1_fired = True
+                notes.append(
+                    f"{self._gap} work steps and {len(self._files)} files written since your last advisor "
+                    "consult — call advisor() now"
+                )
+        if notes:
+            advisor_state.add_result_note(session, tool_call.id, f"{NOTE_PREFIX} " + "; ".join(notes) + ".")
+
     def _record_tool_result(self, tool_call: ToolCallRequest, params: Any, result: Any) -> None:
+        self._record_tool_size(tool_call, result)
         if tool_call.name == "advisor":
             self._stuck.reset()
-            return
         if not self._key:
             return
         session = get_session(self._key)
         if session is None:
             return
         eff = advisor_state.effective(session)
+        if eff is not None:
+            try:
+                self._steer(tool_call, params, result, session, eff)
+            except Exception:
+                logger.exception("coworker: advisor steering failed for {}", self._key)
+        if tool_call.name == "advisor":
+            return
         if (
             eff is None
             or eff.mode != advisor_state.MODE_CODING
@@ -274,6 +448,52 @@ class CoworkerHook(AgentHook):
         sig = failure_signature(tool_call.name, args, result)
         if self._stuck.record(sig):
             advisor_state.add_stuck_id(session, tool_call.id)
+
+    async def before_execute_tool(
+        self,
+        context: AgentHookContext,
+        tool_call: ToolCallRequest,
+        tool: Any,
+        params: Any,
+    ) -> str | None:
+        """C2: block a first commit/push/reset/rm that follows unreviewed writes (once per write count)."""
+        if not self._key or self._reviewed_since_write or self._gated_at_write == self._written:
+            return None
+        if not policy.is_irreversible_call(tool_call.name, params if params is not None else tool_call.arguments):
+            return None
+        try:
+            return await self._commit_gate(tool_call)
+        except Exception:
+            logger.exception("coworker: commit gate failed for {}", self._key)
+            return None
+
+    async def _commit_gate(self, tool_call: ToolCallRequest) -> str | None:
+        session = get_session(self._key)
+        if session is None or not self._steering_eligible():
+            return None
+        eff = advisor_state.effective(session)
+        if eff is None or eff.mode != advisor_state.MODE_CODING or not self._advisor_usable(eff):
+            return None
+        cfg = load_coworker_config().advisor
+        if not policy.resolve_policy(cfg, self._executor_model()).commit_gate:
+            return None
+        self._gated_at_write = self._written
+        root = project_root_for(session)
+        summary = await asyncio.to_thread(git_summary, root, max_chars=1500) if root is not None else ""
+        logger.info("coworker: commit gate blocked {} for {}", tool_call.name, self._key)
+        payload = {
+            "status": "advisor_review_required",
+            "reason": (
+                f"You wrote {self._written} time(s) this run and have not had a successful advisor review "
+                f"since the last write. `{tool_call.name}` is hard to undo, so it was NOT executed."
+            ),
+            "next": (
+                "Call advisor(focus=<what you changed and what you are unsure about>) now — the harness "
+                "attaches the real diff. Then repeat this call; it will go through this time."
+            ),
+            "git": summary,
+        }
+        return json.dumps(payload, ensure_ascii=False)
 
     async def after_execute_tool(
         self,
@@ -447,6 +667,12 @@ class CoworkerHook(AgentHook):
         if advisor_eff is not None:
             brainstorm = advisor_eff.mode == advisor_state.MODE_BRAINSTORM
             sections.append(directives.ADVISOR_BRAINSTORM if brainstorm else directives.ADVISOR)
+            if not brainstorm and cfg.advisor.ledger:
+                open_ledger = advisor_state.ledger(session)
+                if advisor_ledger.has_content(open_ledger):
+                    sections.append(
+                        directives.advisor_commitments(advisor_ledger.render(open_ledger, ids=False))
+                    )
         if room_on:
             roster_agents = (
                 [a for a in cfg.room.agents if a.id.lower() != persona_agent.id.lower()]
@@ -464,6 +690,7 @@ class CoworkerHook(AgentHook):
         messages = _annotate_mentions(messages, cfg, advisor_on=advisor_on)
         if advisor_on:
             messages = _annotate_stuck(messages, advisor_state.stuck_ids(session))
+            messages = _annotate_notes(messages, advisor_state.result_notes(session))
 
         hidden: set[str] = set()
         if not advisor_on:
@@ -594,11 +821,9 @@ class CoworkerHook(AgentHook):
         Returned to the runner, which appends it inside the *same* run only when no user
         message is waiting, so a real user turn always wins. Latched once per run.
         """
-        if self._nudged or not self._key:
+        if not self._key:
             return None
         cfg = load_coworker_config()
-        if not cfg.advisor.review_nudge:
-            return None
         result_turn = self._kind == KIND_CODING_RESULT
         if self._kind is not None and not result_turn:
             return None
@@ -613,7 +838,26 @@ class CoworkerHook(AgentHook):
         if session is None:
             return None
         eff = advisor_state.effective(session)
-        if eff is None or eff.uses >= eff.max_uses:
+        if eff is None:
+            return None
+        scan = policy.scan_run(context.messages if context is not None else [])
+        # B2 done-gate: the advisor still has open items and this run did real work.
+        if (
+            cfg.advisor.ledger
+            and not self._gated
+            and eff.mode != advisor_state.MODE_BRAINSTORM
+            and scan.work_total > 0
+        ):
+            open_ledger = advisor_state.ledger(session)
+            if open_ledger is not None and policy.done_gate_applies(open_ledger):
+                self._gated = True
+                advisor_state.record_review_nudge(session, kind="done_gate", now=time.time())
+                logger.info(
+                    "coworker: advisor done-gate for {} ({} open items)",
+                    self._key, advisor_ledger.open_count(open_ledger),
+                )
+                return policy.done_gate_text(open_ledger)
+        if self._nudged or not cfg.advisor.review_nudge or eff.uses >= eff.max_uses:
             return None
         try:
             model_key = runtime_for_preset(eff.preset).model
@@ -622,13 +866,13 @@ class CoworkerHook(AgentHook):
         if breaker_open_seconds(model_key) > 0:
             logger.warning("coworker: advisor review nudge skipped, circuit open for {}", model_key)
             return None
-        scan = policy.scan_run(context.messages if context is not None else [])
+        pol = policy.resolve_policy(cfg.advisor, self._executor_model())
         decision: policy.NudgeDecision | None = None
         if eff.mode != advisor_state.MODE_BRAINSTORM:
             decision = policy.decide_review_nudge(
                 scan,
-                first_gap=cfg.advisor.first_consult_gap,
-                reconsult_gap=cfg.advisor.reconsult_gap,
+                first_gap=pol.first_gap,
+                reconsult_gap=pol.reconsult_gap,
                 coding_result=result_turn,
             )
         if decision is None:
@@ -641,7 +885,7 @@ class CoworkerHook(AgentHook):
                 mode=eff.mode,
                 gate=cfg.advisor.discussion_gate,
                 min_chars=cfg.advisor.discussion_min_chars,
-                first_gap=cfg.advisor.first_consult_gap,
+                first_gap=pol.first_gap,
             )
         if decision is None:
             return None

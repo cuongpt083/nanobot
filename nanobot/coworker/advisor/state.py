@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from nanobot.coworker.advisor import ledger as advisor_ledger
 from nanobot.coworker.config import load_coworker_config
 from nanobot.coworker.runtime import session_state
 from nanobot.coworker.transcript import as_dict, as_list
@@ -14,6 +15,8 @@ MODE_CODING = "coding"
 MODE_BRAINSTORM = "brainstorm"
 MODES = (MODE_CODING, MODE_BRAINSTORM)
 HISTORY_LIMIT = 6
+NOTES_LIMIT = 60
+LOW_BUDGET_WARNING = 2
 ADVICE_MAX_CHARS = 6000
 
 
@@ -41,6 +44,8 @@ def _slot(session: Any) -> dict[str, Any]:
         slot.pop("history", None)
         slot.pop("user_request", None)
         slot.pop("stuck_ids", None)
+        for key in ("ledger", "notes", "work_steps", "checkpoint_fired", "last_gate"):
+            slot.pop(key, None)
     slot["seen_len"] = size
     return slot
 
@@ -53,10 +58,12 @@ def effective(session: Any) -> AdvisorEffective | None:
     preset = override if isinstance(override, str) and override.strip() else cfg.preset
     if not preset or preset == OFF:
         return None
+    # D1: the budget regrows with real work, so a long session is not locked out after a fixed count.
+    earned = int(slot.get("work_steps", 0) or 0) // cfg.refill_steps if cfg.refill_steps else 0
     return AdvisorEffective(
         preset=preset,
         uses=int(slot.get("uses", 0) or 0),
-        max_uses=int(slot.get("max_uses") or cfg.max_uses),
+        max_uses=int(slot.get("max_uses") or cfg.max_uses) + earned,
         max_tokens=cfg.max_tokens,
         early_refused=slot.get("early_refused") is True,
         mode=mode_of(slot),
@@ -214,3 +221,56 @@ def add_stuck_id(session: Any, call_id: str) -> None:
 def stuck_ids(session: Any) -> frozenset[str]:
     raw = as_list(_slot(session).get("stuck_ids")) or []
     return frozenset(str(x) for x in raw)
+
+
+# ---------- steering: ledger, per-result notes, work counter ----------
+
+
+def ledger(session: Any) -> dict[str, Any] | None:
+    return as_dict(_slot(session).get("ledger"))
+
+
+def apply_ledger(session: Any, parsed: dict[str, Any]) -> dict[str, Any]:
+    """Store a freshly parsed advisor ledger (open items replace, standing lists accumulate)."""
+    slot = _slot(session)
+    merged = advisor_ledger.merge(as_dict(slot.get("ledger")), parsed)
+    merged["at"] = parsed.get("at", 0.0)
+    slot["ledger"] = merged
+    slot.pop("checkpoint_fired", None)  # a new consult re-arms the advisor's checkpoint
+    return merged
+
+
+def clear_ledger(session: Any) -> None:
+    slot = _slot(session)
+    slot.pop("ledger", None)
+    slot.pop("checkpoint_fired", None)
+
+
+def count_work_step(session: Any) -> int:
+    slot = _slot(session)
+    slot["work_steps"] = int(slot.get("work_steps", 0) or 0) + 1
+    return slot["work_steps"]
+
+
+def checkpoint_fired(session: Any) -> bool:
+    return _slot(session).get("checkpoint_fired") is True
+
+
+def mark_checkpoint_fired(session: Any) -> None:
+    _slot(session)["checkpoint_fired"] = True
+
+
+def add_result_note(session: Any, call_id: str, text: str) -> None:
+    """Attach a stable note to one tool result; applied on every later request, byte-identical."""
+    slot = _slot(session)
+    notes = as_dict(slot.get("notes")) or {}
+    notes.setdefault(call_id, text)
+    if len(notes) > NOTES_LIMIT:
+        for key in list(notes)[: len(notes) - NOTES_LIMIT]:
+            notes.pop(key, None)
+    slot["notes"] = notes
+
+
+def result_notes(session: Any) -> dict[str, str]:
+    raw = as_dict(_slot(session).get("notes")) or {}
+    return {str(k): str(v) for k, v in raw.items()}

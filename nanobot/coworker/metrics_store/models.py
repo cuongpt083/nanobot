@@ -53,3 +53,31 @@ class CodingRunRow:
     cost: float = 0.0
     duration_ms: int = 0
     phase_stats_json: str = "{}"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultRow:
+    """Size of one tool result entering the context (content-free: no text, no arguments)."""
+
+    at_ms: int
+    tool: str
+    result_chars: int = 0
+    elided: bool = False
+    is_error: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AdvisorConsultRow:
+    """One successful advisor consult, for the steering KPIs."""
+
+    at_ms: int
+    model: str = ""
+    verdict: str = ""
+    must_fix: int = 0
+    open_items: int = 0
+    work_steps_since_last: int = 0
+    evidence_pack: bool = False
+    prompt_chars: int = 0
+    elided_advice: bool = False
+    checkpoint_set: bool = False
+    after_write: bool = False

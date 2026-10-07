@@ -111,8 +111,9 @@ class AgentHook:
         tool_call: ToolCallRequest,
         tool: Any,
         params: Any,
-    ) -> None:
-        pass
+    ) -> str | None:
+        """Return a string to skip the call and use it as the tool result (``None`` = run it)."""
+        return None
 
     async def after_execute_tool(
         self,
@@ -249,8 +250,21 @@ class CompositeHook(AgentHook):
         tool_call: ToolCallRequest,
         tool: Any,
         params: Any,
-    ) -> None:
-        await self._for_each_hook_safe("before_execute_tool", context, tool_call, tool, params)
+    ) -> str | None:
+        # First hook that answers wins; a failing hook never blocks the call.
+        for h in self._hooks:
+            try:
+                replacement = await h.before_execute_tool(context, tool_call, tool, params)
+            except Exception:
+                if getattr(h, "_reraise", False):
+                    raise
+                logger.opt(exception=tool_log_content_allowed()).error(
+                    "AgentHook.before_execute_tool error in {}", type(h).__name__,
+                )
+                continue
+            if isinstance(replacement, str):
+                return replacement
+        return None
 
     async def after_execute_tool(
         self,

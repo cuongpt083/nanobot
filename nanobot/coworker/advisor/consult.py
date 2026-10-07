@@ -60,7 +60,31 @@ ADVISOR_SYSTEM_PROMPT = "\n".join([
     "yourself — guide the executor. If a specific piece of information is missing, say exactly "
     "what the executor should fetch before proceeding.",
     "",
+    "Treat the executor's claims (tests pass, committed, done, file saved) as UNVERIFIED unless the "
+    "transcript or the harness evidence shows the tool output. Prefer the <harness_evidence> block "
+    "over the executor's own summary: the harness collected it, the executor did not write it. Say "
+    "explicitly which claims you could not verify. Transcript entries marked \"elided\" are cut for "
+    "length — if a decision depends on text you cannot see, name the file and ask for it instead of "
+    "guessing.",
+    "",
     "Reply with the guidance text only. You have no tools and take no actions.",
+])
+
+LEDGER_INSTRUCTION = "\n".join([
+    "",
+    "After your guidance, end with EXACTLY ONE fenced ```json block, the advisor ledger the harness "
+    "tracks for the executor:",
+    '{"verdict": "proceed"|"revise"|"stop", "must_fix": [string], "do_not": [string], '
+    '"verify": [string], "pitfalls": [string], "next_checkpoint": string|null}',
+    "- must_fix / verify: ONLY items that are still open now. If the section 'Open advisor ledger' "
+    "lists items, repeat the ones still unresolved verbatim and omit the ones the transcript or "
+    "evidence shows are done — you are the only one who closes items.",
+    "- do_not: things the executor must not do. pitfalls: recurring mistakes to avoid for the rest "
+    "of the session (a tool misuse you saw repeated).",
+    "- next_checkpoint: when you want to be consulted again, one of `before_write:<glob>` "
+    "(e.g. before_write:webui/src/**), `after_exec:<regex>` (e.g. after_exec:pytest|vitest), "
+    "`after_steps:<n>`; or null.",
+    "- Each entry at most ~160 characters; at most 6 per list.",
 ])
 
 BRAINSTORM_SYSTEM_PROMPT = "\n".join([
@@ -93,6 +117,7 @@ class ConsultResult:
     error: str = ""
     prompt_chars: int = 0
     dropped_messages: int = 0
+    evidence: bool = False
 
 
 @dataclass(frozen=True)
@@ -199,7 +224,13 @@ def is_thin_context(messages: list[dict[str, Any]]) -> bool:
     return _evidence_count(run) == 0 and _evidence_count(messages) < 3 and run_chars < THIN_MIN_CHARS
 
 
-def build_consult_prompt(messages: list[dict[str, Any]], focus: str | None) -> tuple[str, int]:
+def build_consult_prompt(
+    messages: list[dict[str, Any]],
+    focus: str | None,
+    *,
+    evidence: str | None = None,
+    ledger_text: str | None = None,
+) -> tuple[str, int]:
     system_prompt = next(
         (content_text(m.get("content")) for m in messages if m.get("role") == "system"), ""
     )
@@ -207,7 +238,19 @@ def build_consult_prompt(messages: list[dict[str, Any]], focus: str | None) -> t
     parts = ["Below is the quoted context to review.", "", "<executor_context>"]
     if system_prompt:
         parts += ["## Executor system prompt", "", system_prompt, ""]
-    parts += ["## Transcript", "", transcript, "</executor_context>", "", "## Request", ""]
+    parts += ["## Transcript", "", transcript, "</executor_context>", ""]
+    if evidence:
+        parts += [
+            "<harness_evidence>",
+            "Collected by the harness from the real workspace — not written by the executor.",
+            "",
+            evidence,
+            "</harness_evidence>",
+            "",
+        ]
+    if ledger_text:
+        parts += ["## Open advisor ledger (from your earlier consults)", "", ledger_text, ""]
+    parts += ["## Request", ""]
     parts.append(
         f"The executor asks specifically: {focus.strip()}"
         if focus and focus.strip()
@@ -227,6 +270,9 @@ async def run_consult(
     allow_thin: bool,
     session_key: str | None = None,
     brainstorm: bool = False,
+    evidence: str | None = None,
+    ledger: bool = False,
+    ledger_text: str | None = None,
 ) -> ConsultResult:
     """One-shot, tool-less completion on the advisor runtime."""
     model_key = str(getattr(runtime, "model", "") or "advisor")
@@ -244,9 +290,14 @@ async def run_consult(
             error=f"advisor model {model_key} failed repeatedly; consults paused for {minutes} more minute(s).",
         )
 
-    prompt, dropped = build_consult_prompt(messages, focus)
+    prompt, dropped = build_consult_prompt(
+        messages, focus, evidence=evidence, ledger_text=ledger_text
+    )
+    system_prompt = BRAINSTORM_SYSTEM_PROMPT if brainstorm else ADVISOR_SYSTEM_PROMPT
+    if ledger and not brainstorm:
+        system_prompt += LEDGER_INSTRUCTION
     request = [
-        {"role": "system", "content": BRAINSTORM_SYSTEM_PROMPT if brainstorm else ADVISOR_SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt},
     ]
     started = time.monotonic()
@@ -285,4 +336,7 @@ async def run_consult(
     if failed:
         reason = text or "the advisor model returned no answer (possibly a refusal) — try another advisor preset"
         return ConsultResult(ok=False, model=model_key, error=reason)
-    return ConsultResult(ok=True, text=text, model=model_key, prompt_chars=len(prompt), dropped_messages=dropped)
+    return ConsultResult(
+        ok=True, text=text, model=model_key, prompt_chars=len(prompt),
+        dropped_messages=dropped, evidence=bool(evidence),
+    )

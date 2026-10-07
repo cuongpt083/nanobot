@@ -21,6 +21,15 @@ from nanobot.config_base import Base
 _AGENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
+class ExecutorProfile(Base):
+    """Per-executor-model overrides of the advisor timing (weaker executors get tighter leashes)."""
+
+    first_consult_gap: int | None = Field(default=None, ge=1)
+    reconsult_gap: int | None = Field(default=None, ge=2)
+    checkpoint_files: int | None = Field(default=None, ge=2)
+    commit_gate: bool | None = None
+
+
 class AdvisorConfig(Base):
     """Stronger-model reviewer consulted by the ``advisor`` tool."""
 
@@ -34,6 +43,14 @@ class AdvisorConfig(Base):
     discussion_gate: Literal["off", "brainstorm", "always"] = "brainstorm"
     discussion_min_chars: int = Field(default=800, ge=100)
     stuck_detection: bool = True
+    # Steering (docs/coworker/proposals/advisor-steering.md); each flag is an independent kill switch.
+    evidence_pack: bool = True  # A1/A2: harness-collected git/diff/test evidence for consults
+    ledger: bool = True  # B1-B4: structured advice ledger, done-gate, advisor checkpoints
+    mid_run_checkpoints: bool = True  # C1/C3: notes on tool results mid-run
+    checkpoint_files: int = Field(default=5, ge=2)  # distinct files written since the last consult
+    commit_gate: bool = True  # C2: block a first commit/push/reset/rm until reviewed
+    refill_steps: int = Field(default=25, ge=0)  # D1: +1 consult per N work steps (0 = fixed budget)
+    executor_profiles: dict[str, ExecutorProfile] = Field(default_factory=dict)  # D2: model glob -> overrides
 
 
 class NamePolicy(Base):
