@@ -226,6 +226,29 @@ def test_login_flow_uses_localhost_redirect_for_claude_client() -> None:
         flow.cancel()
 
 
+def test_start_login_opens_browser_only_when_requested() -> None:
+    opened: list[str] = []
+
+    def capture(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    skipped = oauth.start_anthropic_oauth_login(timeout_s=30, browser_opener=capture)
+    try:
+        assert opened == []
+    finally:
+        skipped.cancel()
+
+    flow = oauth.start_anthropic_oauth_login(
+        timeout_s=30, open_browser=True, browser_opener=capture
+    )
+    try:
+        assert opened == [flow.authorization_url]
+        assert flow.authorization_url.startswith("https://claude.ai/oauth/authorize?")
+    finally:
+        flow.cancel()
+
+
 async def test_proactive_refresher_refreshes_when_due(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

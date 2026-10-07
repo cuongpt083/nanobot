@@ -651,7 +651,11 @@ class AnthropicOAuthLoginFlow:
 
 
 def start_anthropic_oauth_login(
-    *, proxy: str | None = None, timeout_s: float = 300
+    *,
+    proxy: str | None = None,
+    timeout_s: float = 300,
+    open_browser: bool = False,
+    browser_opener: Callable[[str], bool] = webbrowser.open,
 ) -> AnthropicOAuthLoginFlow:
     """Create a non-blocking OAuth flow for browser or pasted-callback completion."""
 
@@ -661,6 +665,9 @@ def start_anthropic_oauth_login(
     server = _make_callback_server(state, result_queue)
     redirect_uri = f"http://localhost:{server.server_port}/callback"
     authorize_url = _build_authorize_url(redirect_uri, challenge, state)
+    if open_browser:
+        with suppress(Exception):
+            browser_opener(authorize_url)
     return AnthropicOAuthLoginFlow(
         authorization_url=authorize_url,
         redirect_uri=redirect_uri,
@@ -682,11 +689,14 @@ def login_anthropic_oauth(
 ) -> AnthropicToken:
     """Run the browser flow, persist the token and verify it by reading it back."""
 
-    flow = start_anthropic_oauth_login(proxy=proxy, timeout_s=callback_timeout_s)
+    flow = start_anthropic_oauth_login(
+        proxy=proxy,
+        timeout_s=callback_timeout_s,
+        open_browser=True,
+        browser_opener=browser_opener,
+    )
     print_fn("Opening Anthropic sign-in in your browser...")
     print_fn(f"If it does not open automatically, visit:\n{flow.authorization_url}")
-    with suppress(Exception):
-        browser_opener(flow.authorization_url)
     try:
         return flow.wait(callback_timeout_s)
     finally:

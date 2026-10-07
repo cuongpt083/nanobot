@@ -41,6 +41,13 @@ fn open_log_file(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn windows_open_cmd_args(url: &str) -> [String; 2] {
+    // `cmd /C start "" URL` re-parses `&` as a command separator unless the URL
+    // is quoted as part of the /C script. OAuth authorize URLs always contain `&`.
+    let safe = url.replace('"', "");
+    ["/C".to_string(), format!("start \"\" \"{safe}\"")]
+}
+
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -50,7 +57,7 @@ fn open_external_url(url: String) -> Result<(), String> {
     #[cfg(windows)]
     {
         std::process::Command::new("cmd")
-            .args(["/C", "start", "", &url])
+            .args(windows_open_cmd_args(&url))
             .spawn()
             .map_err(|e| format!("Failed to open URL in browser: {e}"))?;
     }
@@ -134,6 +141,22 @@ fn retry_gateway(app: tauri::AppHandle) -> Result<(), String> {
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::windows_open_cmd_args;
+
+    #[test]
+    fn windows_start_quotes_oauth_query_string() {
+        let url = "https://claude.ai/oauth/authorize?code=true&response_type=code";
+        let args = windows_open_cmd_args(url);
+        assert_eq!(args[0], "/C");
+        assert_eq!(
+            args[1],
+            r#"start "" "https://claude.ai/oauth/authorize?code=true&response_type=code""#
+        );
+    }
 }
 
 pub fn run() {

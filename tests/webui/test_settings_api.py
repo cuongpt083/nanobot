@@ -2010,6 +2010,56 @@ def test_oauth_login_reports_missing_oauth_cli_kit(
     )
 
 
+def test_anthropic_oauth_login_opens_local_browser_and_skips_remote(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    oauth_flows: WebUIOAuthFlowRegistry,
+) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    captured: dict[str, object] = {}
+
+    class FakeFlow:
+        authorization_url = "https://claude.ai/oauth/authorize?code=true&state=test"
+        remaining_seconds = 600
+        expired = False
+
+        def cancel(self) -> None:
+            captured["cancelled"] = True
+
+    def fake_start(**kwargs):
+        captured.update(kwargs)
+        return FakeFlow()
+
+    monkeypatch.setattr(
+        "nanobot.providers.anthropic_oauth.start_anthropic_oauth_login",
+        fake_start,
+    )
+
+    payload = login_oauth_provider(
+        {"provider": ["anthropic-oauth"]},
+        oauth_flows=oauth_flows,
+    )
+    oauth_flows.clear("anthropic_oauth")
+
+    assert payload["status"] == "authorization_required"
+    assert payload["provider"] == "anthropic_oauth"
+    assert payload["authorization_url"] == FakeFlow.authorization_url
+    assert captured["open_browser"] is True
+
+    captured.clear()
+    remote = login_oauth_provider(
+        {"provider": ["anthropic-oauth"], "remote_browser": ["true"]},
+        oauth_flows=oauth_flows,
+    )
+    try:
+        assert remote["authorization_url"] == FakeFlow.authorization_url
+        assert captured["open_browser"] is False
+    finally:
+        oauth_flows.clear("anthropic_oauth")
+
+
 def test_xai_grok_login_starts_fresh_browser_flow_with_proxy(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

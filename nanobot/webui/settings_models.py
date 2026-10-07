@@ -1788,10 +1788,17 @@ def login_oauth_provider(
             ).providers.anthropic_oauth.proxy or None
         except ValueError as exc:
             raise WebUISettingsError(str(exc), status=400) from exc
+        remote_browser_value = query_first(query, "remote_browser")
+        remote_browser = (
+            parse_bool(remote_browser_value, "remote_browser")
+            if remote_browser_value is not None
+            else False
+        )
         try:
             anthropic_flow = start_anthropic_oauth_login(
                 proxy=proxy,
                 timeout_s=_WEBUI_OAUTH_TIMEOUT_S,
+                open_browser=not remote_browser,
             )
         except Exception as exc:
             raise WebUISettingsError(f"Anthropic OAuth login failed: {exc}", status=502) from exc

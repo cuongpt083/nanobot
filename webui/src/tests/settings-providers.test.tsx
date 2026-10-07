@@ -334,6 +334,12 @@ describe("Settings providers", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     requestMutationMock.mockResolvedValueOnce(authorization).mockResolvedValueOnce(signedIn);
+    vi.stubGlobal("open", vi.fn(() => ({
+      opener: window,
+      closed: false,
+      location: { href: "about:blank" },
+      close: vi.fn(),
+    })));
 
     renderSettingsView({ initialSection: "models", initialSettings: payload });
 
@@ -347,6 +353,74 @@ describe("Settings providers", () => {
     expect(await screen.findByText("Signed in as Anthropic (OAuth)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Done" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Save provider" })).not.toBeInTheDocument();
+  });
+
+  it("opens Anthropic (OAuth) in the system browser on the desktop shell", async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "__TAURI__", {
+      configurable: true,
+      value: { core: { invoke } },
+    });
+    const popup = {
+      opener: window,
+      closed: false,
+      location: { href: "about:blank" },
+      close: vi.fn(),
+    };
+    const openMock = vi.fn(() => popup);
+    vi.stubGlobal("open", openMock);
+
+    const base = settingsPayload();
+    const anthropicProvider = {
+      name: "anthropic_oauth",
+      label: "Anthropic (OAuth)",
+      configured: false,
+      auth_type: "oauth" as const,
+      api_key_required: false,
+      api_key_hint: null,
+      api_base: null,
+      default_api_base: "https://api.anthropic.com",
+      model_catalog: "hybrid",
+      oauth_account: null,
+      oauth_expires_at: null,
+      oauth_login_supported: true,
+    };
+    const payload: SettingsPayload = { ...base, providers: [anthropicProvider] };
+    const authorization = {
+      status: "authorization_required",
+      provider: "anthropic_oauth",
+      flow_id: "flow-anthropic-desktop",
+      authorization_url: "https://claude.ai/oauth/authorize?code=true&state=desktop",
+      expires_in: 600,
+      completion_input: "authorization_code",
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(payload);
+      if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
+      if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
+      return jsonResponse({});
+    }));
+    requestMutationMock.mockResolvedValueOnce(authorization);
+
+    try {
+      renderSettingsView({ initialSection: "models", initialSettings: payload });
+      await chooseProviderToConfigure("Anthropic (OAuth)");
+      fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+      await waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith("open_external_url", {
+          url: authorization.authorization_url,
+        }),
+      );
+      expect(openMock).not.toHaveBeenCalled();
+      expect(popup.location.href).toBe("about:blank");
+      expect(
+        await screen.findByRole("textbox", { name: "Authorization code" }),
+      ).toBeInTheDocument();
+    } finally {
+      Reflect.deleteProperty(window, "__TAURI__");
+    }
   });
 
   it("recognizes remote access before starting xAI Grok sign-in", async () => {

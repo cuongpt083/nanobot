@@ -14,7 +14,7 @@ import {
 } from "@/components/settings/models/ProviderSettings";
 import type { ModelSettingsState } from "@/components/settings/models/useModelSettingsState";
 import { normalizeContextWindowTokens } from "@/components/settings/shared/ModelControls";
-import { openExternalUrl } from "@/lib/external-link";
+import { isTauriDesktop, openExternalUrl } from "@/lib/external-link";
 import {
   ApiError,
   cancelProviderOAuth,
@@ -503,7 +503,8 @@ export function useModelSettingsActions({
     const shouldPreopenPopup =
       action === "login"
       && (providerName === "xai_grok" || providerName === "google_antigravity" || providerName === "anthropic_oauth")
-      && !remoteBrowserAccess;
+      && !remoteBrowserAccess
+      && !isTauriDesktop();
     if (shouldPreopenPopup) {
       try {
         popup = window.open("about:blank", "_blank");
@@ -519,7 +520,10 @@ export function useModelSettingsActions({
           ? await loginProviderOAuth(
               client,
               providerName,
-              (providerName === "openai_codex" || providerName === "google_antigravity") && remoteBrowserAccess,
+              (providerName === "openai_codex"
+                || providerName === "google_antigravity"
+                || providerName === "anthropic_oauth")
+                && remoteBrowserAccess,
             )
           : await logoutProviderOAuth(client, providerName);
       if (isProviderOAuthAuthorizationRequired(payload)) {

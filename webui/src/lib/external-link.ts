@@ -1,3 +1,21 @@
+type TauriCore = {
+  invoke: (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
+};
+
+function getTauriCore(): TauriCore | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (
+    window as unknown as {
+      __TAURI__?: { core?: TauriCore };
+    }
+  ).__TAURI__?.core;
+}
+
+/** True when the WebUI is hosted inside the Tauri desktop webview. */
+export function isTauriDesktop(): boolean {
+  return typeof getTauriCore()?.invoke === "function";
+}
+
 /**
  * Opens an external URL in the system's default browser.
  * When running inside a native desktop shell (such as Tauri), delegates
@@ -7,22 +25,10 @@
 export function openExternalUrl(url: string): void {
   if (!url) return;
 
-  // 1. If running in Tauri native desktop environment:
-  const tauri = (
-    window as unknown as {
-      __TAURI__?: {
-        core?: {
-          invoke: (
-            cmd: string,
-            args: Record<string, unknown>,
-          ) => Promise<unknown>;
-        };
-      };
-    }
-  ).__TAURI__;
+  const tauri = getTauriCore();
 
-  if (tauri?.core?.invoke) {
-    tauri.core.invoke("open_external_url", { url }).catch((err) => {
+  if (tauri?.invoke) {
+    tauri.invoke("open_external_url", { url }).catch((err) => {
       console.warn("Failed to open external URL via Tauri command:", err);
       try {
         const win = window.open(url, "_blank", "noopener,noreferrer");
