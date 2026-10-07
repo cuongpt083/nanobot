@@ -1,0 +1,94 @@
+# Evaluator test queries for F2 (FTS5 Session Search & Recall)
+# Target: Recall@5 >= 0.8 across accented/unaccented Vietnamese and technical terms.
+# Ground truth matches refer to planted facts in chat-300-fixture.jsonl
+
+queries:
+  - id: RQ01
+    query: "mã hợp đồng triển khai CRM Nutritech miền Nam"
+    expected_fact_id: "RF01"
+    expected_keywords: ["HD-NUTRI-2026-8899", "CRM Nutritech"]
+    notes: "Có dấu đầy đủ, mã ký hiệu đặc biệt"
+
+  - id: RQ02
+    query: "ma hop dong crm nutritech mien nam"
+    expected_fact_id: "RF01"
+    expected_keywords: ["HD-NUTRI-2026-8899"]
+    notes: "Không dấu (remove_diacritics test)"
+
+  - id: RQ03
+    query: "IP máy chủ cơ sở dữ liệu dự phòng PostgreSQL"
+    expected_fact_id: "RF02"
+    expected_keywords: ["192.168.10.245", "5433"]
+    notes: "Địa chỉ mạng và cổng kỹ thuật"
+
+  - id: RQ04
+    query: "muc tieu giam mo co the nguyen van an"
+    expected_fact_id: "RF03"
+    expected_keywords: ["Nguyễn Văn An", "28%", "23%"]
+    notes: "Tên riêng tiếng Việt không dấu"
+
+  - id: RQ05
+    query: "khoá bí mật webhook thanh toán ZaloPay Sandbox"
+    expected_fact_id: "RF04"
+    expected_keywords: ["k_zalopay_sandbox_9981az"]
+    notes: "Khóa cấu hình kỹ thuật dạng snake_case"
+
+  - id: RQ06
+    query: "ngan sach quang cao tiktok edutech quy 4"
+    expected_fact_id: "RF05"
+    expected_keywords: ["150 triệu", "TikTok EduTech"]
+    notes: "Truy vấn ngân sách không dấu"
+
+  - id: RQ07
+    query: "người duyệt code module Desktop Tauri"
+    expected_fact_id: "RF06"
+    expected_keywords: ["Hoàng Minh Tuấn", "Tauri"]
+    notes: "Tra cứu nhân sự phụ trách module"
+
+  - id: RQ08
+    query: "thời gian chờ timeout endpoint gateway tcp"
+    expected_fact_id: "RF07"
+    expected_keywords: ["_tcp_endpoint_reachable", "50"]
+    notes: "Tên hàm nội bộ có dấu gạch dưới"
+
+  - id: RQ09
+    query: "commit hash stable diffusion cpp duoc ghim"
+    expected_fact_id: "RF08"
+    expected_keywords: ["master-898-2bb7294", "stable-diffusion.cpp"]
+    notes: "Tra cứu commit hash thư viện ảnh"
+
+  - id: RQ10
+    query: "thư mục cache WebView2 cần xóa khi cài đặt"
+    expected_fact_id: "RF09"
+    expected_keywords: ["EBWebView", "WebView2"]
+    notes: "Tên folder hệ thống Windows"
+
+  - id: RQ11
+    query: "hoa hong chuyen vien tu van goi VIP"
+    expected_fact_id: "RF10"
+    expected_keywords: ["18%", "Chăm sóc cá nhân"]
+    notes: "Chính sách kinh doanh không dấu"
+
+  - id: RQ12
+    query: "thu muc luu phien ban anh tam thoi OS tempdir"
+    expected_fact_id: "RF11"
+    expected_keywords: ["nanobot-image-versions"]
+    notes: "Quy ước lưu trữ ảnh ephemeral"
+
+  - id: RQ13
+    query: "giới hạn ký tự tối đa của envelope điều phối"
+    expected_fact_id: "RF12"
+    expected_keywords: ["1500 ký tự", "envelope"]
+    notes: "Quy chuẩn F3 brief/envelope"
+
+  - id: RQ14
+    query: "cac buoc trong quy trinh Socratic Pedagogy"
+    expected_fact_id: "RF14"
+    expected_keywords: ["INQUIRY", "HINT_1", "QUIZ", "PASSED"]
+    notes: "Quy trình sư phạm 4 bước"
+
+  - id: RQ15
+    query: "so luong tool call toi thieu de tao skill nhap"
+    expected_fact_id: "RF16"
+    expected_keywords: ["5 tool calls", "F1"]
+    notes: "Ngưỡng kích hoạt F1 trigger"

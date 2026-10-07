@@ -1,0 +1,56 @@
+# Evaluator test cases for F1 (Skill Learning trigger and drafting)
+# Evaluates whether a multi-tool execution session triggers a draft skill creation,
+# and verifies that one-off or sub-threshold tasks correctly skip drafting.
+
+tasks:
+  - id: RT01
+    description: "Soạn kịch bản email follow-up theo phễu chuyển đổi Nutritech 3 bước"
+    occurrences:
+      - "Soạn chuỗi 3 email nuôi dưỡng khách hàng bỏ giỏ hàng khoá dinh dưỡng Nutritech."
+      - "Tạo lại chuỗi email chăm sóc khách hàng chưa chốt đơn gói dinh dưỡng 30 ngày."
+    expected_skill_name: "nutritech-cart-recovery-sequence"
+    min_tool_calls_observed: 6
+    should_draft: true
+    expected_persona: "sales-writer"
+    notes: "Tác vụ phức tạp lặp lại >= 2 lần với >= 5 tool calls -> phải tạo nháp SKILL.md"
+
+  - id: RT02
+    description: "Tạo cấu trúc bài giảng Moodle theo khung Socratic kết hợp trắc nghiệm"
+    occurrences:
+      - "Thiết kế giáo án tuần 1 môn Tư duy phản biện chuẩn Socratic 4 bước trên Moodle."
+      - "Xây dựng khung bài giảng tuần 2 môn Giải quyết vấn đề theo chuẩn Socratic 4 bước."
+    expected_skill_name: "socratic-moodle-lesson-builder"
+    min_tool_calls_observed: 5
+    should_draft: true
+    expected_persona: "edutech-pedagogy"
+    notes: "Quy trình sư phạm chuẩn hóa -> đủ điều kiện tạo nháp"
+
+  - id: RT03
+    description: "Kiểm tra trạng thái hệ thống và xem log gateway"
+    occurrences:
+      - "Xem log gateway và báo cho tôi cổng đang mở."
+    expected_skill_name: null
+    min_tool_calls_observed: 2
+    should_draft: false
+    expected_persona: "main"
+    notes: "Dưới ngưỡng tool calls (< 5) -> không được tạo nháp"
+
+  - id: RT04
+    description: "Cập nhật tài liệu README khẩn cấp một lần"
+    occurrences:
+      - "Sửa lại typo trong file README.md dòng 14."
+    expected_skill_name: null
+    min_tool_calls_observed: 1
+    should_draft: false
+    expected_persona: "main"
+    notes: "Thao tác đơn lẻ dùng một lần -> không tạo nháp"
+
+  - id: RT05
+    description: "Chạy tác vụ bảo trì Dream Memory ban đêm"
+    occurrences:
+      - "Hợp nhất bộ nhớ dream consolidation."
+    expected_skill_name: null
+    min_tool_calls_observed: 8
+    should_draft: false
+    expected_persona: "main"
+    notes: "Automation/Dream session bị loại trừ bởi quy tắc loại trừ trigger"
