@@ -120,8 +120,8 @@ Executor trong log đổi giữa grok-4.6 và gemini flash cùng một phiên �
 
 | Phase | Hạng mục | Upstream? | Ước lượng |
 |-------|----------|-----------|-----------|
-| 1 | A1 evidence pack, A2 `files`, A3 prompt | Không | 1–1.5 ngày |
 | 0 | Đo token theo tool (§5) | Không | 0.5 ngày |
+| 1 | A1 evidence pack, A2 `files`, A3 prompt | Không | 1–1.5 ngày |
 | 2 | B1 ledger + section ghim, B2 done-gate, B4 `next_checkpoint` | Không | 2–2.5 ngày |
 | 3 | C1 checkpoint giữa run, C3 | Không | 0.5 ngày |
 | 4 | C2 commit gate (hook short-circuit) | Có (nhỏ, cộng thêm) | 1 ngày |
