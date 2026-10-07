@@ -47,7 +47,6 @@ const BLANK_AGENT: CoworkerRoomAgentConfig = {
   emoji: "",
   bio: "",
   preset: null,
-  backend: null,
   instructions: "",
 };
 
@@ -320,13 +319,11 @@ function AdvisorTab({ state }: { state: CoworkerSettingsState }) {
 function AgentCard({
   agent,
   presets,
-  detection,
   onChange,
   onRemove,
 }: {
   agent: CoworkerRoomAgentConfig;
   presets: string[];
-  detection: CoworkerSettingsPayload["detection"];
   onChange: (next: CoworkerRoomAgentConfig) => void;
   onRemove: () => void;
 }) {
@@ -381,21 +378,6 @@ function AgentCard({
           emptyLabel={tx("team.ownerModel", "Same model as the coordinator")}
           onChange={(preset) => onChange({ ...agent, preset })}
         />
-        <select
-          aria-label={tx("team.backend", "Runs as")}
-          className={SELECT_CLASS}
-          value={agent.backend ?? ""}
-          onChange={(event) =>
-            onChange({ ...agent, backend: (event.target.value || null) as CoworkerRoomAgentConfig["backend"] })
-          }
-        >
-          <option value="">{tx("team.plainAgent", "Chat agent")}</option>
-          {(["pi", "agy"] as const).map((name) => (
-            <option key={name} value={name}>
-              {name === "pi" ? "Pi" : "agy"} {detection[name]?.found ? "" : `(${tx("coding.notFound", "not found")})`}
-            </option>
-          ))}
-        </select>
       </div>
       <Textarea
         aria-label={tx("team.instructions", "Instructions")}
@@ -429,7 +411,6 @@ function TeamTab({ state }: { state: CoworkerSettingsState }) {
             key={index}
             agent={agent}
             presets={payload.presets}
-            detection={payload.detection}
             onChange={(next) => setAgent(index, next)}
             onRemove={() =>
               patch("room", (prev) => ({ ...prev, agents: prev.agents.filter((_, i) => i !== index) }))
@@ -534,33 +515,22 @@ function RepoRow({
           onChange={(event) => onChange({ ...repo, base_ref: event.target.value })}
         />
       </div>
-      <select
-        aria-label={tx("coding.repoBackend", "Default backend for this repository")}
-        className={SELECT_CLASS}
-        value={repo.backend ?? ""}
-        onChange={(event) => onChange({ ...repo, backend: (event.target.value || null) as typeof repo.backend })}
-      >
-        <option value="">{tx("coding.useDefaultBackend", "Use the global default backend")}</option>
-        <option value="pi">Pi</option>
-        <option value="agy">agy</option>
-      </select>
     </div>
   );
 }
 
 function UnsandboxedToggle({
-  backend,
   checked,
   onChange,
 }: {
-  backend: "pi" | "agy";
+  backend?: "pi";
   checked: boolean;
   onChange: (next: boolean) => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(`coworker.settings.${key}`, { defaultValue: fallback });
   const [confirming, setConfirming] = useState(false);
-  const title = `${backend === "pi" ? "Pi" : "agy"}: ${tx("coding.unsandboxed", "run without an OS sandbox")}`;
+  const title = `Pi: ${tx("coding.unsandboxed", "run without an OS sandbox")}`;
   return (
     <div>
       <Field
@@ -753,7 +723,7 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
           title={tx("coding.enabled", "Enable coding agents")}
           description={tx(
             "coding.enabledHelp",
-            "Lets the agent hand multi-file work to Pi or agy in an isolated git worktree. Merging is always manual.",
+            "Lets the agent hand multi-file work to Pi in an isolated git worktree. Merging is always manual.",
           )}
         >
           <Toggle checked={coding.enabled} label={tx("coding.enabled", "Enable coding agents")} onChange={(enabled) => set({ enabled })} />
@@ -764,18 +734,7 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
         >
           <div className="flex flex-wrap justify-end gap-1.5">
             <DetectionPill info={payload.detection.pi} fallbackName="Pi" />
-            <DetectionPill info={payload.detection.agy} fallbackName="agy" />
           </div>
-        </Field>
-        <Field title={tx("coding.defaultBackend", "Default backend")}>
-          <SegmentedControl
-            value={coding.default_backend}
-            options={[
-              { value: "pi", label: "Pi" },
-              { value: "agy", label: "agy" },
-            ]}
-            onChange={(default_backend) => set({ default_backend })}
-          />
         </Field>
       </SettingsGroup>
 
@@ -909,11 +868,6 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
             checked={coding.pi.allow_unsandboxed}
             onChange={(allow_unsandboxed) => patch("coding", (prev) => ({ ...prev, pi: { ...prev.pi, allow_unsandboxed } }))}
           />
-          <UnsandboxedToggle
-            backend="agy"
-            checked={coding.agy.allow_unsandboxed}
-            onChange={(allow_unsandboxed) => patch("coding", (prev) => ({ ...prev, agy: { ...prev.agy, allow_unsandboxed } }))}
-          />
         </SettingsGroup>
       </section>
 
@@ -928,22 +882,6 @@ function CodingTab({ state }: { state: CoworkerSettingsState }) {
               className="h-9 rounded-full font-mono text-[13px]"
               value={coding.pi.command.join(" ")}
               onChange={(event) => patch("coding", (prev) => ({ ...prev, pi: { ...prev.pi, command: splitCommand(event.target.value) } }))}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-muted-foreground">{tx("coding.agyCommand", "agy command")}</span>
-            <Input
-              className="h-9 rounded-full font-mono text-[13px]"
-              value={coding.agy.command.join(" ")}
-              onChange={(event) => patch("coding", (prev) => ({ ...prev, agy: { ...prev.agy, command: splitCommand(event.target.value) } }))}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-muted-foreground">{tx("coding.agyExtraArgs", "agy extra arguments (one per line)")}</span>
-            <Textarea
-              className="min-h-16 font-mono text-[13px]"
-              value={coding.agy.extra_args.join("\n")}
-              onChange={(event) => patch("coding", (prev) => ({ ...prev, agy: { ...prev.agy, extra_args: splitLines(event.target.value) } }))}
             />
           </label>
           <p className="text-[12px] text-muted-foreground">
@@ -1213,7 +1151,7 @@ export function CoworkerSettingsEntry({
           <SettingsRow
             title={title}
             description={t("coworker.settings.entryHelp", {
-              defaultValue: "Advisor model, teammate agents and coding harnesses (Pi, agy).",
+              defaultValue: "Advisor model, teammate agents and coding harnesses (Pi).",
             })}
           >
             <DialogTrigger asChild>

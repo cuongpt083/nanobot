@@ -408,24 +408,6 @@ async def _run_guest(room: _Room, agent: RoomAgentConfig, delegation: Delegation
 
     svc = services()
     cfg = load_coworker_config()
-    if agent.backend:
-        from nanobot.coworker.coding.runner import CodingRunner
-
-        runner = CodingRunner(cfg, _workspace())
-        task, backend_obj, repo_cfg = await runner.admit_async(
-            brief=delegation.task,
-            session_key=room.session_key,
-            channel=room.channel,
-            chat_id=room.chat_id,
-            backend_name=agent.backend,
-        )
-        text = await asyncio.wait_for(
-            runner.execute_task(task, backend_obj, repo_cfg, wait=True),
-            timeout=cfg.room.guest_timeout_seconds,
-        )
-        cleaned = str(text or "").strip()
-        return GuestResult(text=cleaned) if cleaned else None
-
     if svc is None:
         raise RuntimeError("coworker services are not bound")
     runtime = runtime_for_preset(agent.preset) if agent.preset else room.owner_runtime

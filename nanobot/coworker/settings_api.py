@@ -39,7 +39,7 @@ from nanobot.coworker.transcript import as_dict
 EDITABLE_SECTIONS = ("advisor", "room", "coding", "context")
 DETECT_TIMEOUT_S = 3.0
 GIT_TIMEOUT_S = 3.0
-_KNOWN_BACKENDS = ("pi", "agy")
+_KNOWN_BACKENDS = ("pi",)
 _MAX_ERRORS = 5
 
 
@@ -93,7 +93,6 @@ def detect_backend(name: str, command: list[str]) -> dict[str, Any]:
 def detect_backends(cfg: CoworkerConfig) -> dict[str, dict[str, Any]]:
     return {
         "pi": detect_backend("pi", cfg.coding.pi.command),
-        "agy": detect_backend("agy", cfg.coding.agy.command),
     }
 
 
@@ -312,7 +311,7 @@ _SECRET_ENV = re.compile(r"(API[_-]?KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL)", re.I
 
 def _check_pass_env(cfg: CoworkerConfig) -> None:
     """Harnesses authenticate on their own; the WebUI must not forward secrets to them."""
-    for backend in ("pi", "agy"):
+    for backend in ("pi",):
         for name in getattr(cfg.coding, backend).pass_env:
             if not _ENV_NAME.fullmatch(name):
                 raise CoworkerSettingsError(f"coding.{backend}.pass_env: {name!r} is not a variable name")

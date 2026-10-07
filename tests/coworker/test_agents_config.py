@@ -84,9 +84,12 @@ def test_room_agent_home_validation_relative_and_no_dotdot() -> None:
         RoomAgentConfig(id="bad6", home="\\agents\\sub")
 
 
-def test_room_agent_backend_and_home_mutually_exclusive() -> None:
-    with pytest.raises(ValidationError, match="backend and home cannot be specified together"):
-        RoomAgentConfig(id="coder", backend="pi", home="agents/coder")
+def test_room_agent_backend_is_tolerated_and_migrated() -> None:
+    # Legacy room agents with backend="pi" are safely parsed without backend field
+    agent = RoomAgentConfig.model_validate({"id": "coder", "backend": "pi", "home": "agents/coder"})
+    assert agent.id == "coder"
+    assert agent.home == "agents/coder"
+    assert not hasattr(agent, "backend")
 
 
 def test_coworker_config_roundtrip_with_agent_extensions() -> None:

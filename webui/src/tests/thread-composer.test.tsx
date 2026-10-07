@@ -1898,27 +1898,27 @@ describe("ThreadComposer", () => {
         onSend={onSend}
         placeholder="Type your message..."
         agentMentions={[
-          { id: "agy", kind: "coding", label: "agy", detail: "coding agent", enabled: true },
-          { id: "advisor", kind: "advisor", label: "advisor", detail: "second opinion", enabled: true },
+          { id: "pi", kind: "coding", label: "pi", detail: "coding agent", enabled: true },
+          { id: "advisor", kind: "advisor", label: "advisor", detail: "second review", enabled: true },
         ]}
       />,
     );
 
     const input = screen.getByLabelText("Message input");
-    fireEvent.change(input, { target: { value: "@ag", selectionStart: 3 } });
+    fireEvent.change(input, { target: { value: "@p", selectionStart: 2 } });
 
     expect(screen.getByRole("group", { name: "Agents" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /@agy/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: /@pi/i })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("option", { name: /@advisor/i })).not.toBeInTheDocument();
 
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(input).toHaveValue("@agy ");
+    expect(input).toHaveValue("@pi ");
     expect(onSend).not.toHaveBeenCalled();
 
-    fireEvent.change(input, { target: { value: "@agy fix the login test", selectionStart: 23 } });
+    fireEvent.change(input, { target: { value: "@pi fix the login test", selectionStart: 22 } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend.mock.calls[0][0]).toBe("@agy fix the login test");
+    expect(onSend.mock.calls[0][0]).toBe("@pi fix the login test");
   });
 
   it("keeps keyboard-selected mention options visible while navigating", () => {

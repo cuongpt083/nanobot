@@ -2097,7 +2097,7 @@
     },
     "settings": {
       "title": "Coworker",
-      "entryHelp": "Mô hình cố vấn, các agent đồng đội và coding agent (Pi, agy).",
+      "entryHelp": "Mô hình cố vấn, các agent đồng đội và coding agent (Pi).",
       "tab": { "advisor": "Cố vấn", "team": "Đội ngũ", "coding": "Lập trình", "cache": "Cache" },
       "save": "Lưu",
       "revert": "Bỏ thay đổi",

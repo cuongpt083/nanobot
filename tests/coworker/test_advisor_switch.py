@@ -113,28 +113,28 @@ def test_brainstorm_swaps_the_directive(env) -> None:
 
 # ---------- @mentions ----------
 
-def test_at_agy_annotates_only_that_user_message(env) -> None:
+def test_at_pi_annotates_only_that_user_message(env) -> None:
     env.configure(CoworkerConfig(coding=CodingAgentConfig(enabled=True)))
     env.sessions.get_or_create(KEY)
-    user = _transform("@agy fix the failing login test")[0][1]["content"]
-    assert user.startswith("@agy fix the failing login test")
-    assert "backend='agy'" in user and "coding_agent(action='start'" in user
+    user = _transform("@pi fix the failing login test")[0][1]["content"]
+    assert user.startswith("@pi fix the failing login test")
+    assert "backend='pi'" in user and "coding_agent(action='start'" in user
     assert _transform("no mention here")[0][1]["content"] == "no mention here"
-    assert _transform("mail me at a@agy.com")[0][1]["content"] == "mail me at a@agy.com"
+    assert _transform("mail me at a@pi.com")[0][1]["content"] == "mail me at a@pi.com"
 
 
-def test_at_agy_says_so_when_coding_is_disabled(env) -> None:
+def test_at_pi_says_so_when_coding_is_disabled(env) -> None:
     env.sessions.get_or_create(KEY)
-    assert "coding agents are disabled" in _transform("@agy refactor auth")[0][1]["content"]
+    assert "coding agents are disabled" in _transform("@pi refactor auth")[0][1]["content"]
 
 
 def test_room_agent_with_the_same_id_is_left_to_the_room(env) -> None:
     env.configure(CoworkerConfig(
         coding=CodingAgentConfig(enabled=True),
-        room=RoomConfig(agents=[RoomAgentConfig(id="agy", backend="pi")]),
+        room=RoomConfig(agents=[RoomAgentConfig(id="pi")]),
     ))
     env.sessions.get_or_create(KEY)
-    assert _transform("@agy do it")[0][1]["content"] == "@agy do it"
+    assert _transform("@pi do it")[0][1]["content"] == "@pi do it"
 
 
 def test_at_advisor_follows_the_switch(env) -> None:
@@ -186,7 +186,7 @@ def test_status_lists_mentions(env) -> None:
     status = coworker_session_status(session)
     mentions = {m["id"]: m for m in status["mentions"]}
     assert mentions["writer"]["kind"] == "teammate"
-    assert mentions["agy"]["kind"] == "coding" and mentions["agy"]["enabled"] is True
+    assert mentions["pi"]["kind"] == "coding" and mentions["pi"]["enabled"] is True
     assert mentions["advisor"]["enabled"] is True
     json.dumps(status)
 

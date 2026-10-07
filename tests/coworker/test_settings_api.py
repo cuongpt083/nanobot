@@ -43,7 +43,7 @@ def test_payload_defaults_list_sections_presets_and_detection(cfg_file: Path) ->
     assert payload["config"]["advisor"]["max_uses"] == 10
     assert payload["config"]["context"]["keepalive"]["window_minutes"] == 30
     assert payload["presets"] == ["default", "fast", "strong"]
-    assert set(payload["detection"]) == {"pi", "agy"}
+    assert set(payload["detection"]) == {"pi"}
     assert payload["repos"] == [] and payload["path"] == str(cfg_file)
 
 
@@ -90,7 +90,6 @@ def test_invalid_existing_file_is_never_overwritten(cfg_file: Path) -> None:
         ({"room": {"agents": [{"id": "Bad Id!"}]}}, "room"),
         ({"room": {"agents": [{"id": "a"}, {"id": "a"}]}}, "duplicate agent id"),
         ({"room": {"agents": [{"id": "a", "preset": "nope"}]}}, "room.agents[0].preset"),
-        ({"coding": {"agy": {"extra_args": ["--model=x"]}}}, "disallowed flag"),
         ({"coding": {"pi": {"pass_env": ["ANTHROPIC_API_KEY"]}}}, "looks like a credential"),
         ({"coding": {"pi": {"pass_env": ["not a name"]}}}, "not a variable name"),
         ({"context": {"keepalive": {"window_minutes": 0}}}, "context"),

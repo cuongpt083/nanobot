@@ -22,7 +22,6 @@ function payload(overrides: Partial<CoworkerSettingsPayload> = {}): CoworkerSett
     presets: ["default", "fast", "strong"],
     detection: {
       pi: { name: "pi", command: ["pi"], found: true, path: "/usr/bin/pi", version: "pi 0.84.2", custom: false },
-      agy: { name: "agy", command: ["agy"], found: false, path: null, version: null, custom: false },
     },
     repos: [{ path: "/work/app", ok: true, error: null, branch: "main" }],
     config: {
@@ -45,14 +44,6 @@ function payload(overrides: Partial<CoworkerSettingsPayload> = {}): CoworkerSett
           tools: null,
           extensions: true,
           trust_project_files: false,
-          pass_env: [],
-          allow_unsandboxed: false,
-        },
-        agy: {
-          command: ["agy"],
-          agy_sandbox: true,
-          mode: null,
-          extra_args: [],
           pass_env: [],
           allow_unsandboxed: false,
         },
@@ -310,7 +301,7 @@ describe("CoworkerSettingsEntry", () => {
 describe("CodingAgentsPanel", () => {
   beforeEach(() => vi.restoreAllMocks());
 
-  it("shows Pi and agy detection and links to the Coworker settings", async () => {
+  it("shows Pi detection and links to the Coworker settings", async () => {
     vi.spyOn(api, "fetchCoworkerSettings").mockResolvedValue(payload());
     const onConfigure = vi.fn();
     render(<CodingAgentsPanel onConfigure={onConfigure} />);
@@ -318,8 +309,6 @@ describe("CodingAgentsPanel", () => {
     expect(pi.closest("article")).toHaveTextContent("pi 0.84.2");
     expect(pi.closest("article")).toHaveTextContent("/usr/bin/pi");
     expect(pi.closest("article")).toHaveTextContent("Default backend");
-    const agy = screen.getByText("agy (Antigravity CLI)").closest("article");
-    expect(agy).toHaveTextContent("not found");
     fireEvent.click(screen.getByRole("button", { name: /Configure in Coworker settings/ }));
     expect(onConfigure).toHaveBeenCalledTimes(1);
   });

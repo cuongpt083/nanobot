@@ -98,7 +98,7 @@ def _append_system(messages: list[dict[str, Any]], sections: list[str]) -> list[
     return [head, *messages[1:]]
 
 
-_CODING_BACKENDS = ("pi", "agy")
+_CODING_BACKENDS = ("pi",)
 ADVISOR_MENTION = "advisor"
 
 
@@ -115,7 +115,7 @@ def _with_note(message: dict[str, Any], note: str) -> dict[str, Any] | None:
 def _annotate_mentions(
     messages: list[dict[str, Any]], cfg: CoworkerConfig, *, advisor_on: bool
 ) -> list[dict[str, Any]]:
-    """Tell the model when a user message addresses ``@agy`` / ``@pi`` / ``@advisor``.
+    """Tell the model when a user message addresses ``@pi`` / ``@advisor``.
 
     Derived from each message's own text, so a given message always gets the same bytes and the
     cached prefix of earlier turns is never disturbed.

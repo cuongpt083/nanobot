@@ -15,12 +15,6 @@ const BACKENDS = [
     blurb: "Lean, steerable coding harness (JSONL RPC). Log in inside Pi.",
     badges: ["Git worktree", "Live steering"],
   },
-  {
-    name: "agy" as const,
-    title: "agy (Antigravity CLI)",
-    blurb: "Broad toolset with web and browser research (headless stream). Log in inside agy.",
-    badges: ["Git worktree", "Headless stream"],
-  },
 ];
 
 function stateLabel(
@@ -32,7 +26,7 @@ function stateLabel(
   return info.version ?? tx("coding.installed", "installed");
 }
 
-/** Read-only Pi / agy cards for the Apps page; editing happens in Settings → Coworker. */
+/** Read-only Pi card for the Apps page; editing happens in Settings → Coworker. */
 export function CodingAgentsPanel({ onConfigure }: { onConfigure?: () => void }) {
   const { t } = useTranslation();
   const { token } = useClient();

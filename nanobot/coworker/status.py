@@ -182,7 +182,7 @@ def _teammate_participants(
         if not armed and state == "idle":
             continue
         label = f"{agent.emoji + ' ' if agent.emoji else ''}{agent.name or agent.id}"
-        engine = f"backend:{agent.backend}" if agent.backend else f"preset:{agent.preset or 'default'}"
+        engine = f"preset:{agent.preset or 'default'}"
         out.append(_participant(
             agent.id, "teammate", label, engine, state, task=task, since=since, detail=detail,
         ))
@@ -361,15 +361,14 @@ def coworker_session_status(session: Session) -> dict[str, Any]:
         {"id": a.id, "kind": "teammate", "label": a.name or a.id, "detail": a.bio}
         for a in cfg.room.agents
     ]
-    for backend in ("pi", "agy"):
-        if backend not in room_ids:
-            mentions.append({
-                "id": backend,
-                "kind": "coding",
-                "label": backend,
-                "detail": "coding agent" if cfg.coding.enabled else "coding agent (disabled in settings)",
-                "enabled": cfg.coding.enabled,
-            })
+    if "pi" not in room_ids:
+        mentions.append({
+            "id": "pi",
+            "kind": "coding",
+            "label": "pi",
+            "detail": "coding agent" if cfg.coding.enabled else "coding agent (disabled in settings)",
+            "enabled": cfg.coding.enabled,
+        })
     if "advisor" not in room_ids:
         mentions.append({
             "id": "advisor",

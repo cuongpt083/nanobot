@@ -54,7 +54,6 @@ class RoomAgentConfig(Base):
     emoji: str = ""
     bio: str = ""
     preset: str | None = None  # model preset; None = the owner's runtime
-    backend: Literal["pi"] | None = None  # coding harness backend if used as coder
     instructions: str = ""
     home: str | None = None  # relative to workspace, e.g. "agents/nutri-coach"
     tools: NamePolicy = Field(default_factory=NamePolicy)
@@ -63,6 +62,19 @@ class RoomAgentConfig(Base):
     thread_turns: int = Field(default=8, ge=0, le=50)
     max_iterations: int = Field(default=40, ge=1, le=500)
     output_contract: Literal["none", "default"] = "default"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_fields(cls, data: object) -> object:
+        if isinstance(data, dict) and "backend" in data:
+            data = dict(data)
+            legacy_backend = data.pop("backend")
+            if legacy_backend:
+                logger.warning(
+                    f"RoomAgentConfig: 'backend' field is deprecated and removed from room guests (got {legacy_backend!r}). "
+                    "Room guests now run via AgentRuntime."
+                )
+        return data
 
     @field_validator("id")
     @classmethod
@@ -87,12 +99,6 @@ class RoomAgentConfig(Base):
         if p.drive:
             raise ValueError("home must be a relative path without drive specifications")
         return p.as_posix()
-
-    @model_validator(mode="after")
-    def _validate_backend_and_home(self) -> RoomAgentConfig:
-        if self.backend and self.home:
-            raise ValueError("backend and home cannot be specified together")
-        return self
 
 
 class RoomConfig(Base):
@@ -158,61 +164,44 @@ class PiBackendConfig(Base):
     phases: PiPhases = Field(default_factory=PiPhases)
 
 
-_AGY_DISALLOWED_FLAGS = {
-    "--model",
-    "-model",
-    "--effort",
-    "-effort",
-    "-p",
-    "--print",
-    "-print",
-    "--prompt",
-    "-prompt",
-    "--output-format",
-    "-output-format",
-    "--conversation",
-    "-conversation",
-    "-c",
-    "--continue",
-    "-continue",
-}
-
-
-class AgyBackendConfig(Base):
-    command: list[str] = ["agy"]
-    agy_sandbox: bool = True
-    mode: Literal["accept-edits"] | None = None
-    extra_args: list[str] = Field(default_factory=list)
-    pass_env: list[str] = Field(default_factory=list)
-    allow_unsandboxed: bool = False
-
-    @field_validator("extra_args")
-    @classmethod
-    def _validate_extra_args(cls, args: list[str]) -> list[str]:
-        for arg in args:
-            flag = arg.split("=", 1)[0].strip()
-            if flag in _AGY_DISALLOWED_FLAGS:
-                raise ValueError(f"disallowed flag in extra_args: {flag}")
-        return args
-
 
 class RepoConfig(Base):
     path: str
     acceptance: str | None = None
     base_ref: str = "HEAD"
-    backend: Literal["pi", "agy"] | None = None
+    backend: Literal["pi"] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_repo_backend(cls, data: object) -> object:
+        if isinstance(data, dict) and data.get("backend") == "agy":
+            data = dict(data)
+            logger.warning("RepoConfig: backend 'agy' is no longer supported; defaulting to 'pi'")
+            data["backend"] = "pi"
+        return data
 
 
 class CodingAgentConfig(Base):
     enabled: bool = False
-    default_backend: Literal["pi", "agy"] = "pi"
+    default_backend: Literal["pi"] = "pi"
     pi: PiBackendConfig = Field(default_factory=PiBackendConfig)
-    agy: AgyBackendConfig = Field(default_factory=AgyBackendConfig)
     repos: list[RepoConfig] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_coding_config(cls, data: object) -> object:
+        if isinstance(data, dict):
+            data = dict(data)
+            if data.get("default_backend") == "agy":
+                logger.warning("CodingAgentConfig: default_backend 'agy' is no longer supported; using 'pi'")
+                data["default_backend"] = "pi"
+            if "agy" in data:
+                data.pop("agy")
+        return data
     worktree_root: str | None = None
     sandbox: Literal["none", "bwrap", "seatbelt", "wsl"] = "none"
     # wsl (Windows): distro that runs the harness under bwrap; None = the default distro. The
-    # harness (agy / pi) must be installed and logged in inside it.
+    # harness (pi) must be installed and logged in inside it.
     wsl_distro: str | None = None
     # bwrap / seatbelt / wsl: extra paths the harness may read / write (its own state dir and the
     # project are always mounted). E.g. a node install under $HOME that ``pi`` needs: ["~/.nvm"].

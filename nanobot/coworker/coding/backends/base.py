@@ -111,7 +111,7 @@ class BackendRun(Protocol):
 
 @runtime_checkable
 class CodingBackend(Protocol):
-    """Protocol satisfied by Pi and agy coding harness adapters."""
+    """Protocol satisfied by Pi coding harness adapter."""
 
     @property
     def name(self) -> str: ...
@@ -177,12 +177,4 @@ def backend_for(name: str, config: CoworkerConfig) -> CodingBackend:
             global_sandbox=config.coding.sandbox,
             sandbox_policy=_sandbox_policy(config),
         )
-    if clean == "agy":
-        from nanobot.coworker.coding.backends.agy import AgyBackend
-
-        return AgyBackend(
-            config=config.coding.agy,
-            global_sandbox=config.coding.sandbox,
-            sandbox_policy=_sandbox_policy(config),
-        )
-    raise ValueError(f"Unknown coding backend: {name!r}. Supported: 'pi', 'agy'.")
+    raise ValueError(f"Unknown coding backend: {name!r}. Supported: 'pi'.")

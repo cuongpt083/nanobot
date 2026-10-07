@@ -173,7 +173,7 @@ def test_distill_writes_a_valid_linear_draft(env) -> None:
     assert result.phases == 2 and result.steps == 3
     assert result.validation.ok
     assert [w.ref for w in list_workflows(env.workspace)] == ["sales-draft"]
-    first_step = (result.dir / "steps" / "01-fetch-the-sales-report.md").read_text()
+    first_step = (result.dir / "steps" / "01-fetch-the-sales-report.md").read_text(encoding="utf-8")
     assert "web_fetch ×1" in first_step
 
 

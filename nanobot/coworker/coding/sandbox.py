@@ -1,6 +1,6 @@
 """OS sandbox for coding harnesses (Linux ``bwrap``, macOS ``seatbelt``).
 
-The harness (``agy``, ``pi``) runs with permissions auto-approved, so the only real boundary is the
+The harness (``pi``) runs with permissions auto-approved, so the only real boundary is the
 operating system. ``coding.sandbox`` selects how the harness is started:
 
 * ``bwrap`` (Linux, bubblewrap): the system is mounted read-only, the user's home is an empty tmpfs
@@ -12,7 +12,7 @@ operating system. ``coding.sandbox`` selects how the harness is started:
 
 * ``wsl`` (Windows): the harness runs inside a WSL2 distro under the same ``bwrap`` layout. The
   project stays on the Windows drive (mounted via ``/mnt/<drive>``), but the harness, its tools and
-  its login state (e.g. ``~/.gemini``) live in the distro, so ``agy``/``pi`` must be installed and
+  its login state (e.g. ``~/.gemini``) live in the distro, so ``pi`` must be installed and
   logged in *inside* WSL. Windows files outside the project are not mounted and cannot be seen.
 
 In every mode the network stays open (the harness must reach its model API) and a worktree's

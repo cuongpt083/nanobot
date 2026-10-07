@@ -2047,7 +2047,6 @@ export interface CoworkerRoomAgentConfig {
   emoji: string;
   bio: string;
   preset: string | null;
-  backend: "pi" | "agy" | null;
   instructions: string;
   home?: string | null;
   tools?: CoworkerRoomAgentToolsConfig;
@@ -2113,27 +2112,17 @@ export interface CoworkerPhaseModelsPayload {
   error: string | null;
 }
 
-export interface CoworkerAgyBackendConfig {
-  command: string[];
-  agy_sandbox: boolean;
-  mode: "accept-edits" | null;
-  extra_args: string[];
-  pass_env: string[];
-  allow_unsandboxed: boolean;
-}
-
 export interface CoworkerRepoConfig {
   path: string;
   acceptance: string | null;
   base_ref: string;
-  backend: "pi" | "agy" | null;
+  backend?: "pi" | null;
 }
 
 export interface CoworkerCodingConfig {
   enabled: boolean;
-  default_backend: "pi" | "agy";
+  default_backend: "pi";
   pi: CoworkerPiBackendConfig;
-  agy: CoworkerAgyBackendConfig;
   repos: CoworkerRepoConfig[];
   worktree_root: string | null;
   sandbox: "none" | "bwrap" | "seatbelt" | "wsl";
@@ -2181,7 +2170,7 @@ export interface CoworkerEditableConfig {
 }
 
 export interface CoworkerBackendDetection {
-  name: "pi" | "agy";
+  name: "pi";
   command: string[];
   found: boolean;
   path: string | null;
@@ -2203,7 +2192,7 @@ export interface CoworkerSettingsPayload {
   config: CoworkerEditableConfig;
   path: string;
   presets: string[];
-  detection: Partial<Record<"pi" | "agy", CoworkerBackendDetection>>;
+  detection: Partial<Record<"pi", CoworkerBackendDetection>>;
   repos: CoworkerRepoCheck[];
 }
 

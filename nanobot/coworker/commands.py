@@ -248,7 +248,6 @@ async def cmd_agent(ctx: CommandContext) -> OutboundMessage:
             f"- **Emoji:** {agent.emoji}",
             f"- **Bio:** {agent.bio}",
             f"- **Preset:** {agent.preset or 'inherit'}",
-            f"- **Backend:** {agent.backend or 'none'}",
             f"- **Home:** {agent.home or 'none'}",
             f"- **Memory:** {agent.memory} (thread turns: {agent.thread_turns})",
             f"- **Max Iterations:** {agent.max_iterations}",

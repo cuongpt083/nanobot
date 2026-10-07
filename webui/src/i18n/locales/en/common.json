@@ -2358,7 +2358,7 @@
         "snapshotMaxHelp": "Above this size only a list of files is kept: changes can be listed but not restored."
       },
       "configure": "Configure in Coworker settings",
-      "entryHelp": "Advisor model, teammate agents and coding harnesses (Pi, agy).",
+      "entryHelp": "Advisor model, teammate agents and coding harness (Pi).",
       "loadFailed": "Could not load Coworker settings.",
       "loading": "Loading…",
       "retry": "Retry",

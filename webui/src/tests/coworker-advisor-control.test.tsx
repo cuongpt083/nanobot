@@ -57,7 +57,7 @@ function status(overrides: Partial<CoworkerStatus["advisor"]> = {}, usage?: Cowo
     coding: { enabled: true, tasks: [] },
     participants: [],
     mentions: [
-      { id: "agy", kind: "coding", label: "agy", detail: "coding agent", enabled: true },
+      { id: "pi", kind: "coding", label: "pi", detail: "coding agent", enabled: true },
     ],
   };
 }
@@ -228,7 +228,7 @@ describe("header controls", () => {
     });
     await waitFor(() =>
       expect(onMentionsChange).toHaveBeenCalledWith([
-        { id: "agy", kind: "coding", label: "agy", detail: "coding agent", enabled: true },
+        { id: "pi", kind: "coding", label: "pi", detail: "coding agent", enabled: true },
       ]),
     );
   });

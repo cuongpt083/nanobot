@@ -53,7 +53,7 @@ def test_participants_reflect_coordinator_advisor_room_and_coding(env) -> None:
         room=RoomConfig(agents=[
             RoomAgentConfig(id="researcher", name="Researcher", emoji="🔎"),
             RoomAgentConfig(id="writer", name="Writer"),
-            RoomAgentConfig(id="coder", backend="pi"),
+            RoomAgentConfig(id="coder"),
         ]),
         coding=CodingAgentConfig(enabled=True),
     ))
@@ -86,7 +86,7 @@ def test_participants_reflect_coordinator_advisor_room_and_coding(env) -> None:
     assert researcher["label"] == "🔎 Researcher" and researcher["engine"] == "preset:default"
     assert _by_id(status, "writer")["state"] == "queued"
     coder = _by_id(status, "coder")
-    assert coder["state"] == "error" and coder["engine"] == "backend:pi"
+    assert coder["state"] == "error" and coder["engine"] == "preset:default"
     task = _by_id(status, "ct-1")
     assert task["kind"] == "coding" and task["state"] == "working"
     assert task["detail"]["tools"] == 7 and task["detail"]["last_tool"] == "run_command"

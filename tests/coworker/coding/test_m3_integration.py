@@ -28,7 +28,6 @@ from nanobot.coworker.hook import CoworkerHook
 from nanobot.coworker.runtime import CoworkerServices, set_services
 
 FAKE_PI_SCRIPT = str(Path(__file__).parent / "fake_pi.py")
-FAKE_AGY_SCRIPT = str(Path(__file__).parent / "fake_agy.py")
 
 
 def _init_repo(path: Path) -> Path:
