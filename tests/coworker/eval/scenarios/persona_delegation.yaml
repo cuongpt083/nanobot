@@ -1,0 +1,32 @@
+id: persona-delegation
+title: "Phân công đa chuyên viên với deliverable cụ thể (F3 delegation baseline)"
+prompt: >
+  Dự án 'Cải tiến trải nghiệm người học EduTech':
+  1. Phân tích 3 rào cản tâm lý lớn nhất khiến học viên từ bỏ bài tập trắc nghiệm trên hệ thống LMS.
+  2. Dựa trên phân tích đó, thiết kế một kịch bản Socratic gồm 4 bước (INQUIRY, HINT_1, QUIZ, PASSED)
+     giúp học viên vượt qua tâm lý sợ sai.
+  Hãy điều phối chuyên viên phân tích hành vi và chuyên viên sư phạm để hoàn thành hai deliverable trên.
+expected_agents:
+  - learner-analyst
+  - pedagogy-specialist
+room_agents:
+  - id: learner-analyst
+    name: "Learner Behavior Analyst"
+    emoji: "🔍"
+    bio: "Chuyên gia phân tích hành vi và tâm lý người học trực tuyến"
+    instructions: "Xác định rõ ràng 3 rào cản tâm lý cùng chỉ số tác động định lượng (dropout rate)."
+  - id: pedagogy-specialist
+    name: "Socratic Pedagogy Specialist"
+    emoji: "🎓"
+    bio: "Chuyên gia thiết kế khung bài giảng và phương pháp Socratic"
+    instructions: "Thiết kế chi tiết kịch bản 4 bước tương tác sư phạm dựa trên kết quả phân tích rào cản."
+rubric:
+  criteria:
+    - name: "Delegation & Deliverables"
+      description: "Điều phối đủ cả 2 chuyên viên với deliverable rõ ràng, không trùng lặp nhiệm vụ."
+    - name: "Psychological Insights"
+      description: "Chỉ ra chính xác 3 rào cản tâm lý của người học khi làm bài tập."
+    - name: "Socratic Alignment"
+      description: "Kịch bản sư phạm bám sát đủ 4 bước Socratic (INQUIRY, HINT_1, QUIZ, PASSED)."
+constraints:
+  - "Mỗi chuyên viên phải nhận được định nghĩa deliverable cụ thể."

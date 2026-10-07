@@ -40,7 +40,7 @@ def test_load_all_scenarios() -> None:
     evaluator = CoworkerEvaluator(scenarios_dir=SCENARIOS_DIR, dry_run=True)
     scenarios = evaluator.load_scenarios()
 
-    assert len(scenarios) == 6
+    assert len(scenarios) == 7
     ids = {s["id"] for s in scenarios}
     assert "edutech-course" in ids
     assert "nutritech-plan" in ids
@@ -48,6 +48,7 @@ def test_load_all_scenarios() -> None:
     assert "crm-followup" in ids
     assert "presale-design" in ids
     assert "persona-nutri" in ids
+    assert "persona-delegation" in ids
 
     # Check hash is generated
     for sc in scenarios:
