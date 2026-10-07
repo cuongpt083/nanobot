@@ -850,6 +850,13 @@ class ExecTool(Tool):
         # exempt specific commands (e.g. "rm -rf" inside a build directory)
         # from the hardcoded deny list via configuration. A chained command is
         # only explicitly allowed when every top-level shell segment matches.
+        # Never allow the agent to kill the gateway or its clients, even for
+        # commands that allow_patterns would otherwise exempt.
+        from nanobot.security.process_guard import check_kill_command
+        kill_error = check_kill_command(cmd)
+        if kill_error:
+            return ToolResult.error(kill_error)
+
         segments = self._split_shell_segments(lower)
         explicitly_allowed = bool(self.allow_patterns) and bool(segments) and all(
             any(re.fullmatch(pattern, segment) for pattern in self.allow_patterns)
