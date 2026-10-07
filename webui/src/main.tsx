@@ -4,6 +4,9 @@ import App from "./App";
 import "./globals.css";
 import { initializeI18n } from "./i18n";
 import { initializeLoopbackRuntimeHost } from "./lib/runtime";
+import { desktopPerf } from "./lib/perf";
+
+desktopPerf.mark("webui_index_exec");
 
 // `crypto.randomUUID` is only defined in secure contexts (HTTPS or localhost).
 // LAN access over plain HTTP leaves it undefined, which crashes components that
@@ -27,9 +30,14 @@ if (!root) throw new Error("root element missing");
 initializeLoopbackRuntimeHost();
 
 async function renderWebui(container: HTMLElement) {
+  desktopPerf.mark("webui_i18n_init_start");
   await initializeI18n();
+  desktopPerf.mark("webui_i18n_init_end");
+  desktopPerf.measure("i18n_init", "webui_i18n_init_start", "webui_i18n_init_end");
   /* StrictMode disabled: dev double-invokes state updaters; delta accumulation must stay pure — see useNanobotStream. */
+  desktopPerf.mark("webui_render_root_start");
   ReactDOM.createRoot(container).render(<App />);
+  desktopPerf.mark("webui_render_root_end");
 }
 
 void renderWebui(root);

@@ -19,6 +19,7 @@ import { SessionInfoPopover } from "@/components/thread/SessionInfoPopover";
 import type { ComposerDraftStore } from "@/lib/composer-draft";
 import { CoworkerHeaderControls } from "@/components/coworker/CoworkerHeaderControls";
 import { ContextInspectorPopover } from "@/components/thread/ContextInspectorPopover";
+import { desktopPerf } from "@/lib/perf";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import type {
@@ -791,6 +792,11 @@ export function ThreadShell({
   activeHistoryKeyRef.current = historyKey;
   const currentUiMessagesRef = useRef<UIMessage[] | null>(null);
   const uiRevisionRef = useRef(0);
+
+  useEffect(() => {
+    desktopPerf.mark("thread_shell_mounted");
+    desktopPerf.measure("time_to_chrome", "webui_index_exec", "thread_shell_mounted");
+  }, []);
   const showTemporaryChatControl =
     !hideHeader && !session && !loading && !!onTemporaryChatEnabledChange;
 
