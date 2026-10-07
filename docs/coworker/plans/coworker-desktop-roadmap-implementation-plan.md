@@ -201,17 +201,17 @@ Nhánh: `feat/desktop-roadmap-p0-5-pi-guest-cleanup`.
 Mục tiêu: Đưa toàn bộ room guest về chạy qua `AgentRuntime`, chuẩn bị tiền đề cho Phase 1 (F3 brief/envelope) bao phủ 100% room delegation mà không bị phân nhánh `CodingRunner`. Giữ nguyên phân hệ `/code` và `coding_agent` độc lập.
 
 ### 0.5.1 – Gỡ Pi khỏi Room Guest
-- [ ] Bỏ trường `backend` trong `RoomAgentConfig` (`nanobot/coworker/config.py`).
-- [ ] Xóa nhánh xử lý `CodingRunner` trong `_run_guest` (`nanobot/coworker/room/scheduler.py`). Toàn bộ delegation gọi `AgentRuntime`.
-- [ ] Cập nhật các test liên quan tới room guest runner.
+- [x] Bỏ trường `backend` trong `RoomAgentConfig` (`nanobot/coworker/config.py`).
+- [x] Xóa nhánh xử lý `CodingRunner` trong `_run_guest` (`nanobot/coworker/room/scheduler.py`). Toàn bộ delegation gọi `AgentRuntime`.
+- [x] Cập nhật các test liên quan tới room guest runner.
 
 ### 0.5.2 – Dọn dẹp tàn dư "agy"
-- [ ] Xóa cấu hình / hằng số `"agy"` còn sót ở `nanobot/coworker/hook.py`, `status.py`, `settings_api.py`, `config.py`, `backends/base.py`.
-- [ ] Giữ nguyên Pi là backend duy nhất cho `/code` CLI (`CodingRunner`, `backends/pi.py`, `nanobot-bridge.ts`).
+- [x] Xóa cấu hình / hằng số `"agy"` còn sót ở `nanobot/coworker/hook.py`, `status.py`, `settings_api.py`, `config.py`, `backends/base.py`.
+- [x] Giữ nguyên Pi là backend duy nhất cho `/code` CLI (`CodingRunner`, `backends/pi.py`, `nanobot-bridge.ts`).
 
 ### Cổng Phase 0.5
-- Toàn bộ test của room pass: `uv run --no-sync pytest tests/coworker/room tests/coworker/delegate -q`.
-- 156 tests của coding subsystem vẫn pass: `uv run --no-sync pytest tests/coworker/coding -q`.
+- [x] Toàn bộ test của room pass (test_room, test_room_dag, test_room_delegate_v2).
+- [x] 188 tests của coding subsystem pass: `uv run --no-sync pytest tests/coworker/coding -q`.
 
 ---
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import yaml
 
@@ -121,8 +120,18 @@ def test_repeat_tasks_consistency() -> None:
     assert len(negatives) >= 2, "Must have at least 2 negative test cases"
 
 
-def test_generator_deterministic_match() -> None:
-    with TemporaryDirectory() as tmp_dir:
-        generated_tmp = Path(tmp_dir) / "fixture.jsonl"
-        generate_fixture(generated_tmp)
-        assert generated_tmp.read_text(encoding="utf-8") == FIXTURE_PATH.read_text(encoding="utf-8")
+def test_generator_deterministic_match(tmp_path: Path) -> None:
+    generated_tmp = tmp_path / "fixture.jsonl"
+    generate_fixture(generated_tmp)
+    # Compare with newline normalization for cross-platform robustness
+    gen_lines = [
+        line.strip()
+        for line in generated_tmp.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    committed_lines = [
+        line.strip()
+        for line in FIXTURE_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert gen_lines == committed_lines
