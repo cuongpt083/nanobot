@@ -108,6 +108,7 @@ def test_participants_reflect_coordinator_advisor_room_and_coding(env) -> None:
         brief="awaiting plan",
         status="awaiting_approval",
         phase="await_approval",
+        created_at=_time.time() + 10,
     )
     registry.save(parked)
     status = coworker_session_status(session)
