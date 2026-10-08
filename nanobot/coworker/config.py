@@ -38,6 +38,9 @@ class AdvisorConfig(Base):
     max_tokens: int = Field(default=4096, ge=256, le=64000)
     timeout_seconds: int = Field(default=180, ge=10, le=1800)
     review_nudge: bool = True
+    # Ask the coordinator to consult once before posting a room's final report. Off by default: in the
+    # Phase 0/B eval it roughly doubled tokens per run with no quality gain distinguishable from run noise.
+    room_review_nudge: bool = False
     first_consult_gap: int = Field(default=2, ge=1)
     reconsult_gap: int = Field(default=12, ge=3)
     discussion_gate: Literal["off", "brainstorm", "always"] = "brainstorm"

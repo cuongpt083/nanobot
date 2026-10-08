@@ -36,7 +36,7 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "list_sessions", "read_session", "search_sessions", "list_exec_sessions",
 })
 
-NudgeKind = Literal["first", "reconsult", "coding_result", "discussion", "done_gate"]
+NudgeKind = Literal["first", "reconsult", "coding_result", "discussion", "done_gate", "room_review"]
 
 
 @dataclass(frozen=True)
@@ -207,6 +207,15 @@ def review_nudge_text(decision: NudgeDecision) -> str:
         )
     if decision.kind == "done_gate":
         raise ValueError("done_gate text needs the ledger: use done_gate_text()")
+    if decision.kind == "room_review":
+        # The teammates' results are already in this turn; the advisor sees them in the transcript.
+        return (
+            f"{ADVISOR_REVIEW_MARKER} Your teammates have finished and their results are in the review "
+            "above. Before you post the final consolidated report, call advisor(focus=<the user's goal, what "
+            "each teammate delivered, and what you are unsure about>). It reviews the whole room transcript. "
+            "Then fold any must-fix point into your report, and say plainly which teammate output you "
+            "rejected or sent back. Do not skip the advisor call."
+        )
     if decision.kind == "reconsult":
         return (
             f"{ADVISOR_REVIEW_MARKER} You have done a lot of work ({decision.gap} steps) since your last "

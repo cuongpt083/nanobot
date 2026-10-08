@@ -16,7 +16,7 @@ from nanobot.coworker.advisor import state as advisor_state
 from nanobot.coworker.advisor.consult import current_run, run_consult
 from nanobot.coworker.advisor.evidence import collect_evidence, read_requested_files
 from nanobot.coworker.config import load_coworker_config
-from nanobot.coworker.runtime import live_messages, runtime_for_preset, services
+from nanobot.coworker.runtime import live_messages, runtime_for_preset, services, turn_kind
 from nanobot.coworker.tools_base import CoworkerTool
 
 ADVISOR_TOOL = "advisor"
@@ -116,6 +116,11 @@ class AdvisorTool(CoworkerTool):
                 fallback="Continue on your own judgment and tell the user the advisor preset is misconfigured.",
             )
         brainstorm = eff.mode == advisor_state.MODE_BRAINSTORM
+        # Review turn after room teammates: the work is the teammates' output, not this turn's tools,
+        # so the "orient first" refusal would always fire here and waste the one consult the nudge asks for.
+        from nanobot.coworker.room.scheduler import KIND_ROOM_REVIEW
+
+        room_review = turn_kind(request.metadata) == KIND_ROOM_REVIEW
         messages = live_messages(request.session_key) or list(session.messages)
         cfg = load_coworker_config().advisor
         root = project_root_for(session)
@@ -139,7 +144,11 @@ class AdvisorTool(CoworkerTool):
             timeout_s=load_coworker_config().advisor.timeout_seconds,
             # Brainstorming has no "orient first" phase: the conversation itself is the context.
             allow_thin=(
-                brainstorm or eff.early_refused or eff.uses > 0 or advisor_state.user_requested(session)
+                brainstorm
+                or room_review
+                or eff.early_refused
+                or eff.uses > 0
+                or advisor_state.user_requested(session)
             ),
             session_key=request.session_key,
             brainstorm=brainstorm,

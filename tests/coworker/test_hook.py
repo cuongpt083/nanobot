@@ -289,3 +289,49 @@ async def test_coordinator_turn_is_tracked_while_running(env) -> None:
     assert turn_running_since(KEY) is not None
     await hook.on_finally(_run([]))
     assert turn_running_since(KEY) is None
+
+
+# ---------- room review nudge (Phase B) ----------
+
+ROOM_REVIEW_META = {"injected_event": "coworker", "coworker_kind": "room_review"}
+
+
+@pytest.mark.asyncio
+async def test_room_review_nudges_once_and_names_the_advisor(env, monkeypatch) -> None:
+    _strong_advisor(env, monkeypatch)
+    env.configure(CoworkerConfig(advisor=AdvisorConfig(preset="strong", room_review_nudge=True)))
+    hook = _hook(dict(ROOM_REVIEW_META))
+    await _prime(hook, _tool_messages("room_state"))
+    text = hook.continuation()
+    assert text is not None and text.startswith(policy.ADVISOR_REVIEW_MARKER)
+    assert "advisor(focus" in text
+    assert hook.continuation() is None  # once per turn
+    session = env.sessions.get_or_create(KEY)
+    assert advisor_state.review_nudge(session)["kind"] == "room_review"  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_room_review_stays_quiet_after_a_consult_in_the_same_turn(env, monkeypatch) -> None:
+    _strong_advisor(env, monkeypatch)
+    env.configure(CoworkerConfig(advisor=AdvisorConfig(preset="strong", room_review_nudge=True)))
+    hook = _hook(dict(ROOM_REVIEW_META))
+    await _prime(hook, _tool_messages("room_state"))
+    hook._consulted_this_turn = True  # set by _steer on a successful "ADVISOR (" result
+    assert hook.continuation() is None
+
+
+@pytest.mark.asyncio
+async def test_room_review_is_silent_without_an_advisor(env) -> None:
+    hook = _hook(dict(ROOM_REVIEW_META))
+    await _prime(hook, _tool_messages("room_state"))
+    assert hook.continuation() is None
+
+
+@pytest.mark.asyncio
+async def test_room_review_nudge_is_off_by_default(env, monkeypatch) -> None:
+    """Phase B costs ~2x tokens with no measurable quality gain yet, so it must be opted into."""
+    _strong_advisor(env, monkeypatch)  # advisor on, room_review_nudge left at its default
+    assert AdvisorConfig().room_review_nudge is False
+    hook = _hook(dict(ROOM_REVIEW_META))
+    await _prime(hook, _tool_messages("room_state"))
+    assert hook.continuation() is None

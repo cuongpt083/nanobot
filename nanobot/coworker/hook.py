@@ -261,6 +261,7 @@ class CoworkerHook(AgentHook):
         self._c3_fired = False
         self._gated = False  # done-gate continuation already issued this run
         self._gated_at_write = -1  # commit gate already blocked once for this write count
+        self._consulted_this_turn = False  # a successful advisor consult ran in this turn (room review)
 
     # ---------- lifecycle ----------
 
@@ -362,6 +363,7 @@ class CoworkerHook(AgentHook):
             self._consulted = True
             if isinstance(text, str) and text.lstrip().startswith("ADVISOR ("):
                 self._reviewed_since_write = True
+                self._consulted_this_turn = True
             return
         if not self._steering_eligible():
             return
@@ -825,9 +827,10 @@ class CoworkerHook(AgentHook):
             return None
         cfg = load_coworker_config()
         result_turn = self._kind == KIND_CODING_RESULT
-        if self._kind is not None and not result_turn:
+        room_review_turn = self._kind == scheduler.KIND_ROOM_REVIEW
+        if self._kind is not None and not (result_turn or room_review_turn):
             return None
-        if not result_turn and self._genuine_text is None:
+        if not (result_turn or room_review_turn) and self._genuine_text is None:
             return None
         if is_automated_turn(self._turn.metadata, self._key):
             return None
@@ -857,6 +860,8 @@ class CoworkerHook(AgentHook):
                     self._key, advisor_ledger.open_count(open_ledger),
                 )
                 return policy.done_gate_text(open_ledger)
+        if room_review_turn:
+            return self._room_review_nudge(cfg, eff, session)
         if self._nudged or not cfg.advisor.review_nudge or eff.uses >= eff.max_uses:
             return None
         try:
@@ -896,6 +901,29 @@ class CoworkerHook(AgentHook):
             self._key, decision.kind, decision.gap,
         )
         return policy.review_nudge_text(decision)
+
+
+    def _room_review_nudge(self, cfg: CoworkerConfig, eff: advisor_state.AdvisorEffective, session: Any) -> str | None:
+        """Review turn after teammates finished: ask for one advisor consult before the final report.
+
+        Coding-mode only (brainstorm keeps its own gate). Once per turn, and never after a successful
+        consult in this same turn. Skipped when the advisor budget is spent or its circuit is open.
+        """
+        if eff.mode != advisor_state.MODE_CODING or self._nudged or self._consulted_this_turn:
+            return None
+        if not (cfg.advisor.review_nudge and cfg.advisor.room_review_nudge) or eff.uses >= eff.max_uses:
+            return None
+        try:
+            model_key = runtime_for_preset(eff.preset).model
+        except Exception:
+            return None
+        if breaker_open_seconds(model_key) > 0:
+            logger.warning("coworker: room review nudge skipped, circuit open for {}", model_key)
+            return None
+        self._nudged = True
+        advisor_state.record_review_nudge(session, kind="room_review", now=time.time())
+        logger.info("coworker: room review advisor nudge for {}", self._key)
+        return policy.review_nudge_text(policy.NudgeDecision("room_review", 0))
 
 
 def create_coworker_hook(turn: AgentTurnHookContext) -> AgentHook | None:
