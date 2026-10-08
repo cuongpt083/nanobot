@@ -476,3 +476,23 @@ async def test_mentioning_own_persona_does_not_arm_room(env) -> None:
     assert scheduler.is_armed(session)
 
 
+
+
+@pytest.mark.asyncio
+async def test_clear_room_removes_the_room_and_cancels_its_run() -> None:
+    """``_rooms`` is keyed by room id; clearing by session key must still find and drop the room."""
+    import asyncio
+
+    key = "eval:test:clear_room"
+    room = scheduler._room(key)
+    room.task = asyncio.create_task(asyncio.sleep(3600))
+    room.pending.append(scheduler.Delegation(agent_id="researcher", task="t", by="owner"))
+    assert scheduler.room_id_for(key) in scheduler._rooms
+
+    scheduler.clear_room(key)
+    await asyncio.gather(room.task, return_exceptions=True)
+
+    assert scheduler.room_id_for(key) not in scheduler._rooms
+    assert room.task.cancelled()
+    assert room.pending == []
+    scheduler.clear_room(key)  # clearing an unknown room is a no-op

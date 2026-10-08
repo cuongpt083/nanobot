@@ -752,7 +752,8 @@ def _review_priority(guest: GuestResult | None) -> int:
 
 def clear_room(session_key: str) -> None:
     """Clear in-memory room state on reset."""
-    room = _rooms.pop(session_key, None)
+    # ``_rooms`` is keyed by room id (see ``_room``), not by session key.
+    room = _rooms.pop(room_id_for(session_key), None)
     if room is not None:
         if room.task is not None and not room.task.done():
             room.task.cancel()
