@@ -39,6 +39,7 @@ from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import cache_policy, keepalive, keepalive_state, metrics, optimizer
 from nanobot.coworker.context.tools import WASTED_TOOL, wasted_ids
+from nanobot.coworker.image.tools import IMAGE_TOOLS
 from nanobot.coworker.persona import get_persona_id, resolve_persona
 from nanobot.coworker.room import scheduler
 from nanobot.coworker.room.tools import ROOM_TOOLS, room_armed_for
@@ -736,6 +737,8 @@ class CoworkerHook(AgentHook):
             hidden.add(CODING_TOOL)
         if not cfg.staging.enabled:
             hidden.add(STAGED_TOOL)
+        if not cfg.image.enabled:
+            hidden.update(IMAGE_TOOLS)
 
         if persona_agent is not None:
             if persona_agent.memory != "thread+notes":

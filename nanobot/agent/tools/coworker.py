@@ -8,6 +8,13 @@ from nanobot.coworker.advisor.tool import AdvisorTool
 from nanobot.coworker.agents.notes_tool import AgentNotesTool
 from nanobot.coworker.coding.tools import CodingAgentTool
 from nanobot.coworker.context.tools import MarkContextWastedTool
+from nanobot.coworker.image.tools import (
+    ImageAnnotationsReadTool,
+    ImageCompositeTool,
+    ImageEditTool,
+    ImageVersionSaveTool,
+    RenderTextTool,
+)
 from nanobot.coworker.room.tools import AgentsListTool, RoomDelegateTool, RoomStateTool
 from nanobot.coworker.staged.tools import FileWriteStagedTool
 from nanobot.coworker.workflows.tools import WorkflowDistillTool, WorkflowRunTool
@@ -18,6 +25,11 @@ __all__ = [
     "AgentsListTool",
     "CodingAgentTool",
     "FileWriteStagedTool",
+    "ImageAnnotationsReadTool",
+    "ImageCompositeTool",
+    "ImageEditTool",
+    "ImageVersionSaveTool",
+    "RenderTextTool",
     "MarkContextWastedTool",
     "RoomDelegateTool",
     "RoomStateTool",

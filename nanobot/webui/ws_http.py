@@ -843,6 +843,10 @@ class GatewayHTTPHandler:
         if m:
             return self._handle_workspace_read(request, m.group(1), m.group(2))
 
+        m = re.match(r"^/api/sessions/([^/]+)/image-versions/([0-9a-f]{32})$", got)
+        if m:
+            return self._handle_image_version(request, m.group(1), m.group(2))
+
         m = re.match(r"^/api/sessions/([^/]+)/workspace/(write|rename|delete|resolve|tabs)$", got)
         if m:
             return self._handle_workspace_mutation(request, m.group(1), m.group(2))
@@ -1284,6 +1288,27 @@ class GatewayHTTPHandler:
         return _http_json_response(
             {"error": error.message, **error.details},
             status=error.status,
+            extra_headers=_NO_STORE_HEADERS,
+        )
+
+    def _handle_image_version(self, request: WsRequest, key: str, version_id: str) -> Response:
+        """A temporary image version of this session (edit results, screenshots). Scoped to the session."""
+        from nanobot.coworker.image.versions import resolve_version
+
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        decoded_key = _decode_api_key(key)
+        if decoded_key is None:
+            return _http_error(400, "invalid session key")
+        if not _is_websocket_channel_session_key(decoded_key):
+            return _http_error(404, "session not found")
+        target = resolve_version(decoded_key, version_id)
+        if target is None:
+            return _http_error(404, "image version not found")
+        content_type = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}[target.suffix]
+        return _http_response(
+            target.read_bytes(),
+            content_type=content_type,
             extra_headers=_NO_STORE_HEADERS,
         )
 

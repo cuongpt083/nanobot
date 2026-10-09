@@ -269,6 +269,14 @@ class StagingConfig(Base):
     enabled: bool = False
 
 
+class ImageReviewConfig(Base):
+    """Image review (Phase 9): region edits in the image pane. Off until the pane is verified in a browser."""
+
+    enabled: bool = False
+    # Font for render_text; unset means a system font is looked up (Arial on Windows).
+    font_path: str | None = None
+
+
 class CoworkerConfig(Base):
     advisor: AdvisorConfig = Field(default_factory=AdvisorConfig)
     room: RoomConfig = Field(default_factory=RoomConfig)
@@ -276,6 +284,7 @@ class CoworkerConfig(Base):
     workflows: WorkflowConfig = Field(default_factory=WorkflowConfig)
     coding: CodingAgentConfig = Field(default_factory=CodingAgentConfig)
     staging: StagingConfig = Field(default_factory=StagingConfig)
+    image: ImageReviewConfig = Field(default_factory=ImageReviewConfig)
 
     def agent(self, agent_id: str) -> RoomAgentConfig | None:
         key = agent_id.strip().lstrip("@").lower()
