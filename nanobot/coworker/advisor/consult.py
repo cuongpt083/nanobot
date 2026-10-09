@@ -87,6 +87,47 @@ LEDGER_INSTRUCTION = "\n".join([
     "- Each entry at most ~160 characters; at most 6 per list.",
 ])
 
+OUTPUT_TEMPLATE = "\n".join([
+    "",
+    "Write the guidance part in exactly this order (omit a section only when it would be empty):",
+    "Verdict: proceed | revise | stop, with one sentence of reason.",
+    "Goal: one sentence on what you understand the executor is trying to achieve. If that differs from "
+    "what it is doing, say so.",
+    "Definition of done: 3-6 numbered conditions. Each must be verifiable: say HOW (a command, a file "
+    "state, or an observable behaviour). Describe the target, not the method.",
+    "How to: at most 8 ordered steps. Each step gives the action, the file or command, and the expected "
+    "result. Guide the executor; do not write the deliverable for it.",
+    "Risks / Do not: at most 4 items.",
+    "Unverified: executor claims you could not verify from the transcript or the harness evidence.",
+    "If you lack the information to state a condition, put it under Unverified or name the file to read; "
+    "never invent one.",
+])
+
+LEDGER_INSTRUCTION_V2 = "\n".join([
+    "",
+    "After your guidance, end with EXACTLY ONE fenced ```json block, the advisor ledger the harness "
+    "tracks for the executor:",
+    '{"verdict": "proceed"|"revise"|"stop", "goal": string|null, '
+    '"done_when": [{"text": string, "check": string|null, "status": "open"|"met"|"unknown"}], '
+    '"steps": [string], "must_fix": [string], "do_not": [string], "verify": [string], '
+    '"pitfalls": [string], "unverified": [string], "next_checkpoint": string|null}',
+    "- must_fix: defects you saw in what already exists. verify: things to check before trusting work "
+    "already done. done_when: the definition of done for the WHOLE task, looking forward (the same list "
+    "as the Definition of done section). steps: the How to steps.",
+    "- must_fix / verify: ONLY items that are still open now. If the section 'Open advisor ledger' "
+    "lists items, repeat the ones still unresolved verbatim and omit the ones the transcript or "
+    "evidence shows are done — you are the only one who closes items.",
+    "- done_when: send the FULL list every time and never drop an item to close it. Set status to "
+    '"met" only when the transcript or harness evidence shows it, "unknown" when you cannot tell, '
+    'otherwise "open". "check" says how to verify it (command, file or observable behaviour).',
+    "- do_not: things the executor must not do. pitfalls: recurring mistakes to avoid for the rest "
+    "of the session (a tool misuse you saw repeated).",
+    "- next_checkpoint: when you want to be consulted again, one of `before_write:<glob>` "
+    "(e.g. before_write:webui/src/**), `after_exec:<regex>` (e.g. after_exec:pytest|vitest), "
+    "`after_steps:<n>`; or null.",
+    "- Each entry at most ~160 characters; at most 6 per list and 8 steps.",
+])
+
 BRAINSTORM_SYSTEM_PROMPT = "\n".join([
     "You are a senior thinking partner. Another AI agent (the \"executor\") is discussing a topic with "
     "a user and wants a second opinion before answering.",
@@ -101,6 +142,10 @@ BRAINSTORM_SYSTEM_PROMPT = "\n".join([
     "",
     "Reply with your reasoning only. You have no tools and take no actions.",
 ])
+
+TEMPLATE_BREVITY = (
+    "Aim for about 400 words in total, not counting the JSON block: specific beats comprehensive."
+)
 
 ADVISOR_BREVITY = (
     "Keep your guidance under ~300 words — a focused starting point, not a comprehensive plan — "
@@ -230,6 +275,7 @@ def build_consult_prompt(
     *,
     evidence: str | None = None,
     ledger_text: str | None = None,
+    template: bool = False,
 ) -> tuple[str, int]:
     system_prompt = next(
         (content_text(m.get("content")) for m in messages if m.get("role") == "system"), ""
@@ -256,7 +302,7 @@ def build_consult_prompt(
         if focus and focus.strip()
         else "Review the session and advise on the best course of action from here."
     )
-    parts += ["", ADVISOR_BREVITY]
+    parts += ["", TEMPLATE_BREVITY if template else ADVISOR_BREVITY]
     return "\n".join(parts), dropped
 
 
@@ -273,6 +319,7 @@ async def run_consult(
     evidence: str | None = None,
     ledger: bool = False,
     ledger_text: str | None = None,
+    template: bool = False,
 ) -> ConsultResult:
     """One-shot, tool-less completion on the advisor runtime."""
     model_key = str(getattr(runtime, "model", "") or "advisor")
@@ -291,11 +338,13 @@ async def run_consult(
         )
 
     prompt, dropped = build_consult_prompt(
-        messages, focus, evidence=evidence, ledger_text=ledger_text
+        messages, focus, evidence=evidence, ledger_text=ledger_text, template=template
     )
     system_prompt = BRAINSTORM_SYSTEM_PROMPT if brainstorm else ADVISOR_SYSTEM_PROMPT
+    if template and not brainstorm:
+        system_prompt += OUTPUT_TEMPLATE
     if ledger and not brainstorm:
-        system_prompt += LEDGER_INSTRUCTION
+        system_prompt += LEDGER_INSTRUCTION_V2 if template else LEDGER_INSTRUCTION
     request = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt},

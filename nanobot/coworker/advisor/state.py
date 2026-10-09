@@ -176,18 +176,22 @@ def record_exchange(
     advice: str,
     mode: str,
     now: float,
+    shape: dict[str, int] | None = None,
 ) -> None:
     """Keep the latest question/answer pairs so the WebUI can show what the executor asked."""
     slot = _slot(session)
     history: list[Any] = as_list(slot.get("history")) or []
-    history.append({
+    entry: dict[str, Any] = {
         "at": now,
         "model": model,
         "mode": mode,
         "focus": (focus or "")[:FOCUS_MAX_CHARS] or None,
         "advice": advice[:ADVICE_MAX_CHARS],
         "n": int(slot.get("uses", 0) or 0),
-    })
+    }
+    if shape is not None:
+        entry["shape"] = shape
+    history.append(entry)
     slot["history"] = history[-HISTORY_LIMIT:]
 
 

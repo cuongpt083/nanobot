@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from nanobot.agent.tools.base import ToolResult, tool_parameters
 from nanobot.coworker import metrics_store
 from nanobot.coworker.advisor import ledger as advisor_ledger
@@ -134,6 +136,7 @@ class AdvisorTool(CoworkerTool):
                     messages, root, requested_files=requested, run_messages=current_run(messages)
                 )
         use_ledger = cfg.ledger and not brainstorm
+        template = cfg.output_template and not brainstorm
         previous_ledger = advisor_state.ledger(session) if use_ledger else None
         started = time.monotonic()
         result = await run_consult(
@@ -154,7 +157,8 @@ class AdvisorTool(CoworkerTool):
             brainstorm=brainstorm,
             evidence=evidence or None,
             ledger=use_ledger,
-            ledger_text=advisor_ledger.render(previous_ledger) or None,
+            ledger_text=advisor_ledger.render(previous_ledger, steps=True) or None,
+            template=template,
         )
         if result.code not in ("insufficient_context", "advisor_unavailable") and result.error != (
             "session transcript is empty"
@@ -193,8 +197,13 @@ class AdvisorTool(CoworkerTool):
         scan = policy.scan_run(messages)
         text = result.text
         parsed: dict[str, Any] | None = None
+        reply_shape: dict[str, int] | None = None
         if use_ledger:
             text, parsed = advisor_ledger.parse_ledger(text)
+            if template:
+                # Measured on this reply alone: the merged ledger would hide a missing definition of done.
+                reply_shape = advisor_ledger.shape(parsed)
+                logger.info("advisor template completeness {}", reply_shape)
             if parsed is not None:
                 parsed["at"] = time.time()
                 parsed = advisor_state.apply_ledger(session, parsed)
@@ -207,6 +216,7 @@ class AdvisorTool(CoworkerTool):
             advice=text,
             mode=eff.mode,
             now=time.time(),
+            shape=reply_shape,
         )
         metrics_store.record_advisor_consult(
             model=result.model or eff.preset,

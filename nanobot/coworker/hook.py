@@ -673,7 +673,9 @@ class CoworkerHook(AgentHook):
                 open_ledger = advisor_state.ledger(session)
                 if advisor_ledger.has_content(open_ledger):
                     sections.append(
-                        directives.advisor_commitments(advisor_ledger.render(open_ledger, ids=False))
+                        directives.advisor_commitments(
+                            advisor_ledger.render(open_ledger, ids=False, unmet_done_only=True)
+                        )
                     )
         if room_on:
             roster_agents = (
@@ -852,12 +854,15 @@ class CoworkerHook(AgentHook):
             and scan.work_total > 0
         ):
             open_ledger = advisor_state.ledger(session)
-            if open_ledger is not None and policy.done_gate_applies(open_ledger):
+            gate_dod = cfg.advisor.output_template and cfg.advisor.done_gate_done_when
+            if open_ledger is not None and policy.done_gate_applies(
+                open_ledger, include_done_when=gate_dod
+            ):
                 self._gated = True
                 advisor_state.record_review_nudge(session, kind="done_gate", now=time.time())
                 logger.info(
                     "coworker: advisor done-gate for {} ({} open items)",
-                    self._key, advisor_ledger.open_count(open_ledger),
+                    self._key, advisor_ledger.open_count(open_ledger, include_done_when=gate_dod),
                 )
                 return policy.done_gate_text(open_ledger)
         if room_review_turn:

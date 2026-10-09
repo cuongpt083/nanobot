@@ -49,6 +49,11 @@ class AdvisorConfig(Base):
     # Steering (docs/coworker/proposals/advisor-steering.md); each flag is an independent kill switch.
     evidence_pack: bool = True  # A1/A2: harness-collected git/diff/test evidence for consults
     ledger: bool = True  # B1-B4: structured advice ledger, done-gate, advisor checkpoints
+    # Fixed advice template (goal, definition of done, how-to) and the matching ledger fields. Off by default
+    # until measured (docs/coworker/plans/advisor-output-template.md).
+    output_template: bool = False
+    # Let unmet definition-of-done items hold the done-gate too (needs output_template).
+    done_gate_done_when: bool = False
     mid_run_checkpoints: bool = True  # C1/C3: notes on tool results mid-run
     checkpoint_files: int = Field(default=5, ge=2)  # distinct files written since the last consult
     commit_gate: bool = True  # C2: block a first commit/push/reset/rm until reviewed

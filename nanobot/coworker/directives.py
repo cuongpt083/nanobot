@@ -93,7 +93,7 @@ ADVISOR = "\n".join([
     "",
 ])
 
-COMMITMENTS_MAX_CHARS = 1500
+COMMITMENTS_MAX_CHARS = 2000
 
 
 def advisor_commitments(ledger_text: str) -> str:

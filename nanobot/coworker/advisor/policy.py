@@ -156,9 +156,12 @@ def is_irreversible_call(tool: str, arguments: Any) -> bool:
     return _IRREVERSIBLE_RE.search(command) is not None
 
 
-def done_gate_applies(ledger: dict[str, Any] | None) -> bool:
-    """The executor is about to stop while the advisor still has open ``must_fix``/``verify`` items."""
-    return advisor_ledger.open_count(ledger) > 0
+def done_gate_applies(ledger: dict[str, Any] | None, *, include_done_when: bool = False) -> bool:
+    """The executor is about to stop while the advisor still has open ``must_fix``/``verify`` items.
+
+    With ``include_done_when`` an unmet definition-of-done item also counts.
+    """
+    return advisor_ledger.open_count(ledger, include_done_when=include_done_when) > 0
 
 
 def decide_review_nudge(
@@ -238,13 +241,17 @@ def review_nudge_text(decision: NudgeDecision) -> str:
     )
 
 
+def _unmet_done_phrase(ledger: dict[str, Any]) -> str:
+    return " (and each Definition-of-done item not yet met)" if advisor_ledger.unmet_done(ledger) else ""
+
+
 def done_gate_text(ledger: dict[str, Any]) -> str:
     """Continuation when the executor tries to finish with advisor items still open."""
     return (
         f"{ADVISOR_REVIEW_MARKER} You are about to finish, but your advisor still has OPEN items "
         "from its earlier review:\n\n"
         f"{advisor_ledger.render(ledger)}\n\n"
-        "For each Must fix / Verify item: do it now and show the evidence (tool output), or tell the user "
+        f"For each Must fix / Verify item{_unmet_done_phrase(ledger)}: do it now and show the evidence (tool output), or tell the user "
         "plainly that you are not doing it and why. Do not report the task as complete while an item is "
         "silently unaddressed. If you changed things, call advisor() once more so it can close the items."
     )
