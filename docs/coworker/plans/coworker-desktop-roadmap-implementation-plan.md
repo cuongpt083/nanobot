@@ -623,50 +623,57 @@ Giữ test từ chối path ngoài workspace (`test_handle_file_preview_rejects_
 
 ## Phase 8 – Editor G2 staged / diff (3–4 ngày)
 
-Nhánh: `feat/desktop-roadmap-p8-editor-g2`. Chốt Q2 trước khi merge.
+Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.** Phần ghi có duyệt và diff đã code và test; chat↔editor (8.3), duyệt từng hunk, và kiểm chứng trên trình duyệt thật chưa làm.
 
 ### 8.1 – Staged write
 
-- [ ] Tool `file_write_staged`: ghi vùng chờ, kèm `base_version`.
-- [ ] Quy tắc: Mọi file agent ghi ngoài thư mục nháp (ví dụ `.coworker/drafts/`) hoặc đang có tab mở trong editor (webview báo về qua WebSocket, gateway là SoT) đều bắt buộc qua staged write. Ghi trực tiếp chỉ cho phép nếu nằm trong thư mục nháp và không mở tab.
-- [ ] `changes.list` / `changes.resolve` (hunk hoặc cả file).
-- [ ] ED-16: version lệch → từ chối, agent phải đọc lại.
+- [x] Tool `file_write_staged` (`nanobot/coworker/staged/tools.py`): ghi vào hàng chờ kèm `base_version`, không ghi lên đĩa cho tới khi người dùng chấp nhận.
+- [x] Quy tắc (`nanobot/coworker/staged/guard.py`, gắn trong `CoworkerHook.before_execute_tool`): ghi trực tiếp chỉ được vào `.coworker/drafts/` và file không mở trong tab. `apply_patch` không đọc được đường dẫn thì bị chặn. Cờ `coworker.staging.enabled` **mặc định tắt**; khi tắt, tool bị ẩn và guard không chạy.
+- [x] `changes` (đọc, `GET .../workspace/changes`) và `resolve` (`session.workspace.resolve`, accept hoặc reject cả file). Hunk-level chưa làm.
+- [x] ED-16: version lệch → 409, đề xuất giữ ở trạng thái chờ, agent phải đọc lại. Đã test.
+- [x] Đề xuất mới cho cùng một đường dẫn thay thế đề xuất cũ (`superseded`).
 
 ### 8.2 – Diff UI
 
-- [ ] Monaco diff: side-by-side / inline.
-- [ ] Accept/reject hunk và cả file.
-- [ ] Danh sách chờ duyệt + tên persona.
-- [ ] ED-15: tab đang mở bị agent sửa → badge + diff vs buffer user (không mất ký tự user).
+- [x] Monaco diff side-by-side, chỉ đọc (`DiffView.tsx`). Chế độ inline chưa làm.
+- [x] Accept / reject cả file (`ChangeReview.tsx`). Accept hunk chưa làm.
+- [x] Danh sách chờ duyệt có tên persona (`by`) trong nút đếm và trên màn duyệt.
+- [ ] ED-15: tab đang mở bị agent sửa → badge trên tab. **Chưa.** Hiện chỉ có: nếu chấp nhận một đề xuất cho file đang mở và chưa có thay đổi, buffer được tải lại; nếu có thay đổi chưa lưu, hiện banner xung đột (không mất ký tự user).
 
 ### 8.3 – Chat ↔ editor
 
-- [ ] ED-12: bôi đen → hỏi agent (path, line range, text).
-- [ ] ED-13: `@file` trong chat mở tab.
-- [ ] ED-14 `editor_context`: opt-in (Q5).
+- [ ] ED-12: bôi đen → hỏi agent (path, line range, text). **Chưa làm.**
+- [ ] ED-13: `@file` trong chat mở tab. **Chưa làm.**
+- [ ] ED-14 `editor_context`: opt-in (Q5). **Chưa làm.**
 
 ### 8.4 – Advisor và steering (phụ thuộc chéo)
 
-Advisor chỉ nhận biết việc ghi file qua `WRITE_TOOLS = {write_file, edit_file, apply_patch}` (`nanobot/coworker/advisor/evidence.py`). Staged write không nằm trong
-tập này và chưa lên đĩa cho tới khi người dùng duyệt, nên nếu không cập nhật, advisor sẽ không thấy các lần ghi đó (đếm bước làm việc, commit gate, gói evidence).
-
-- [ ] Thêm `file_write_staged` vào `WRITE_TOOLS` và vào `tool_call_paths` / `params_paths` (đọc đường dẫn từ đối số của tool mới).
-- [ ] Gói evidence đọc nội dung đang chờ duyệt từ vùng staged cho các file chưa được chấp nhận (ghi rõ "chưa áp dụng"), thay vì chỉ dựa vào `git diff`.
-- [ ] Test: một lần ghi staged được tính là bước làm việc và là "write" cho commit gate; evidence nêu file đang chờ duyệt.
+- [x] Thêm `file_write_staged` vào `WRITE_TOOLS` (`nanobot/coworker/advisor/evidence.py`). `params_paths` đọc khóa `path` chung nên đường dẫn được nhận dạng.
+- [ ] Gói evidence đọc nội dung đang chờ duyệt cho các file chưa được chấp nhận (ghi "chưa áp dụng"). **Chưa làm**; evidence hiện vẫn dựa vào `git diff`.
+- [ ] Test: một lần ghi staged được đếm là bước làm việc và là "write" cho commit gate. **Chưa có test riêng**; mới có test guard và test tập `WRITE_TOOLS` gián tiếp.
 - Xem `advisor-room-integration.md` (mục 11) cho các vị trí artifact liên quan.
+
+### Kết quả Phase 8 (đo ngày 09/10/2026)
+
+- **Lệch khỏi plan:** duyệt đi qua WebSocket mutation (`session.workspace.resolve`, `session.workspace.tabs`), giống Phase 7; danh sách đề xuất là GET. Tên persona lấy từ `get_persona_id`, mặc định `coordinator`.
+- **Test:** `tests/coworker/test_staged_writes.py` 17 pass (store: đề xuất, xung đột, thay thế, accept, reject, ngoài project; guard qua `CoworkerHook`). WebUI: `staged-change-review.test.tsx` 6 pass; `workspace-editor.test.tsx` 8 pass; `file-preview-edit-entry.test.tsx` 2 pass. Toàn bộ WebUI vẫn đúng 11 lỗi có sẵn (i18n zh-CN, sw.test.ts).
+- **Chưa có test:** route WebSocket `session.workspace.resolve` và `session.workspace.tabs` (chỉ kiểm tra qua store và hàm); luồng agent thật ghi tệp đề xuất rồi người dùng duyệt.
+- **Chưa kiểm chứng:** trình duyệt thật; agent thật chọn `file_write_staged` khi cờ bật.
 
 ### Test
 
-- Agent `write_file` thường bị chặn (hoặc chuyển staged) ngoài auto_accept — **cần seam tool filesystem**; ghi rõ file core/`coworker` hook.
-- Accept một hunk không đụng hunk khác.
-- Conflict: user typing vs staged apply.
-- e2e: delegate ghi file → hiện diff → accept → disk đúng.
+- Agent `write_file` thường bị chặn ngoài thư mục nháp: **đã test** qua hook (`_staging_block`).
+- Accept một hunk không đụng hunk khác: **chưa** (chưa có hunk).
+- Conflict: user đang gõ và có đề xuất được chấp nhận: **đã test** (banner, không ghi đè).
+- e2e: delegate ghi file → hiện diff → accept → disk đúng: **chưa**.
 
 ### Cổng G2
 
-- Mọi file agent ghi ngoài thư mục nháp hoặc đang mở trong tab editor đều qua bước duyệt staged/diff.
-- Ghi trực tiếp chỉ cho phép nếu trong thư mục nháp và không mở tab.
-- Bôi đen hỏi agent: chat nhận đúng path + line range.
+- [x] Mọi file agent ghi ngoài thư mục nháp hoặc đang mở trong tab editor đều đi qua bước duyệt (khi cờ bật).
+- [x] Ghi trực tiếp chỉ cho phép trong thư mục nháp và khi không mở tab.
+- [ ] Bôi đen hỏi agent: chat nhận đúng path + line range. **Chưa** (8.3).
+
+**Kết luận:** chưa đạt G2 vì còn 8.3 và ED-15. Có thể bật `coworker.staging.enabled` để thử phần duyệt đề xuất, nhưng nên giữ tắt mặc định cho đến khi kiểm chứng trên trình duyệt.
 
 ---
 
