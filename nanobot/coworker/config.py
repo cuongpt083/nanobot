@@ -277,6 +277,23 @@ class ImageReviewConfig(Base):
     font_path: str | None = None
 
 
+class BrowserConfig(Base):
+    """The BrowserSkill browser tools (Phase 10). Off until the daemon and extension are checked in a browser."""
+
+    enabled: bool = False
+    # The bsk program; unset means ``bsk`` on PATH. BSK_HOME for the daemon; unset means bsk's default.
+    bsk_path: str | None = None
+    home: str | None = None
+    max_per_key: int = 2
+    max_total: int = 5
+    idle_ttl_minutes: int = 30
+    command_timeout_s: int = 120
+    deny_domains: list[str] = Field(default_factory=lambda: [
+        "gmail.com", "mail.google.com", "outlook.com", "outlook.live.com", "outlook.office.com",
+    ])
+    interact_personas: list[str] = Field(default_factory=lambda: ["marketer", "designer", "sales"])
+
+
 class CoworkerConfig(Base):
     advisor: AdvisorConfig = Field(default_factory=AdvisorConfig)
     room: RoomConfig = Field(default_factory=RoomConfig)
@@ -285,6 +302,7 @@ class CoworkerConfig(Base):
     coding: CodingAgentConfig = Field(default_factory=CodingAgentConfig)
     staging: StagingConfig = Field(default_factory=StagingConfig)
     image: ImageReviewConfig = Field(default_factory=ImageReviewConfig)
+    browser: BrowserConfig = Field(default_factory=BrowserConfig)
 
     def agent(self, agent_id: str) -> RoomAgentConfig | None:
         key = agent_id.strip().lstrip("@").lower()

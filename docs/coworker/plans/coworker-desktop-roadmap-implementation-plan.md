@@ -26,7 +26,7 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | đã code và test (nhánh `feat/desktop-roadmap-p7-editor-g1`); chưa kiểm chứng trên trình duyệt; chưa có watch `fs.changed` | Mở 1 MB < 1 s; không qua Tauri `invoke` |
 | 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa (UI #4; kèm cập nhật advisor) | File ngoài drafts hoặc tab đang mở đều qua staged review |
 | 9 | Image G3 (Konva + skill) | 4–5 ngày | đã code và test (nhánh `feat/desktop-roadmap-p9-image`); chưa kiểm chứng trên Desktop; IM-12…14 làm một phần (khóa hình học vùng đã đạt và cây phiên bản chưa có) | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
-| 10 | BrowserSkill P0–P4 (local-only, no Docker) + pane ảnh IM-17 | 9–14 ngày | cuối | 0 session treo trước khi bật `interact` |
+| 10 | BrowserSkill P0–P4 (local-only, no Docker) + pane ảnh IM-17 | 9–14 ngày | bước 1 (phía nanobot, P1 một phần) đã code và test với bsk giả lập; kiểm chứng hợp đồng bsk thật đã làm cho luồng không cần trình duyệt; chưa có daemon + extension + Chrome thật | 0 session treo trước khi bật `interact` |
 
 Đánh dấu `- [x]` trong từng phase khi xong và đã qua cổng. Không sang phase sau nếu cổng fail, trừ khi có quyết định dừng/bỏ rõ ràng.
 
@@ -735,6 +735,27 @@ G4 (sticky header sequence, version tree đầy đủ, PV-08) **không** nằm t
 ## Phase 10 – BrowserSkill Mức 2 + pane ảnh IM-17 (9–14 ngày)
 
 Làm **cuối**. Local desktop only. Không Docker/VPS.
+
+### Trạng thái (09/10/2026)
+
+- **Nguồn:** BrowserSkill được clone tại `C:\Users\Admin\Workspaces\BrowserSkill` (commit `7ba5ea9d`; commit `3f10983` của đặc tả có trong lịch sử). `bsk` đã build từ nguồn này (`cargo build -p bsk`, thư mục build nằm ngoài clone).
+- **Đã làm (bước 1, phía nanobot), trong `nanobot/coworker/browser/`:** `runner.py` (gọi `bsk --json …`, đọc envelope lỗi, timeout và hủy đều kill tiến trình), `journal.py` (ghi và fsync trước khi start/stop; đọc lại được sau khi crash), `registry.py` (quyền sở hữu theo `(session key, agent)`, giới hạn 2/khóa và 5 toàn cục, prepare → start → claim, start không claim được thì dừng lại ngay, dọn cuối lượt, session giữ mở có hạn idle, khôi phục từ journal), `policy.py` (domain cấm kể cả subdomain, chỉ http/https, chế độ `interact` theo persona), `tools.py` (`browser_session`, `browser_page`, `browser_inspect`, `browser_interact`). Hook: `on_finally` dọn session của lượt (chạy cả khi hủy hoặc lỗi). Cấu hình `coworker.browser`, mặc định tắt.
+- **Test:** `tests/coworker/browser/` — 27 test với `fake_bsk.py` (thứ tự prepare → start → claim, lỗi, timeout, giới hạn, cô lập sở hữu, journal, chính sách, tool) và 1 test hợp đồng thật chạy khi có `BSK_BIN`. Toàn bộ `tests/coworker`: 634 pass.
+- **Đã kiểm chứng với bsk 0.3.2 thật (daemon cô lập, không có trình duyệt):**
+  - `session request <token> --prepare` → `state: prepared`.
+  - `session start --request-id <token>` không có extension → `no_browser_connected`, mất khoảng 30 giây vì bsk chờ extension, và request chuyển sang `closed`.
+  - `session request <token> --cancel` và `session request <token>` đều trả `closed`.
+  - Start không có `--request-id` chạy đồng bộ skill vào thư mục harness; nanobot luôn truyền `--request-id`.
+  - Client không được tự khởi động daemon trong môi trường này (`BSK_AUTO_START=0`); thông báo lỗi của bsk chỉ dẫn chạy `bsk daemon start --foreground`.
+- **Khác với đặc tả (đã ghi nhận):**
+  - Đặc tả có `keepOpen` cho `session start`, nhưng bsk không có cờ này; nanobot tự giữ session mở theo cấu hình và idle limit.
+  - Tên lệnh thật là `navigate-back`, `navigate-forward`, `get-html`, `scroll-to`… `browser_interact` dùng `click`, `hover`, `fill --value`, `press <key>`, `select --value`.
+  - Đặc tả yêu cầu bảng `deny_domains` đầy đủ (ngân hàng, ví, cổng thanh toán); hiện chỉ có mail. Danh sách này cần lấy từ người dùng.
+- **Đóng gói với Desktop (đã thử):** nanobot đọc đường dẫn bsk theo thứ tự: `coworker.browser.bskPath`, rồi `NANOBOT_BSK_PATH` (Desktop đặt khi khởi chạy sidecar, trỏ vào resources), rồi PATH. Daemon: `bsk daemon start` từ tiến trình con đã breakaway vẫn bị bsk từ chối trong môi trường làm việc (đang nằm trong Job Object của host, không breakaway được). Cần thử trên bản cài Desktop thật và trên terminal độc lập trước khi kết luận.
+- **Chưa làm:** `browser_tabs` (kể cả `borrow`), `browser_assist` (kể cả `request-help` và help bridge), live view và `/browser log` (P4), đồng bộ skill `browser-skill` vào `nanobot/coworker/browser/skill/`, mục nhắc chạy nền cho idle sweep (hiện chạy lúc kết thúc lượt).
+- **Chưa kiểm chứng:** extension Chrome thật, Agent Window, các cổng đo P0 (baseline 1–2 tuần), P1 (0 session treo trên bộ tiêm lỗi), P2 red-team, P3 (thông báo < 5 giây).
+
+Cổng P1 chưa đạt vì chưa có bộ tiêm lỗi chạy với trình duyệt thật.
 
 Nội bộ vẫn theo cổng đặc tả:
 

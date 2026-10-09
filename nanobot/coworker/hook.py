@@ -35,6 +35,7 @@ from nanobot.coworker.advisor.consult import TOOL_RESULT_MAX_CHARS, breaker_open
 from nanobot.coworker.advisor.evidence import WRITE_TOOLS, git_summary, params_paths
 from nanobot.coworker.advisor.stuck import StuckTracker, failure_signature
 from nanobot.coworker.advisor.tool import ADVISOR_TOOL, project_root_for
+from nanobot.coworker.browser.tools import BROWSER_TOOLS, registry_for
 from nanobot.coworker.coding.tools import CODING_TOOL
 from nanobot.coworker.config import CoworkerConfig, load_coworker_config
 from nanobot.coworker.context import cache_policy, keepalive, keepalive_state, metrics, optimizer
@@ -586,6 +587,22 @@ class CoworkerHook(AgentHook):
         forget_live_messages(self._key)
         mark_turn_finished(self._key)
         keepalive.mark_in_flight(self._key, False)
+        await self._close_browser_turn()
+
+    async def _close_browser_turn(self) -> None:
+        """End of a turn: the browser sessions it opened close, unless they were asked to stay (Phase 10)."""
+        cfg = load_coworker_config().browser
+        key = self._key
+        session = get_session(key) if key else None
+        if not cfg.enabled or not key or session is None:
+            return
+        root = project_root_for(session)
+        if root is None:
+            return
+        try:
+            await registry_for(root, cfg).close_turn(key, get_persona_id(session) or "main")
+        except Exception:
+            logger.exception("browser cleanup failed at the end of the turn")
 
     # ---------- payload ----------
 
@@ -739,6 +756,8 @@ class CoworkerHook(AgentHook):
             hidden.add(STAGED_TOOL)
         if not cfg.image.enabled:
             hidden.update(IMAGE_TOOLS)
+        if not cfg.browser.enabled:
+            hidden.update(BROWSER_TOOLS)
 
         if persona_agent is not None:
             if persona_agent.memory != "thread+notes":

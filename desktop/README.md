@@ -59,6 +59,7 @@ The generated installers and bundles are located at:
 | Variable | Description |
 | --- | --- |
 | `NANOBOT_DESKTOP_PYTHON` | Path to a custom Python interpreter (e.g. repo `.venv`). When set, dev mode is active and bundled runtime is bypassed. |
+| `NANOBOT_BSK_PATH` | Path to the bundled `bsk` binary for the browser tools (Phase 10). Set by the desktop app to its own resources; when unset, `bsk` is looked up on PATH. |
 | `NANOBOT_DESKTOP_CONFIG` | Optional custom path to `config.json` (defaults to `~/.nanobot/config.json`). |
 | `NANOBOT_DESKTOP_WORKSPACE` | Optional workspace directory passed to the sidecar as `--workspace <dir>`. |
 | `PYTHONPATH` | Automatically configured in production by the shell to point to the embedded `site-packages`. |

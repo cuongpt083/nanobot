@@ -6,6 +6,12 @@ pkgutil scan register them without touching upstream loader code.
 
 from nanobot.coworker.advisor.tool import AdvisorTool
 from nanobot.coworker.agents.notes_tool import AgentNotesTool
+from nanobot.coworker.browser.tools import (
+    BrowserInspectTool,
+    BrowserInteractTool,
+    BrowserPageTool,
+    BrowserSessionTool,
+)
 from nanobot.coworker.coding.tools import CodingAgentTool
 from nanobot.coworker.context.tools import MarkContextWastedTool
 from nanobot.coworker.image.tools import (
@@ -23,6 +29,10 @@ __all__ = [
     "AdvisorTool",
     "AgentNotesTool",
     "AgentsListTool",
+    "BrowserInteractTool",
+    "BrowserInspectTool",
+    "BrowserPageTool",
+    "BrowserSessionTool",
     "CodingAgentTool",
     "FileWriteStagedTool",
     "ImageAnnotationsReadTool",
