@@ -1130,9 +1130,9 @@ export function ThreadShell({
     [workspaceScope],
   );
   // An image edit request goes to the chat like any message; the annotation file is already saved (Phase 9).
-  const sendImageEdit = useCallback((content: string) => {
+  const sendImageEdit = useCallback((content: string, attachments: SendAttachment[]) => {
     if (!chatId) return;
-    const submitted = send(content, [], withWorkspaceScope());
+    const submitted = send(content, attachments, withWorkspaceScope());
     if (submitted && !submitted.sideChannel) {
       activeViewportTurnByChatIdRef.current.set(chatId, submitted.turnId);
       setSubmittedViewportTurnId(submitted.turnId);

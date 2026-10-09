@@ -29,6 +29,14 @@ export interface AnnotationDoc {
   nextId: number;
 }
 
+export const REGION_PALETTE = ["#e11d48", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
+export const ERASER_COLOR = "#374151";
+
+/** The colour a region is drawn in, on the pane and in the exported picture. */
+export function regionColor(region: Region): string {
+  return region.erase ? ERASER_COLOR : REGION_PALETTE[(region.id - 1) % REGION_PALETTE.length];
+}
+
 export interface History {
   past: AnnotationDoc[];
   present: AnnotationDoc;

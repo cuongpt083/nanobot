@@ -696,7 +696,7 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 ### 9.2 – Payload + tools
 
 - [x] Schema `nanobot.image-annotations/v1`: validate ở server (`nanobot/coworker/image/annotations.py`), 25 test backend, cùng giới hạn (50 vùng, 1 000 ký tự, 2 000 điểm cọ) phía client.
-- [~] IM-11: gửi chat. Ghi file annotation vào workspace cạnh ảnh (`<tên>.annotations.json`, có kiểm phiên bản) rồi gửi một tin nhắn yêu cầu sửa, kèm đường dẫn ảnh và file annotation. **Lệch khỏi plan:** không đính kèm ảnh đánh dấu (annotated PNG); agent đọc ảnh gốc qua `image_annotations_read`.
+- [x] IM-11: gửi chat. Ghi file annotation vào workspace cạnh ảnh (`<tên>.annotations.json`, có kiểm phiên bản) rồi gửi một tin nhắn yêu cầu sửa, kèm đường dẫn ảnh và file annotation. Kèm **ảnh đánh dấu** (annotated PNG): ảnh gốc ở kích thước thật (tối đa 1 600 px) với từng vùng vẽ đúng màu và số, vẽ bằng canvas theo cùng bảng màu của pane (`components/image/annotated-image.ts`). Agent cũng đọc ảnh gốc và file annotation qua `image_annotations_read`.
 - [x] Tools: `image_annotations_read`, `image_edit`, `image_composite`, `render_text`, `image_version_save` (`nanobot/coworker/image/tools.py`), ẩn khi `coworker.image.enabled` tắt (mặc định tắt). `image_edit` dùng lại tool sinh ảnh hiện có; **chưa kiểm chứng với provider thật**.
 - [x] Kho lưu phiên bản ảnh: thư mục tạm `nanobot-image-versions/<hash phiên>/`, ngoài workspace, dọn theo phiên hoặc TTL 24 giờ; route GET `/api/sessions/{key}/image-versions/{id}` chỉ phục vụ id hợp lệ của đúng phiên. **Lưu ý:** ảnh do `image_edit` sinh ra vẫn nằm trong thư mục artifact của tool sinh ảnh, không phải thư mục tạm; cần quyết định nếu muốn gom vào kho này.
 - [x] Skill `image-region-edit` (`nanobot/skills/image-region-edit/SKILL.md`): 7 bước của đặc tả, báo cáo theo số vùng.
@@ -724,7 +724,7 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 - **Test:** `tests/coworker/test_image_review.py` 28 pass (gồm tẩy); `annotation-model.test.ts` 15 pass; `image-review-pane.test.tsx` 9 pass. Toàn bộ WebUI: 11 lỗi có sẵn, cộng một test theo thời gian (`image-gallery`, `LinearPanel`) chỉ fail khi chạy song song và pass khi chạy riêng. Pytest coworker/webui: 4 lỗi có sẵn.
 - **Chưa kiểm chứng:** trình duyệt thật (vẽ, zoom, gửi); provider sinh ảnh thật với `image_edit`; agent thật làm theo skill; route ảnh phiên bản chưa có test HTTP riêng.
 - **Cờ:** `coworker.image.enabled` tắt mặc định. Pane vẫn gửi được khi cờ tắt, nhưng agent sẽ không có tool để đọc chú thích; cần bật cờ trước khi dùng thật.
-- **Chưa làm:** đính kèm ảnh đánh dấu (annotated PNG); cây phiên bản (IM-15, IM-16). Route liệt kê phiên bản chưa có test HTTP riêng.
+- **Chưa làm:** cây phiên bản (IM-15, IM-16). Route liệt kê phiên bản chưa có test HTTP riêng.
 
 G4 (sticky header sequence, version tree đầy đủ, PV-08) **không** nằm trong roadmap lần này. IM-17 đã chuyển vào Phase 10.
 

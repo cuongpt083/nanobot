@@ -53,6 +53,18 @@ vi.mock("react-konva", async () => {
 import { ImageReviewPane, editRequestText } from "@/components/image/ImageReviewPane";
 import { ApiError } from "@/lib/api";
 
+/** A 2D context that records calls; happy-dom has no canvas. */
+export function stubCanvas() {
+  const ctx = {
+    drawImage: vi.fn(), save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), rect: vi.fn(),
+    ellipse: vi.fn(), stroke: vi.fn(), fill: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), arc: vi.fn(),
+    fillText: vi.fn(), setLineDash: vi.fn(),
+  };
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as never);
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,CCCC");
+  return ctx;
+}
+
 const client = { requestMutation: vi.fn() } as never;
 const VERSION = "a".repeat(32);
 
@@ -68,6 +80,7 @@ class LoadedImage {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  stubCanvas();
   vi.stubGlobal("Image", LoadedImage);
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
@@ -87,6 +100,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function renderPane(onSend = vi.fn()) {
@@ -165,8 +179,14 @@ describe("resending only the regions not done (IM-14)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Resend the regions not done" }));
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
-    expect(onSend).toHaveBeenCalledWith(editRequestText("assets/banner.png", "assets/banner.annotations.json", [2]));
+    expect(onSend.mock.calls[0][0]).toBe(
+      editRequestText("assets/banner.png", "assets/banner.annotations.json", [2], true),
+    );
     expect(onSend.mock.calls[0][0]).toContain("Redo only regions 2");
+    expect(onSend.mock.calls[0][1]).toEqual([{
+      media: { data_url: "data:image/png;base64,CCCC", name: "banner.annotated.png" },
+      preview: { kind: "image", url: "data:image/png;base64,CCCC", name: "banner.annotated.png" },
+    }]);
   });
 
   it("keeps a done region's place: it cannot be removed, and it has no corner handles", async () => {

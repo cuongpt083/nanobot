@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { CodeBlock } from "@/components/CodeBlock";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { fileKindForPath, splitFilePath } from "@/components/FileReferenceChip";
+import type { SendAttachment } from "@/hooks/useNanobotStream";
 import { ApiError, fetchFilePreview, type WebUIMutationTransport } from "@/lib/api";
 import type { FilePreviewPayload } from "@/lib/types";
 
@@ -26,7 +27,7 @@ interface FilePreviewPanelProps {
   /** Send a selection from the editor to the chat composer as a quote (ED-12). */
   onAskAgent?: (quote: string) => void;
   /** Sends an image edit request to the chat (Phase 9). When absent, images are only viewed. */
-  onSendImageEdit?: (content: string) => void;
+  onSendImageEdit?: (content: string, attachments: SendAttachment[]) => void;
   loadPreview?: (path: string) => Promise<FilePreviewPayload>;
   initialPreview?: FilePreviewPayload;
 }

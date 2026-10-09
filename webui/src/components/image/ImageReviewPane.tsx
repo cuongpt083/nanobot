@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   BRUSH_SIZES,
+  ERASER_COLOR,
   MAX_BRUSH_POINTS,
   MAX_REGIONS,
   addRegion,
@@ -27,9 +28,12 @@ import {
   type BrushSize,
   type Corner,
   type Pair,
+  regionColor,
   type Region,
   type RegionShape,
 } from "@/components/image/annotation-model";
+import { annotatedPictureName, renderAnnotatedImage } from "@/components/image/annotated-image";
+import type { SendAttachment } from "@/hooks/useNanobotStream";
 import {
   ApiError,
   fetchImageVersionDataUrl,
@@ -45,8 +49,6 @@ import { cn } from "@/lib/utils";
 /** ``eraser`` is a brush stroke that removes from the marked area (IM-04). */
 export type ImageTool = "select" | "pan" | RegionShape | "eraser";
 
-const PALETTE = ["#e11d48", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
-const ERASER_COLOR = "#374151";
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 8;
 const SHAPE_TOOLS: ImageTool[] = ["rect", "ellipse", "brush", "eraser", "pin"];
@@ -66,11 +68,19 @@ export function annotationPathFor(imagePath: string): string {
 }
 
 /** The message that asks the agent to act on the annotation file. Instructions are in English. */
-export function editRequestText(imagePath: string, annotationPath: string, redo?: number[]): string {
+export function editRequestText(
+  imagePath: string,
+  annotationPath: string,
+  redo?: number[],
+  withPicture = false,
+): string {
   const parts = [
     `Edit the image ${imagePath} following the region annotations in ${annotationPath}.`,
     "Use the image-region-edit skill and report the result region by region.",
   ];
+  if (withPicture) {
+    parts.push("The attached picture shows the marked regions with their numbers.");
+  }
   if (redo && redo.length > 0) {
     parts.push(`Redo only regions ${redo.join(", ")}; keep the other regions as they are.`);
   }
@@ -92,8 +102,8 @@ interface ImageReviewPaneProps {
   path: string;
   /** The image as a data URL. */
   src: string;
-  /** Sends the request message to the chat. */
-  onSend: (content: string) => void;
+  /** Sends the request message to the chat, with the marked picture attached when it could be drawn. */
+  onSend: (content: string, attachments: SendAttachment[]) => void;
 }
 
 interface Draft {
@@ -361,7 +371,17 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
         content: JSON.stringify(toPayload(doc, path, null), null, 2),
         baseVersion,
       });
-      onSend(editRequestText(path, annotationPath, resendMode ? redoIds : undefined));
+      const picture = image ? renderAnnotatedImage(image, doc) : null;
+      const attachments: SendAttachment[] = picture
+        ? [{
+          media: { data_url: picture, name: annotatedPictureName(path, picture) },
+          preview: { kind: "image", url: picture, name: annotatedPictureName(path, picture) },
+        }]
+        : [];
+      onSend(
+        editRequestText(path, annotationPath, resendMode ? redoIds : undefined, attachments.length > 0),
+        attachments,
+      );
       void refreshVersions();
     } catch (reason) {
       setError(isWorkspaceConflict(reason)
@@ -389,7 +409,7 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
     );
   }
 
-  const colorOf = (region: Region) => (region.erase ? ERASER_COLOR : PALETTE[(region.id - 1) % PALETTE.length]);
+  const colorOf = regionColor;
   const zoom = view.scale;
   const dash = [6 / zoom, 4 / zoom];
 

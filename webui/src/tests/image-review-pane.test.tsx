@@ -111,7 +111,8 @@ describe("ImageReviewPane send", () => {
     const saved = JSON.parse(api.saveWorkspaceFile.mock.calls[0][2].content as string);
     expect(saved.schema).toBe("nanobot.image-annotations/v1");
     expect(saved.global_note).toBe("keep colours");
-    expect(onSend).toHaveBeenCalledWith(editRequestText("assets/banner.png", "assets/banner.annotations.json"));
+    expect(onSend.mock.calls[0][0]).toBe(editRequestText("assets/banner.png", "assets/banner.annotations.json"));
+    expect(onSend.mock.calls[0][1]).toEqual([]);
   });
 
   it("builds on the version of an existing annotation file", async () => {
