@@ -65,6 +65,7 @@ def save_version(
     *,
     source: str | None = None,
     report: list[dict[str, Any]] | None = None,
+    annotation: dict[str, Any] | None = None,
 ) -> ImageVersion:
     """Store an image for a session and return its id. Only PNG, JPEG and WebP are accepted."""
     try:
@@ -90,6 +91,7 @@ def save_version(
         "height": height,
         "created_at": int(time.time() * 1000),
         "report": report or [],
+        "annotation": annotation,
     }
     sidecar = directory / f"{version_id}.json"
     sidecar_temp = directory / f".{version_id}.meta.tmp"
@@ -108,6 +110,18 @@ def resolve_version(session_key: str, version_id: str) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+def version_meta(session_key: str, version_id: str) -> dict[str, Any] | None:
+    """The recorded metadata of one version of this session, or ``None``."""
+    if resolve_version(session_key, version_id) is None:
+        return None
+    sidecar = _session_dir(session_key) / f"{version_id}.json"
+    try:
+        loaded: object = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return cast("dict[str, Any]", loaded) if isinstance(loaded, dict) else None
 
 
 def list_versions(session_key: str, source: str) -> list[dict[str, Any]]:

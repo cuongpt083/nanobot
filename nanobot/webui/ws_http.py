@@ -538,6 +538,8 @@ class GatewayHTTPHandler:
             return True
         if re.match(r"^/api/sessions/[^/]+/workspace/(write|rename|delete|resolve|tabs)$", path):
             return True
+        if re.match(r"^/api/sessions/[^/]+/image-versions/[0-9a-f]{32}/save$", path):
+            return True
         if re.match(r"^/api/webui/automations/(enable|disable|delete|run|update)$", path):
             return True
         if path in {"/api/webui/recovery/continue", "/api/webui/recovery/dismiss"}:
@@ -576,6 +578,14 @@ class GatewayHTTPHandler:
                 return _http_error(400, "missing session key")
             sec = action.split(".")[-1]
             return f"/api/sessions/{quote(key, safe='')}/coworker/{sec}"
+        if action == "session.image_version.save":
+            key = payload.get("key")
+            version_id = payload.get("version_id")
+            if not isinstance(key, str) or not key.strip():
+                return _http_error(400, "missing session key")
+            if not isinstance(version_id, str) or re.fullmatch(r"[0-9a-f]{32}", version_id) is None:
+                return _http_error(400, "invalid image version id")
+            return f"/api/sessions/{quote(key, safe='')}/image-versions/{version_id}/save"
         if action in _WORKSPACE_WRITE_ACTIONS:
             key = payload.get("key")
             if not isinstance(key, str) or not key.strip():
@@ -850,6 +860,10 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/sessions/([^/]+)/image-versions$", got)
         if m:
             return self._handle_image_versions(request, m.group(1))
+
+        m = re.match(r"^/api/sessions/([^/]+)/image-versions/([0-9a-f]{32})/save$", got)
+        if m:
+            return self._handle_image_version_save(request, m.group(1), m.group(2))
 
         m = re.match(r"^/api/sessions/([^/]+)/workspace/(write|rename|delete|resolve|tabs)$", got)
         if m:
@@ -1294,6 +1308,26 @@ class GatewayHTTPHandler:
             status=error.status,
             extra_headers=_NO_STORE_HEADERS,
         )
+
+    def _handle_image_version_save(self, request: WsRequest, key: str, version_id: str) -> Response:
+        """Write a temporary version into the workspace beside its source image (IM-16)."""
+        from nanobot.coworker.image.saving import SaveError, save_to_workspace
+
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if not getattr(request, _WEBUI_MUTATION_REQUEST_ATTR, False):
+            return _http_error(405, "WebUI mutations require an authenticated WebSocket")
+        decoded_key = _decode_api_key(key)
+        if decoded_key is None:
+            return _http_error(400, "invalid session key")
+        if not _is_websocket_channel_session_key(decoded_key):
+            return _http_error(404, "session not found")
+        scope = self.workspaces.scope_for_session_key(decoded_key)
+        try:
+            saved = save_to_workspace(Path(scope.project_path), decoded_key, version_id)
+        except SaveError as exc:
+            return _http_error(404 if exc.not_found else 400, str(exc))
+        return _http_json_response(saved, extra_headers=_NO_STORE_HEADERS)
 
     def _handle_image_versions(self, request: WsRequest, key: str) -> Response:
         """The temporary versions made from one image (``?image=<project path>``), newest first, with reports."""

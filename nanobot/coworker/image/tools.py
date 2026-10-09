@@ -238,7 +238,8 @@ class ImageCompositeTool(_ImageTool):
             regions_report = parse_report(report)
             original_path = _resolve(original, root)
             edited_path = _resolve(edited, root, extra_roots=[get_media_dir()])
-            doc = parse_annotations(json.loads(_resolve(annotations, root).read_text(encoding="utf-8")))
+            raw_annotations: dict[str, Any] = json.loads(_resolve(annotations, root).read_text(encoding="utf-8"))
+            doc = parse_annotations(raw_annotations)
             with Image.open(original_path) as base_probe:
                 base = base_probe.convert("RGBA")
             with Image.open(edited_path) as edit_probe:
@@ -254,7 +255,9 @@ class ImageCompositeTool(_ImageTool):
             source = versions.source_key(original, root)
         except (ValueError, AnnotationError, OSError, raster.RasterError, versions.VersionError) as exc:
             return self.payload("error", error=str(exc))
-        saved = versions.save_version(self._session_key(), data, source=source, report=regions_report)
+        saved = versions.save_version(
+            self._session_key(), data, source=source, report=regions_report, annotation=raw_annotations,
+        )
         return self.payload("version", version=saved.id, width=saved.width, height=saved.height)
 
 

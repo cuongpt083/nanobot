@@ -23,6 +23,7 @@ from nanobot.coworker.image.annotations import (
     parse_annotations,
     parse_report,
 )
+from nanobot.coworker.image.saving import SaveError, family_stem, save_to_workspace
 from nanobot.coworker.image.tools import ImageCompositeTool, _resolve
 
 
@@ -303,4 +304,77 @@ async def test_composite_stores_the_report_and_refuses_a_bad_one(tmp_path: Path,
     assert json.loads(str(good.content if hasattr(good, "content") else good))["status"] == "version"
     [listed] = versions.list_versions("websocket:a", "orig.png")
     assert listed["report"] == [{"id": 1, "status": "done", "reason": "red inside"}]
+
+
+# ---------- saving a version into the workspace (IM-16) and branching from it (IM-15) ----------
+
+def _project_with_banner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setattr(versions, "version_root", lambda: tmp_path / "versions")
+    project = tmp_path / "project"
+    (project / "assets").mkdir(parents=True)
+    (project / "assets" / "banner.png").write_bytes(_png((40, 40), (0, 0, 255)))
+    return project
+
+
+def test_a_version_is_saved_beside_its_source_with_the_request_that_made_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _project_with_banner(tmp_path, monkeypatch)
+    request = _doc(image="assets/banner.png", edits=[{"id": 1, "shape": "pin", "point": [0.5, 0.5]}])
+    version = versions.save_version(
+        "websocket:a", _png((40, 40), (9, 9, 9)), source="assets/banner.png", annotation=request,
+    )
+
+    saved = save_to_workspace(project, "websocket:a", version.id)
+
+    assert saved == {"path": "assets/banner.v1.png", "annotations": "assets/banner.v1.annotations.json", "version": 1}
+    assert (project / "assets" / "banner.v1.png").read_bytes() == version.path.read_bytes()
+    written = json.loads((project / "assets" / "banner.v1.annotations.json").read_text(encoding="utf-8"))
+    assert written["image"] == "assets/banner.png"
+    assert written["edits"] == request["edits"]
+
+
+def test_numbers_go_up_and_a_saved_file_is_never_overwritten(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = _project_with_banner(tmp_path, monkeypatch)
+    first = versions.save_version("websocket:a", _png((40, 40), (1, 1, 1)), source="assets/banner.png")
+    second = versions.save_version("websocket:a", _png((40, 40), (2, 2, 2)), source="assets/banner.png")
+
+    assert save_to_workspace(project, "websocket:a", first.id)["path"] == "assets/banner.v1.png"
+    assert save_to_workspace(project, "websocket:a", second.id)["path"] == "assets/banner.v2.png"
+    assert (project / "assets" / "banner.v1.png").read_bytes() == first.path.read_bytes()
+
+
+def test_editing_a_saved_version_branches_into_the_next_number(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = _project_with_banner(tmp_path, monkeypatch)
+    root_edit = versions.save_version("websocket:a", _png((40, 40), (1, 1, 1)), source="assets/banner.png",
+                                      annotation=_doc(image="assets/banner.png"))
+    save_to_workspace(project, "websocket:a", root_edit.id)  # banner.v1.png
+    branch = versions.save_version("websocket:a", _png((40, 40), (3, 3, 3)), source="assets/banner.v1.png",
+                                   annotation=_doc(image="assets/banner.v1.png"))
+
+    saved = save_to_workspace(project, "websocket:a", branch.id)
+
+    assert saved["path"] == "assets/banner.v2.png"
+    written = json.loads((project / "assets" / "banner.v2.annotations.json").read_text(encoding="utf-8"))
+    assert written["image"] == "assets/banner.v1.png"
+
+
+def test_unknown_versions_and_sources_outside_the_project_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _project_with_banner(tmp_path, monkeypatch)
+    with pytest.raises(SaveError) as missing:
+        save_to_workspace(project, "websocket:a", "0" * 32)
+    assert missing.value.not_found is True
+
+    outside = versions.save_version("websocket:a", _png((4, 4), (1, 1, 1)), source="../secret.png")
+    with pytest.raises(SaveError) as refused:
+        save_to_workspace(project, "websocket:a", outside.id)
+    assert refused.value.not_found is False
+
+
+def test_the_family_stem_drops_the_version_number_only() -> None:
+    assert family_stem("banner") == "banner"
+    assert family_stem("banner.v3") == "banner"
+    assert family_stem("banner.v3.final") == "banner.v3.final"
 
