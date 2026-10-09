@@ -21,6 +21,7 @@ from nanobot.runtime_context import (
     RUNTIME_CONTEXT_INPUT_META,
     WEBUI_QUOTE_METADATA,
     RuntimeContextBlock,
+    webui_editor_runtime_context,
     webui_quote_runtime_context,
 )
 from nanobot.security.workspace_access import (
@@ -679,6 +680,9 @@ class WebUICommandRouter:
                 )
                 if quote is not None:
                     context_blocks.append(quote)
+                editor = webui_editor_runtime_context(envelope.get("editor_context"))
+                if editor is not None:
+                    context_blocks.append(editor)
                 session_context = session_mentions_runtime_context(session_mentions)
                 if session_context is not None:
                     context_blocks.append(session_context)
