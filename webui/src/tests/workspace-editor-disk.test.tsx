@@ -107,3 +107,32 @@ describe("files changed on disk while open (ED-15)", () => {
     await waitFor(() => expect(screen.queryByRole("img", { name: "Changed on disk" })).toBeNull());
   });
 });
+
+describe("fs.changed from the gateway (ED-15)", () => {
+  it("re-reads a changed open file at once, without waiting for the poll", async () => {
+    const { emitWorkspaceChange } = await import("@/lib/workspace-events");
+    renderEditor();
+    expect(await screen.findByLabelText("editor")).toHaveValue("one");
+
+    disk["notes.md"] = { content: "pushed change", version: "sha256:v9" };
+    await act(async () => {
+      emitWorkspaceChange({ sessionKey: "websocket:abc", path: "notes.md" });
+    });
+
+    await waitFor(() => expect(screen.getByLabelText("editor")).toHaveValue("pushed change"));
+  });
+
+  it("ignores a change for another session or a file that is not open", async () => {
+    const { emitWorkspaceChange } = await import("@/lib/workspace-events");
+    renderEditor();
+    await screen.findByLabelText("editor");
+    const reads = api.readWorkspaceFile.mock.calls.length;
+
+    await act(async () => {
+      emitWorkspaceChange({ sessionKey: "websocket:other", path: "notes.md" });
+      emitWorkspaceChange({ sessionKey: "websocket:abc", path: "unopened.md" });
+    });
+
+    expect(api.readWorkspaceFile.mock.calls.length).toBe(reads);
+  });
+});

@@ -578,7 +578,7 @@ Giữ test từ chối path ngoài workspace (`test_handle_file_preview_rejects_
 - [x] `GET` read (`/workspace/read`): trả `version` (sha256 rút gọn). Sửa được tới 5 MiB; file lớn hơn trả 413 (chưa có chế độ xem-only cho file lớn, ED-04 để sau).
 - [x] Ghi từ user: **đi qua WebSocket đã xác thực** (mutation `session.workspace.write`), không phải HTTP thường, theo cách mọi mutation WebUI khác của repo làm. Lệch `base_version` → 409 kèm `current_version`. Không chặn agent (G2).
 - [x] Rename (`session.workspace.rename`, cùng thư mục, không ghi đè); delete (`session.workspace.delete`, chỉ file, có kiểm version). Confirm ở phía client.
-- [ ] Watch: sự kiện WS `fs.changed` (user|persona). **Chưa làm.** Hiện chỉ phát hiện xung đột khi lưu (409); file đổi bên ngoài không tự làm mới.
+- [x] Watch: sự kiện WS `fs.changed`. Gateway kiểm (mtime, size) của các file tab đang mở mỗi 2 s (`nanobot/webui/workspace_watch.py`, task nền trong runtime WebSocket) và gửi `workspace_changed` cho mọi kết nối WebUI. Editor kiểm đĩa ngay khi nhận sự kiện; polling 4 s vẫn là dự phòng. Đây là polling phía server, không phải sự kiện từ hệ điều hành.
 - [x] Xác thực bằng token API; `..` và đường dẫn tuyệt đối ra ngoài project bị từ chối (403), đã có test.
 
 ### 7.2 – Monaco pane
@@ -642,7 +642,7 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.
 ### 8.3 – Chat ↔ editor
 
 - [x] ED-12: bôi đen trong editor → menu chuột phải "Hỏi agent về đoạn này" đưa vào ô soạn tin trích dẫn kèm đường dẫn và dòng (`From notes.md, lines 2-3:`). Người dùng vẫn phải tự gửi. Chưa có phím tắt.
-- [~] ED-13: file trong tin nhắn chat mở ở editor (text mở thẳng ở chế độ sửa; nút "Quay lại xem trước" đổi về chế độ xem). **Chưa** có `@` gợi ý file trong ô soạn tin.
+- [x] ED-13: file trong tin nhắn chat mở ở editor (text mở thẳng ở chế độ sửa; "Quay lại xem trước" đổi về xem). Gõ `@đường/dẫn` trong ô soạn tin hiện gợi ý file của project (thư mục trước, lọc theo tiền tố, Tab/Enter để chọn, Esc để đóng); chọn thư mục thì gợi ý mở trong thư mục đó. Gợi ý chỉ mở khi token có `/` hoặc `.`, vì `@` trơn thuộc menu app và session có sẵn.
 - [x] ED-14 `editor_context`: công tắc "Chia sẻ với agent" trong editor, **tắt mặc định**, nhớ theo trình duyệt. Khi bật, tin nhắn gửi kèm đường dẫn file đang mở và đoạn đang chọn (tối đa 4 000 ký tự), chỉ trong session đó. Backend đưa vào như dữ liệu, chỉ với kết nối WebUI tin cậy.
 
 ### 8.4 – Advisor và steering (phụ thuộc chéo)
@@ -674,7 +674,7 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.
 - [x] Ghi trực tiếp chỉ cho phép trong thư mục nháp và khi không mở tab.
 - [x] Bôi đen hỏi agent: chat nhận đúng path + line range (đã test).
 
-**Kết luận:** đã có trong code và test: ghi có duyệt, duyệt cả file và từng hunk, ED-12, ED-14, ED-15 (kiểm trên đĩa bằng polling), advisor thấy đề xuất đang chờ. Chưa đóng G2 vì: (1) chưa kiểm chứng trên trình duyệt thật; (2) ED-13 chưa có `@` gợi ý file; (3) chưa có e2e qua agent thật; (4) chưa có sự kiện `fs.changed` từ gateway.
+**Kết luận:** đã có trong code và test: ghi có duyệt, duyệt cả file và từng hunk, ED-12, ED-13, ED-14, ED-15 (kiểm trên đĩa, nhận sự kiện `fs.changed`), advisor thấy đề xuất đang chờ, và e2e ở phía backend (tool gọi → hàng chờ → chấp nhận một phần → đĩa). Chưa đóng G2 vì chưa kiểm chứng trên trình duyệt thật và Desktop, và chưa có e2e qua agent thật (model thật gọi tool).
 
 ---
 

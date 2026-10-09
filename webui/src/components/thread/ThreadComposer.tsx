@@ -93,6 +93,8 @@ import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import type { SendAttachment, SendOptions } from "@/hooks/useNanobotStream";
 import type { EditorContext } from "@/lib/editor-context";
+import { FileMentionPalette } from "@/components/thread/FileMentionPalette";
+import { applyFileMention, fileMentionAt, filterEntries, type FileListEntry } from "@/lib/file-mention";
 import { useVoiceRecorder, type VoiceRecorderErrorKey } from "@/hooks/useVoiceRecorder";
 import type {
   CliAppInfo,
@@ -246,6 +248,8 @@ interface ThreadComposerProps {
   quotedContext?: string | null;
   /** Read at send time: the editor file the user opted to share with this session, if any. */
   getEditorContext?: () => EditorContext | null;
+  /** Lists a project folder for the ``@path`` suggestions (ED-13). */
+  listFolder?: (folder: string) => Promise<FileListEntry[]>;
   focusRequest?: number;
   onQuotedContextChange?: (text: string | null) => void;
 }
@@ -953,6 +957,7 @@ export function ThreadComposer({
   ingressLimits = null,
   quotedContext = null,
   getEditorContext,
+  listFolder,
   focusRequest = 0,
   onQuotedContextChange,
 }: ThreadComposerProps) {
@@ -978,6 +983,9 @@ export function ThreadComposer({
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [cliAppMenuDismissed, setCliAppMenuDismissed] = useState(false);
   const [selectedCliAppIndex, setSelectedCliAppIndex] = useState(0);
+  const [fileMenuDismissed, setFileMenuDismissed] = useState(false);
+  const [fileListing, setFileListing] = useState<{ folder: string; entries: FileListEntry[] } | null>(null);
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [recentSlashCommands, setRecentSlashCommands] = useState<string[]>(() => readSlashRecents());
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
@@ -1351,6 +1359,7 @@ export function ThreadComposer({
     setValue(next);
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
+    setFileMenuDismissed(false);
     setCursorPosition(cursor);
   }, []);
   const mentionInput = useComposerMentionInput({
@@ -1491,6 +1500,20 @@ export function ThreadComposer({
   }, [activeSessionMentions, agentMentions, availableSessionMentions, cliAppMention, cliApps, mcpPresets]);
 
   const showCliAppMenu = filteredMentionCandidates.length > 0;
+  const fileQuery = useMemo(
+    () => (listFolder && !fileMenuDismissed ? fileMentionAt(value, cursorPosition) : null),
+    [cursorPosition, fileMenuDismissed, listFolder, value],
+  );
+  const fileCandidates = fileQuery && fileListing?.folder === fileQuery.folder
+    ? filterEntries(fileListing.entries, fileQuery.prefix)
+    : [];
+  const showFileMenu = fileCandidates.length > 0 && !showCliAppMenu && !showSlashMenu;
+  const chooseFileCandidate = (entry: FileListEntry) => {
+    if (!fileQuery) return;
+    const path = fileQuery.folder ? `${fileQuery.folder}/${entry.name}` : entry.name;
+    const next = applyFileMention(value, fileQuery, path, entry.kind === "dir");
+    replaceMentionInput(next.value, next.cursor);
+  };
   const showAnyPalette = showSlashMenu || showCliAppMenu;
   const hasMentionDecorations = displayMentionSegments.some(
     (segment) => segment.kind !== "text",
@@ -1523,6 +1546,32 @@ export function ThreadComposer({
   useEffect(() => {
     setSelectedCliAppIndex(0);
   }, [cliAppMention?.query]);
+
+  // A new keystroke re-opens the file suggestions that Escape closed.
+  useEffect(() => {
+    setFileMenuDismissed(false);
+  }, [value]);
+
+  useEffect(() => {
+    setSelectedFileIndex(0);
+  }, [fileQuery?.folder, fileQuery?.prefix]);
+
+  // The folder being typed is listed once; the prefix filters that listing without another request.
+  useEffect(() => {
+    const folder = fileQuery?.folder;
+    if (folder === undefined || !listFolder || fileListing?.folder === folder) return;
+    let cancelled = false;
+    listFolder(folder)
+      .then((entries) => {
+        if (!cancelled) setFileListing({ folder, entries });
+      })
+      .catch(() => {
+        if (!cancelled) setFileListing({ folder, entries: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileListing?.folder, fileQuery?.folder, listFolder]);
 
   useEffect(() => {
     if (selectedCommandIndex >= filteredSlashCommands.length) {
@@ -2180,6 +2229,28 @@ export function ThreadComposer({
         return;
       }
     }
+    if (showFileMenu) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedFileIndex((idx) => (idx + 1) % fileCandidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedFileIndex((idx) => (idx - 1 + fileCandidates.length) % fileCandidates.length);
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        chooseFileCandidate(fileCandidates[selectedFileIndex] ?? fileCandidates[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setFileMenuDismissed(true);
+        return;
+      }
+    }
     if (showSlashMenu) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -2425,6 +2496,15 @@ export function ThreadComposer({
           isHero={isHero}
           onHover={setSelectedCliAppIndex}
           onChoose={chooseMentionCandidate}
+        />
+      ) : null}
+      {showFileMenu && fileQuery ? (
+        <FileMentionPalette
+          folder={fileQuery.folder}
+          candidates={fileCandidates}
+          selectedIndex={selectedFileIndex}
+          onHover={setSelectedFileIndex}
+          onChoose={chooseFileCandidate}
         />
       ) : null}
       <div

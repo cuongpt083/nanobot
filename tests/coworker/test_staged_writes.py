@@ -245,3 +245,43 @@ def test_a_proposal_whose_file_moved_on_is_flagged_stale_to_the_advisor(root: Pa
     _propose(root, content="proposed body\n")
     (root / "plan.md").write_bytes(b"changed underneath\n")
     assert "changed on disk since it was proposed" in collect_evidence_sync([], root)
+
+
+# ---------- end to end: the agent's tool call, the user's partial decision, the disk (8.4 test) ----------
+
+async def test_an_agent_proposal_is_reviewed_hunk_by_hunk_and_only_the_kept_text_reaches_disk(
+    root: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nanobot.coworker.config import CoworkerConfig, StagingConfig
+    from nanobot.coworker.staged import tools as staged_tools
+    from nanobot.coworker.staged.guard import blocked_paths
+
+    (root / "notes.md").write_bytes(b"one\ntwo\nthree\n")
+    session = SimpleNamespace(key="websocket:abc", metadata={})
+    request = SimpleNamespace(session_key="websocket:abc")
+    monkeypatch.setattr(staged_tools, "load_coworker_config",
+                        lambda: CoworkerConfig(staging=StagingConfig(enabled=True)))
+    monkeypatch.setattr("nanobot.coworker.advisor.tool.project_root_for", lambda s: root)
+    monkeypatch.setattr(staged_tools, "get_persona_id", lambda s: "sales-writer")
+    tool = staged_tools.FileWriteStagedTool()
+    monkeypatch.setattr(tool, "session", lambda: session)
+    monkeypatch.setattr(tool, "request", lambda: request)
+
+    # The agent reads the file (version v), then proposes two edits in one new text.
+    version = content_version(b"one\ntwo\nthree\n")
+    proposed = "ONE\ntwo\nTHREE\n"
+    result = await tool.execute(path="notes.md", content=proposed, base_version=version)
+    assert '"staged"' in str(result)
+
+    # The guard would refuse a direct write to the same file: the proposal is the only route.
+    assert blocked_paths(["notes.md"], root, set()) == ["notes.md"]
+    [pending] = store.list_pending(root)
+    assert pending["by"] == "sales-writer"
+
+    # The user keeps the first change only: the text assembled from that hunk is what gets written.
+    kept = "ONE\ntwo\nthree\n"
+    decided = store.resolve(root, pending["id"], "accept", scope=_scope(root), content=kept)
+
+    assert decided["partial"] is True
+    assert (root / "notes.md").read_bytes() == kept.encode("utf-8")
+    assert store.list_pending(root) == []

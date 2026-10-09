@@ -15,6 +15,7 @@ import {
   type WebUIMutationTransport,
 } from "@/lib/api";
 import { useThemeValue } from "@/hooks/useTheme";
+import { onWorkspaceChange } from "@/lib/workspace-events";
 import {
   EDITOR_CONTEXT_SELECTION_MAX_CHARS,
   isEditorContextShared,
@@ -222,6 +223,13 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
     }, DISK_POLL_MS);
     return () => window.clearInterval(timer);
   }, [checkDisk]);
+
+  // fs.changed: the gateway saw a file open in a tab change. Check it now rather than at the next poll.
+  useEffect(() => onWorkspaceChange((change) => {
+    if (change.sessionKey !== sessionKey) return;
+    if (!buffersRef.current.some((b) => b.path === change.path)) return;
+    void checkDisk();
+  }), [checkDisk, sessionKey]);
 
   // Opening a tab acknowledges that it changed on disk.
   useEffect(() => {

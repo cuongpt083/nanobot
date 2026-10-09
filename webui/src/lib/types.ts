@@ -1807,6 +1807,11 @@ export type InboundEvent =
       model_preset?: string | null;
     }
   | {
+      event: "workspace_changed";
+      session_key: string;
+      path: string;
+    }
+  | {
       event: "oauth_status_updated";
       provider: string;
       status: "refreshed" | "reauth_required";

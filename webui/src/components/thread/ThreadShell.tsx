@@ -47,6 +47,7 @@ import {
   fetchSettings,
   fetchWebuiThreadTraceDetail,
   listSlashCommands,
+  listWorkspaceDir,
 } from "@/lib/api";
 import {
   CLI_APPS_CHANGED_EVENT,
@@ -921,6 +922,11 @@ export function ThreadShell({
     setComposerFocusSignal((value) => value + 1);
   }, [setQuotedContext]);
   const getEditorContext = useCallback(() => readSharedEditorContext(previewSessionKey), [previewSessionKey]);
+  // The project folder listing behind the composer's ``@path`` suggestions (ED-13).
+  const listComposerFolder = useCallback(async (folder: string) => {
+    if (!previewSessionKey) return [];
+    return (await listWorkspaceDir(getToken(), previewSessionKey, folder)).entries;
+  }, [getToken, previewSessionKey]);
 
   useEffect(() => {
     return () => {
@@ -1801,6 +1807,7 @@ export function ThreadShell({
           ingressLimits={ingressLimits}
           quotedContext={quotedContext}
           getEditorContext={getEditorContext}
+          listFolder={listComposerFolder}
           focusRequest={composerFocusSignal}
           onQuotedContextChange={setQuotedContext}
         />
@@ -1855,6 +1862,7 @@ export function ThreadShell({
           ingressLimits={ingressLimits}
           quotedContext={quotedContext}
           getEditorContext={getEditorContext}
+          listFolder={listComposerFolder}
           onQuotedContextChange={setQuotedContext}
         />
       )}

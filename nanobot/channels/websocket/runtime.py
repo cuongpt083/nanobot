@@ -784,12 +784,31 @@ class WebSocketChannel(BaseChannel):
 
         task = asyncio.create_task(runner())
         self._server_task = task
+        watch_task = asyncio.create_task(self._watch_workspace_files())
         try:
             await task
         finally:
+            watch_task.cancel()
             self._running = False
             if self._server_task is task:
                 self._server_task = None
+
+    async def _watch_workspace_files(self) -> None:
+        """Report changes to the files the editor has open, so the WebUI re-reads them (fs.changed, Phase 8)."""
+        from nanobot.webui.workspace_watch import POLL_INTERVAL_S, deliver, open_files, poll
+
+        stamps: dict[str, dict[str, Any]] = {}
+        while True:
+            await asyncio.sleep(POLL_INTERVAL_S)
+            try:
+                changes, stamps = poll(stamps, open_files)
+                if changes:
+                    await deliver(changes, list(self._webui_connections), self._send_workspace_event)
+            except Exception:
+                self.logger.exception("workspace watch failed; retrying on the next poll")
+
+    async def _send_workspace_event(self, connection: ServerConnection, raw: str) -> None:
+        await self._safe_send_to(connection, raw, label=" workspace_changed ")
 
     async def _connection_loop(self, connection: ServerConnection) -> None:
         self._retired_connections.discard(connection)
