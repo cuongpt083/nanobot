@@ -17,6 +17,8 @@ export interface Region {
   points?: Pair[];
   radius?: number;
   point?: Pair;
+  /** A brush stroke that removes from the marked area (eraser, IM-04). */
+  erase?: boolean;
 }
 
 export interface AnnotationDoc {
@@ -37,6 +39,9 @@ export const SCHEMA = "nanobot.image-annotations/v1";
 const HISTORY_LIMIT = 100;
 export const MIN_BOX = 0.005;
 export const BRUSH_RADIUS = 0.02;
+/** Brush sizes as fractions of the shorter image side; the middle one is the default. */
+export const BRUSH_SIZES = { S: 0.01, M: 0.02, L: 0.04 } as const;
+export type BrushSize = keyof typeof BRUSH_SIZES;
 /** Matches the server's limits, so an annotation the pane builds is always accepted. */
 export const MAX_REGIONS = 50;
 export const MAX_NOTE_CHARS = 1_000;
@@ -124,7 +129,8 @@ export function toPayload(doc: AnnotationDoc, image: string, imageVersion: strin
     edits: doc.regions.map((region) => {
       const base = { id: region.id, shape: region.shape, note: region.note };
       if (region.shape === "brush") {
-        return { ...base, points: region.points ?? [], radius: region.radius ?? BRUSH_RADIUS };
+        const stroke = { ...base, points: region.points ?? [], radius: region.radius ?? BRUSH_RADIUS };
+        return region.erase ? { ...stroke, erase: true } : stroke;
       }
       if (region.shape === "pin") return { ...base, point: region.point ?? [0, 0] };
       return { ...base, box: region.box ?? [0, 0, 0, 0] };
@@ -134,5 +140,54 @@ export function toPayload(doc: AnnotationDoc, image: string, imageVersion: strin
 
 export function regionLabel(region: Region): string {
   const shapes: Record<RegionShape, string> = { rect: "rectangle", ellipse: "ellipse", brush: "brush", pin: "pin" };
-  return `${region.id} · ${shapes[region.shape]}`;
+  const kind = region.erase ? "eraser" : shapes[region.shape];
+  return `${region.id} · ${kind}`;
 }
+
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+
+/** Move a region by a fraction offset. Size is kept; the region stays inside the image. */
+export function moveRegion(doc: AnnotationDoc, id: number, dx: number, dy: number): AnnotationDoc {
+  const regions = doc.regions.map((region): Region => {
+    if (region.id !== id) return region;
+    if (region.box) {
+      const [x0, y0, x1, y1] = region.box;
+      const ox = Math.min(Math.max(dx, -x0), 1 - x1);
+      const oy = Math.min(Math.max(dy, -y0), 1 - y1);
+      return { ...region, box: [x0 + ox, y0 + oy, x1 + ox, y1 + oy] };
+    }
+    if (region.point) {
+      return { ...region, point: [clamp01(region.point[0] + dx), clamp01(region.point[1] + dy)] };
+    }
+    if (region.points?.length) {
+      const xs = region.points.map(([x]) => x);
+      const ys = region.points.map(([, y]) => y);
+      const ox = Math.min(Math.max(dx, -Math.min(...xs)), 1 - Math.max(...xs));
+      const oy = Math.min(Math.max(dy, -Math.min(...ys)), 1 - Math.max(...ys));
+      return { ...region, points: region.points.map(([x, y]): Pair => [x + ox, y + oy]) };
+    }
+    return region;
+  });
+  return { ...doc, regions };
+}
+
+/** Corners of a box in order: top-left, top-right, bottom-right, bottom-left. */
+export type Corner = 0 | 1 | 2 | 3;
+
+export function boxCorners(box: Box): Pair[] {
+  const [x0, y0, x1, y1] = box;
+  return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+}
+
+/** Drag one corner of a rectangle or ellipse. The opposite corner stays where it is. */
+export function resizeBox(doc: AnnotationDoc, id: number, corner: Corner, to: Pair): AnnotationDoc {
+  const regions = doc.regions.map((region): Region => {
+    if (region.id !== id || !region.box) return region;
+    // The corner diagonally opposite the one being dragged is the fixed anchor.
+    const anchor = boxCorners(region.box)[(corner + 2) % 4];
+    const box = boxFromCorners([clamp01(to[0]), clamp01(to[1])], anchor);
+    return box ? { ...region, box } : region;
+  });
+  return { ...doc, regions };
+}
+

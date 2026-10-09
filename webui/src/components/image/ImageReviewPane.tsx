@@ -4,23 +4,28 @@ import type Konva from "konva";
 import { useTranslation } from "react-i18next";
 
 import {
-  BRUSH_RADIUS,
+  BRUSH_SIZES,
   MAX_BRUSH_POINTS,
   MAX_REGIONS,
   addRegion,
+  boxCorners,
   boxFromCorners,
   canAddRegion,
   commit,
   createHistory,
   emptyDoc,
+  moveRegion,
   redo,
   regionLabel,
   removeRegion,
+  resizeBox,
   setCompositeToOriginal,
   setGlobalNote,
   setNote,
   toPayload,
   undo,
+  type BrushSize,
+  type Corner,
   type Pair,
   type Region,
   type RegionShape,
@@ -28,12 +33,23 @@ import {
 import { ApiError, isWorkspaceConflict, readWorkspaceFile, saveWorkspaceFile, type WebUIMutationTransport } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export type ImageTool = "select" | "pan" | RegionShape;
+/** ``eraser`` is a brush stroke that removes from the marked area (IM-04). */
+export type ImageTool = "select" | "pan" | RegionShape | "eraser";
 
 const PALETTE = ["#e11d48", "#2563eb", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
+const ERASER_COLOR = "#374151";
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 8;
-const SHAPE_TOOLS: RegionShape[] = ["rect", "ellipse", "brush", "pin"];
+const SHAPE_TOOLS: ImageTool[] = ["rect", "ellipse", "brush", "eraser", "pin"];
+const TOOL_LABELS: Record<ImageTool, string> = {
+  select: "Select and move",
+  pan: "Pan",
+  rect: "Rectangle",
+  ellipse: "Ellipse",
+  brush: "Brush",
+  eraser: "Eraser",
+  pin: "Pin",
+};
 
 /** Where the annotation file sits next to the image: ``banner.v3.png`` → ``banner.v3.annotations.json``. */
 export function annotationPathFor(imagePath: string): string {
@@ -62,6 +78,8 @@ interface ImageReviewPaneProps {
 
 interface Draft {
   shape: RegionShape;
+  erase: boolean;
+  radius: number;
   start: Pair;
   current: Pair;
   points: Pair[];
@@ -76,6 +94,7 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
   const [history, setHistory] = useState(() => createHistory(emptyDoc()));
   const doc = history.present;
   const [tool, setTool] = useState<ImageTool>("rect");
+  const [brushSize, setBrushSize] = useState<BrushSize>("M");
   const [selected, setSelected] = useState<number | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
@@ -126,6 +145,8 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
   const displayWidth = naturalWidth * fit;
   const displayHeight = naturalHeight * fit;
   const shorter = Math.min(displayWidth, displayHeight);
+  const brushRadius = BRUSH_SIZES[brushSize];
+  const editing = tool === "select";
 
   const toFraction = (point: { x: number; y: number }): Pair => [
     clamp01(point.x / displayWidth),
@@ -133,30 +154,41 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
   ];
 
   const pointer = (): Pair | null => {
-    const stage = stageRef.current;
-    const position = stage?.getRelativePointerPosition();
+    const position = stageRef.current?.getRelativePointerPosition();
     return position ? toFraction(position) : null;
   };
 
-  const onPointerDown = () => {
-    if (!image || tool === "select" || tool === "pan") {
-      if (tool === "select") setSelected(null);
+  const limitReached = () => {
+    setError(t("image.review.limit", { defaultValue: "This image has the maximum number of regions." }));
+  };
+
+  const onStageDown = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (!image) return;
+    if (editing) {
+      // Clicking empty image clears the selection; clicking a region is handled by the region itself.
+      if (event.target === event.target.getStage()) setSelected(null);
       return;
     }
+    if (tool === "pan") return;
     const start = pointer();
     if (!start) return;
     if (tool === "pin") {
-      if (!canAddRegion(doc)) {
-        setError(t("image.review.limit", { defaultValue: "This image has the maximum number of regions." }));
-        return;
-      }
+      if (!canAddRegion(doc)) return limitReached();
       apply((current) => addRegion(current, { shape: "pin", point: start }));
       return;
     }
-    setDraft({ shape: tool, start, current: start, points: [start] });
+    const isBrush = tool === "brush" || tool === "eraser";
+    setDraft({
+      shape: isBrush ? "brush" : (tool as RegionShape),
+      erase: tool === "eraser",
+      radius: brushRadius,
+      start,
+      current: start,
+      points: [start],
+    });
   };
 
-  const onPointerMove = () => {
+  const onStageMove = () => {
     if (!draft) return;
     const at = pointer();
     if (!at) return;
@@ -168,29 +200,30 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
     }
   };
 
-  const onPointerUp = () => {
+  const onStageUp = () => {
     if (!draft) return;
     const finished = draft;
     setDraft(null);
     if (finished.shape === "brush") {
-      if (finished.points.length < 1) return;
-      apply((current) => addRegion(current, { shape: "brush", points: finished.points, radius: BRUSH_RADIUS }));
+      if (!canAddRegion(doc)) return limitReached();
+      apply((current) => addRegion(current, {
+        shape: "brush",
+        points: finished.points,
+        radius: finished.radius,
+        ...(finished.erase ? { erase: true } : {}),
+      }));
       return;
     }
     const box = boxFromCorners(finished.start, finished.current);
     if (!box) return;
-    if (!canAddRegion(doc)) {
-      setError(t("image.review.limit", { defaultValue: "This image has the maximum number of regions." }));
-      return;
-    }
+    if (!canAddRegion(doc)) return limitReached();
     apply((current) => addRegion(current, { shape: finished.shape, box }));
   };
 
   const onWheel = (event: Konva.KonvaEventObject<WheelEvent>) => {
     event.evt.preventDefault();
-    const stage = stageRef.current;
-    const pos = stage?.getPointerPosition();
-    if (!stage || !pos) return;
+    const pos = stageRef.current?.getPointerPosition();
+    if (!pos) return;
     const factor = event.evt.deltaY < 0 ? 1.1 : 1 / 1.1;
     setView((current) => {
       const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current.scale * factor));
@@ -203,14 +236,20 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
     });
   };
 
-  const readRegion = (region: Region) => {
-    if (region.shape === "pin" && region.point) {
-      return { x: region.point[0] * displayWidth, y: region.point[1] * displayHeight };
-    }
-    return null;
+  const removeSelected = () => {
+    if (selected === null) return;
+    apply((current) => removeRegion(current, selected));
+    setSelected(null);
   };
 
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.tagName === "TEXTAREA" || target.tagName === "INPUT") return;
+    if ((event.key === "Delete" || event.key === "Backspace") && selected !== null) {
+      event.preventDefault();
+      removeSelected();
+      return;
+    }
     const mod = event.ctrlKey || event.metaKey;
     if (!mod) return;
     const key = event.key.toLowerCase();
@@ -222,8 +261,6 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
       setHistory((current) => redo(current));
     }
   };
-
-  const noteValue = (region: Region) => drafts[region.id] ?? region.note;
 
   const commitNote = (id: number) => {
     const text = drafts[id];
@@ -266,13 +303,11 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
   };
 
   const tools = useMemo(() => [
-    { id: "select" as const, label: t("image.review.tool.select", { defaultValue: "Select" }) },
-    { id: "pan" as const, label: t("image.review.tool.pan", { defaultValue: "Pan" }) },
-    ...SHAPE_TOOLS.map((shape) => ({
-      id: shape,
-      label: t(`image.review.tool.${shape}`, {
-        defaultValue: { rect: "Rectangle", ellipse: "Ellipse", brush: "Brush", pin: "Pin" }[shape],
-      }),
+    { id: "select" as const, label: t("image.review.tool.select", { defaultValue: TOOL_LABELS.select }) },
+    { id: "pan" as const, label: t("image.review.tool.pan", { defaultValue: TOOL_LABELS.pan }) },
+    ...SHAPE_TOOLS.map((id) => ({
+      id,
+      label: t(`image.review.tool.${id}`, { defaultValue: TOOL_LABELS[id] }),
     })),
   ], [t]);
 
@@ -284,7 +319,105 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
     );
   }
 
-  const colorOf = (id: number) => PALETTE[(id - 1) % PALETTE.length];
+  const colorOf = (region: Region) => (region.erase ? ERASER_COLOR : PALETTE[(region.id - 1) % PALETTE.length]);
+  const zoom = view.scale;
+  const dash = [6 / zoom, 4 / zoom];
+
+  /** A drag of a region's node, expressed in fractions; the node goes back to where the document puts it. */
+  const dragOffset = (node: Konva.Node, base: Pair) => {
+    const dx = (node.x() - base[0]) / displayWidth;
+    const dy = (node.y() - base[1]) / displayHeight;
+    node.position({ x: base[0], y: base[1] });
+    return [dx, dy] as Pair;
+  };
+
+  const renderShape = (region: Region) => {
+    const color = colorOf(region);
+    const isSelected = selected === region.id;
+    const onSelect = () => setSelected(region.id);
+    const draggable = editing;
+    const common = {
+      onClick: onSelect,
+      onTap: onSelect,
+    };
+    if ((region.shape === "rect" || region.shape === "ellipse") && region.box) {
+      const [x0, y0, x1, y1] = region.box;
+      const strokeWidth = (isSelected ? 3 : 2) / zoom;
+      if (region.shape === "rect") {
+        const base: Pair = [x0 * displayWidth, y0 * displayHeight];
+        return (
+          <Rect key={region.id} x={base[0]} y={base[1]}
+            width={(x1 - x0) * displayWidth} height={(y1 - y0) * displayHeight}
+            stroke={color} strokeWidth={strokeWidth} fill={`${color}22`} dash={region.erase ? dash : undefined}
+            draggable={draggable}
+            onDragEnd={(event) => {
+              const [dx, dy] = dragOffset(event.target, base);
+              apply((current) => moveRegion(current, region.id, dx, dy));
+            }}
+            {...common} />
+        );
+      }
+      const center: Pair = [((x0 + x1) / 2) * displayWidth, ((y0 + y1) / 2) * displayHeight];
+      return (
+        <Ellipse key={region.id} x={center[0]} y={center[1]}
+          radiusX={((x1 - x0) * displayWidth) / 2} radiusY={((y1 - y0) * displayHeight) / 2}
+          stroke={color} strokeWidth={strokeWidth} fill={`${color}22`} dash={region.erase ? dash : undefined}
+          draggable={draggable}
+          onDragEnd={(event) => {
+            const [dx, dy] = dragOffset(event.target, center);
+            apply((current) => moveRegion(current, region.id, dx, dy));
+          }}
+          {...common} />
+      );
+    }
+    if (region.shape === "brush" && region.points) {
+      return (
+        <Line key={region.id}
+          points={region.points.flatMap(([x, y]) => [x * displayWidth, y * displayHeight])}
+          stroke={color} opacity={region.erase ? 0.6 : 0.4} dash={region.erase ? dash : undefined}
+          strokeWidth={2 * (region.radius ?? BRUSH_SIZES.M) * shorter}
+          lineCap="round" lineJoin="round" draggable={draggable}
+          onDragEnd={(event) => {
+            const [dx, dy] = dragOffset(event.target, [0, 0]);
+            apply((current) => moveRegion(current, region.id, dx, dy));
+          }}
+          {...common} />
+      );
+    }
+    if (region.shape === "pin" && region.point) {
+      const base: Pair = [region.point[0] * displayWidth, region.point[1] * displayHeight];
+      return (
+        <Circle key={region.id} x={base[0]} y={base[1]} radius={8 / zoom}
+          fill={color} stroke="#ffffff" strokeWidth={2 / zoom} draggable={draggable}
+          onDragEnd={(event) => {
+            const [dx, dy] = dragOffset(event.target, base);
+            apply((current) => moveRegion(current, region.id, dx, dy));
+          }}
+          {...common} />
+      );
+    }
+    return null;
+  };
+
+  /** Corner handles for the selected rectangle or ellipse: drag one to resize, the opposite corner stays. */
+  const renderHandles = (region: Region) => {
+    if (!editing || selected !== region.id || !region.box || region.shape === "brush" || region.shape === "pin") {
+      return null;
+    }
+    const corners = boxCorners(region.box);
+    return corners.map((corner, index) => {
+      const at: Pair = [corner[0] * displayWidth, corner[1] * displayHeight];
+      return (
+        <Circle key={`handle-${region.id}-${index}`} x={at[0]} y={at[1]} radius={5 / zoom}
+          fill="#ffffff" stroke="#111827" strokeWidth={1.5 / zoom} draggable
+          onDragEnd={(event) => {
+            const to = dragOffset(event.target, at);
+            const fraction: Pair = [corner[0] + to[0], corner[1] + to[1]];
+            apply((current) => resizeBox(current, region.id, index as Corner, fraction));
+          }} />
+      );
+    });
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="image-review-pane" tabIndex={-1} onKeyDown={keyDown}>
@@ -297,6 +430,16 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
             {item.label}
           </button>
         ))}
+        {tool === "brush" || tool === "eraser" ? (
+          <span role="group" aria-label={t("image.review.brushSize", { defaultValue: "Brush size" })} className="flex items-center gap-0.5">
+            {(Object.keys(BRUSH_SIZES) as BrushSize[]).map((size) => (
+              <button key={size} type="button" aria-pressed={brushSize === size} onClick={() => setBrushSize(size)}
+                className={cn("h-6 w-6 rounded-full text-[11px]", brushSize === size ? "bg-muted font-medium" : "text-muted-foreground")}>
+                {size}
+              </button>
+            ))}
+          </span>
+        ) : null}
         <span className="mx-1 h-4 w-px bg-border/70" aria-hidden />
         <button type="button" aria-label={t("image.review.undo", { defaultValue: "Undo" })}
           disabled={history.past.length === 0} onClick={() => setHistory((current) => undo(current))}
@@ -307,6 +450,10 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
         <button type="button" onClick={() => setView({ scale: 1, x: 0, y: 0 })}
           className="rounded px-2 py-1 text-muted-foreground">
           {t("image.review.fit", { defaultValue: "Fit" })}
+        </button>
+        <button type="button" disabled={selected === null} onClick={removeSelected}
+          className="rounded px-2 py-1 text-muted-foreground disabled:opacity-40">
+          {t("image.review.deleteSelected", { defaultValue: "Delete region" })}
         </button>
         <label className="ml-auto flex items-center gap-1 text-muted-foreground">
           <input type="checkbox" checked={doc.compositeToOriginal}
@@ -329,51 +476,17 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
               draggable={tool === "pan"}
               onWheel={onWheel}
               onDragEnd={(event) => setView((current) => ({ ...current, x: event.target.x(), y: event.target.y() }))}
-              onMouseDown={onPointerDown}
-              onTouchStart={onPointerDown}
-              onMouseMove={onPointerMove}
-              onTouchMove={onPointerMove}
-              onMouseUp={onPointerUp}
-              onTouchEnd={onPointerUp}
+              onMouseDown={onStageDown}
+              onTouchStart={onStageDown}
+              onMouseMove={onStageMove}
+              onTouchMove={onStageMove}
+              onMouseUp={onStageUp}
+              onTouchEnd={onStageUp}
             >
               <Layer>
                 <KonvaImage image={image} width={displayWidth} height={displayHeight} />
-                {doc.regions.map((region) => {
-                  const color = colorOf(region.id);
-                  const isSelected = selected === region.id;
-                  const onSelect = () => setSelected(region.id);
-                  if (region.shape === "rect" && region.box) {
-                    const [x0, y0, x1, y1] = region.box;
-                    return (
-                      <Rect key={region.id} x={x0 * displayWidth} y={y0 * displayHeight}
-                        width={(x1 - x0) * displayWidth} height={(y1 - y0) * displayHeight}
-                        stroke={color} strokeWidth={(isSelected ? 3 : 2) / view.scale} fill={`${color}22`} onClick={onSelect} onTap={onSelect} />
-                    );
-                  }
-                  if (region.shape === "ellipse" && region.box) {
-                    const [x0, y0, x1, y1] = region.box;
-                    return (
-                      <Ellipse key={region.id}
-                        x={((x0 + x1) / 2) * displayWidth} y={((y0 + y1) / 2) * displayHeight}
-                        radiusX={((x1 - x0) * displayWidth) / 2} radiusY={((y1 - y0) * displayHeight) / 2}
-                        stroke={color} strokeWidth={(isSelected ? 3 : 2) / view.scale} fill={`${color}22`} onClick={onSelect} onTap={onSelect} />
-                    );
-                  }
-                  if (region.shape === "brush" && region.points) {
-                    return (
-                      <Line key={region.id}
-                        points={region.points.flatMap(([x, y]) => [x * displayWidth, y * displayHeight])}
-                        stroke={color} opacity={0.4}
-                        strokeWidth={2 * (region.radius ?? BRUSH_RADIUS) * shorter}
-                        lineCap="round" lineJoin="round" onClick={onSelect} onTap={onSelect} />
-                    );
-                  }
-                  const at = readRegion(region);
-                  return at ? (
-                    <Circle key={region.id} x={at.x} y={at.y} radius={8 / view.scale}
-                      fill={color} stroke="#ffffff" strokeWidth={2 / view.scale} onClick={onSelect} onTap={onSelect} />
-                  ) : null;
-                })}
+                {doc.regions.map((region) => renderShape(region))}
+                {doc.regions.map((region) => renderHandles(region))}
                 {doc.regions.map((region) => {
                   const anchor = region.shape === "pin" && region.point
                     ? [region.point[0] * displayWidth, region.point[1] * displayHeight]
@@ -384,8 +497,8 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
                         : null;
                   if (!anchor) return null;
                   return (
-                    <Text key={`label-${region.id}`} x={anchor[0] + 4 / view.scale} y={anchor[1] + 4 / view.scale}
-                      text={String(region.id)} fontSize={14 / view.scale} fontStyle="bold" fill={colorOf(region.id)} listening={false} />
+                    <Text key={`label-${region.id}`} x={anchor[0] + 4 / zoom} y={anchor[1] + 4 / zoom}
+                      text={String(region.id)} fontSize={14 / zoom} fontStyle="bold" fill={colorOf(region)} listening={false} />
                   );
                 })}
                 {draft && draft.shape === "rect" ? (
@@ -393,19 +506,19 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
                     y={Math.min(draft.start[1], draft.current[1]) * displayHeight}
                     width={Math.abs(draft.current[0] - draft.start[0]) * displayWidth}
                     height={Math.abs(draft.current[1] - draft.start[1]) * displayHeight}
-                    stroke="#111827" dash={[6 / view.scale, 4 / view.scale]} strokeWidth={1.5 / view.scale} listening={false} />
+                    stroke="#111827" dash={dash} strokeWidth={1.5 / zoom} listening={false} />
                 ) : null}
                 {draft && draft.shape === "ellipse" ? (
                   <Ellipse x={((draft.start[0] + draft.current[0]) / 2) * displayWidth}
                     y={((draft.start[1] + draft.current[1]) / 2) * displayHeight}
                     radiusX={(Math.abs(draft.current[0] - draft.start[0]) * displayWidth) / 2}
                     radiusY={(Math.abs(draft.current[1] - draft.start[1]) * displayHeight) / 2}
-                    stroke="#111827" dash={[6 / view.scale, 4 / view.scale]} strokeWidth={1.5 / view.scale} listening={false} />
+                    stroke="#111827" dash={dash} strokeWidth={1.5 / zoom} listening={false} />
                 ) : null}
                 {draft && draft.shape === "brush" ? (
                   <Line points={draft.points.flatMap(([x, y]) => [x * displayWidth, y * displayHeight])}
-                    stroke="#111827" opacity={0.3} strokeWidth={2 * BRUSH_RADIUS * shorter}
-                    lineCap="round" lineJoin="round" listening={false} />
+                    stroke={draft.erase ? ERASER_COLOR : "#111827"} opacity={0.3}
+                    strokeWidth={2 * draft.radius * shorter} lineCap="round" lineJoin="round" listening={false} />
                 ) : null}
               </Layer>
             </Stage>
@@ -439,7 +552,7 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
             <div key={region.id} className={cn("rounded border p-2 text-xs", selected === region.id ? "border-foreground/60" : "border-border/60")}
               onClick={() => setSelected(region.id)}>
               <div className="mb-1 flex items-center justify-between">
-                <span className="font-medium" style={{ color: colorOf(region.id) }}>{regionLabel(region)}</span>
+                <span className="font-medium" style={{ color: colorOf(region) }}>{regionLabel(region)}</span>
                 <button type="button" className="text-muted-foreground underline"
                   onClick={() => apply((current) => removeRegion(current, region.id))}>
                   {t("image.review.remove", { defaultValue: "Remove" })}
@@ -447,7 +560,7 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
               </div>
               <textarea aria-label={t("image.review.noteFor", { defaultValue: "Note for region {{id}}", id: region.id })}
                 className="min-h-[44px] w-full rounded border border-border/60 bg-background p-1.5 text-sm text-foreground"
-                value={noteValue(region)}
+                value={drafts[region.id] ?? region.note}
                 onChange={(event) => setDrafts((current) => ({ ...current, [region.id]: event.target.value }))}
                 onBlur={() => commitNote(region.id)} />
             </div>

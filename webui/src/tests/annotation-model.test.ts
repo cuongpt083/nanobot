@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BRUSH_SIZES,
   MAX_REGIONS,
+  moveRegion,
+  regionLabel,
+  resizeBox,
   SCHEMA,
   addRegion,
   boxFromCorners,
@@ -81,3 +85,66 @@ describe("annotation model", () => {
     expect(doc.regions[0].note).toHaveLength(1_000);
   });
 });
+
+describe("moving and resizing regions (IM-03)", () => {
+  it("moves a box by an offset and keeps its size", () => {
+    let doc = addRegion(emptyDoc(), { shape: "rect", box: [0.1, 0.1, 0.3, 0.3] });
+    doc = moveRegion(doc, 1, 0.2, 0.1);
+    const [x0, y0, x1, y1] = doc.regions[0].box ?? [];
+    expect([x0, y0, x1, y1]).toEqual([expect.closeTo(0.3), expect.closeTo(0.2), expect.closeTo(0.5), expect.closeTo(0.4)]);
+  });
+
+  it("keeps a moved box inside the image", () => {
+    let doc = addRegion(emptyDoc(), { shape: "ellipse", box: [0.1, 0.1, 0.3, 0.3] });
+    doc = moveRegion(doc, 1, -0.5, 0.9);
+    // The vertical move is clamped by the bottom edge: the box ends exactly at 1.
+    const [x0, y0, x1, y1] = doc.regions[0].box ?? [];
+    expect(x0).toBeCloseTo(0);
+    expect(y0).toBeCloseTo(0.8);
+    expect(x1).toBeCloseTo(0.2);
+    expect(y1).toBeCloseTo(1);
+  });
+
+  it("moves a pin and clamps it to the image", () => {
+    let doc = addRegion(emptyDoc(), { shape: "pin", point: [0.5, 0.5] });
+    doc = moveRegion(doc, 1, 0.9, -0.9);
+    expect(doc.regions[0].point).toEqual([1, 0]);
+  });
+
+  it("moves a brush stroke as a whole without letting any point leave the image", () => {
+    let doc = addRegion(emptyDoc(), { shape: "brush", points: [[0.2, 0.2], [0.4, 0.5]], radius: 0.02 });
+    doc = moveRegion(doc, 1, 1, 0);
+    // Moving right stops when the rightmost point reaches the edge.
+    expect(doc.regions[0].points).toEqual([[0.8, 0.2], [1, 0.5]]);
+  });
+
+  it("resizes from a corner and keeps the opposite corner where it is", () => {
+    const doc = addRegion(emptyDoc(), { shape: "rect", box: [0.2, 0.2, 0.6, 0.6] });
+    expect(resizeBox(doc, 1, 0, [0.1, 0.1]).regions[0].box).toEqual([0.1, 0.1, 0.6, 0.6]);
+    expect(resizeBox(doc, 1, 2, [0.7, 0.7]).regions[0].box).toEqual([0.2, 0.2, 0.7, 0.7]);
+  });
+
+  it("ignores a resize that would make the box too small", () => {
+    const doc = addRegion(emptyDoc(), { shape: "rect", box: [0.2, 0.2, 0.6, 0.6] });
+    expect(resizeBox(doc, 1, 0, [0.599, 0.599]).regions[0].box).toEqual([0.2, 0.2, 0.6, 0.6]);
+  });
+});
+
+describe("eraser strokes and brush sizes (IM-04)", () => {
+  it("marks an eraser stroke in the payload and only then", () => {
+    let doc = emptyDoc();
+    doc = addRegion(doc, { shape: "brush", points: [[0.5, 0.5]], radius: 0.02 });
+    doc = addRegion(doc, { shape: "brush", points: [[0.4, 0.4]], radius: 0.02, erase: true });
+    const edits = toPayload(doc, "a.png", null).edits;
+    expect(edits[0]).not.toHaveProperty("erase");
+    expect(edits[1]).toMatchObject({ erase: true });
+    expect(regionLabel(doc.regions[1])).toBe("2 · eraser");
+  });
+
+  it("offers three brush sizes with the middle one as the default", () => {
+    expect(Object.keys(BRUSH_SIZES)).toEqual(["S", "M", "L"]);
+    expect(BRUSH_SIZES.S).toBeLessThan(BRUSH_SIZES.M);
+    expect(BRUSH_SIZES.M).toBeLessThan(BRUSH_SIZES.L);
+  });
+});
+

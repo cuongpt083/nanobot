@@ -150,3 +150,28 @@ describe("ImageReviewPane send", () => {
     expect(screen.getByLabelText("Note for the whole image")).toHaveValue("");
   });
 });
+
+describe("ImageReviewPane tools (IM-03, IM-04)", () => {
+  it("shows the brush sizes for the brush and the eraser, and not for the rectangle", async () => {
+    renderPane();
+    await screen.findByTestId("image-review-pane");
+    expect(screen.queryByRole("group", { name: "Brush size" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Brush" }));
+    expect(screen.getByRole("group", { name: "Brush size" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "L" }));
+    expect(screen.getByRole("button", { name: "L" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Eraser" }));
+    expect(screen.getByRole("group", { name: "Brush size" })).toBeInTheDocument();
+  });
+
+  it("has the eraser and the select tool, and cannot delete when nothing is selected", async () => {
+    renderPane();
+    await screen.findByTestId("image-review-pane");
+    expect(screen.getByRole("button", { name: "Select and move" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Eraser" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete region" })).toBeDisabled();
+  });
+});
+
