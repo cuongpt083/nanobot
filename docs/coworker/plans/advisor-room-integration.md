@@ -230,3 +230,10 @@ Chạy: `pytest tests/coworker -v`, `ruff check nanobot/`, `uv run --no-sync bas
   `room_evidence_max_chars`).
 - Cách `settings_api.py` và WebUI hiển thị các cờ steering hiện có.
 - Chưa chạy test hay bất kỳ thay đổi nào; kế hoạch dựa hoàn toàn trên đọc code.
+
+## 11. Phụ thuộc chéo với roadmap giao diện (09/10/2026)
+
+- **Phase 8 của roadmap** (`file_write_staged`): `WRITE_TOOLS` trong `advisor/evidence.py` phải thêm tool mới, và evidence phải đọc được nội dung đang chờ duyệt, vì
+  nội dung đó chưa lên đĩa. Chi tiết ở mục 8.4 của `coworker-desktop-roadmap-implementation-plan.md`.
+- **Vị trí artifact** mà Phase A (evidence nhận biết loại tác vụ) có thể gặp: `delegation/<task_id>.jsonl` (Phase 1 F3, đang hoãn, nên loại khỏi evidence),
+  `.coworker/drafts/` (Phase 8), kho phiên bản ảnh trong thư mục tạm của hệ điều hành (Phase 9, nằm ngoài root dự án nên advisor sẽ không thấy ảnh, chấp nhận được).

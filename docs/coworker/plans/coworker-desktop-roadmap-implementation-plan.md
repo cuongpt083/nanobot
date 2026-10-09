@@ -1,6 +1,6 @@
 # Implementation plan: Coworker Desktop local (Windows)
 
-_Cập nhật: 07/10/2026 · Repo: `cuongpt083/nanobot`, nhánh `develop` · Mục tiêu: Desktop app Windows (Tauri webview → gateway `127.0.0.1`)_
+_Cập nhật: 09/10/2026 · Repo: `cuongpt083/nanobot`, nhánh `develop` · Mục tiêu: Desktop app Windows (Tauri webview → gateway `127.0.0.1`)_
 
 Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, xếp theo giá trị dùng thật và rủi ro. Không thiết kế remote use (VPS, SSH, Tailscale, WebUI điện thoại). Ước lượng 22–40 ngày công tùy phase có điều kiện (ảo hóa, time-to-chrome) và BrowserSkill.
 
@@ -18,17 +18,39 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | 0 | Baseline WebView2 + eval | 1–1,5 ngày | một phần (chờ số đo & eval run) | Có số đo ổn định, 2 lần chạy |
 | 0.5 | Gỡ Pi room guest (Lựa chọn A) + dọn tàn dư agy | 1–1,5 ngày | xong (`abff70c8`) | Toàn bộ room guest chạy AgentRuntime; tests room xanh, 156 coding tests pass |
 | 1 | F3 brief / envelope | 2–3 ngày | chưa | Token guest −40% vs `full`; envelope hợp lệ ≥ 90% |
-| 2 | Mermaid P2a (ELK, pan/zoom, viewport) | 2–3 ngày | chưa | Sequence 15 participant đọc được; Ctrl+cuộn zoom sơ đồ |
+| 2 | Mermaid P2a (ELK, pan/zoom, viewport) | 2–3 ngày | chưa (UI #1; spike 2.0 đã có kết luận) | Sequence 15 participant đọc được; Ctrl+cuộn zoom sơ đồ |
 | 3 | F2 FTS5 (chưa tóm tắt) | 2–3 ngày | chưa | Recall@5 ≥ 0,8; p95 < 200 ms |
 | 4 | F1 draft (CLI `/skills review`) | 2,5–3,5 ngày | chưa | Nháp hợp lệ; không tự active |
 | 5 | F2 summarize + UI duyệt skill | 2–3 ngày | chưa | Tóm tắt cache; duyệt nháp trên WebUI/Desktop |
 | 6 | P2b ảo hóa / P3 time-to-chrome | 0–3 ngày | có điều kiện | Chỉ khi baseline còn jank / chờ lâu |
-| 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | chưa | Mở 1 MB < 1 s; không qua Tauri `invoke` |
-| 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa | File ngoài drafts hoặc tab đang mở đều qua staged review |
-| 9 | Image G3 (Konva + skill) | 4–5 ngày | chưa | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
+| 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | chưa (UI #2–3) | Mở 1 MB < 1 s; không qua Tauri `invoke` |
+| 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa (UI #4; kèm cập nhật advisor) | File ngoài drafts hoặc tab đang mở đều qua staged review |
+| 9 | Image G3 (Konva + skill) | 4–5 ngày | chưa (UI #4, song song 8) | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
 | 10 | BrowserSkill P0–P4 (local-only, no Docker) | 8–12 ngày | cuối | 0 session treo trước khi bật `interact` |
 
 Đánh dấu `- [x]` trong từng phase khi xong và đã qua cổng. Không sang phase sau nếu cổng fail, trừ khi có quyết định dừng/bỏ rõ ràng.
+
+## Cập nhật 09/10/2026: thứ tự ưu tiên hiện tại
+
+Quyết định: sau khi rà soát chất lượng thông tin giữa coordinator và advisor, **làm giao diện trước** (Mermaid, Editor, Image).
+F3, F2, F1 (Phase 1, 3, 4, 5) được **hoãn, không hủy**; số phase giữ nguyên để không vỡ tham chiếu.
+
+Thứ tự đề xuất cho nhánh giao diện:
+
+| # | Phase | Việc | Phụ thuộc |
+| --- | --- | --- | --- |
+| 1 | 2 | `MermaidPane` trong chat | Spike 2.0 đã có kết luận (Hướng A), còn kiểm chứng ELK |
+| 2 | 7.1 | Workspace file API: đọc có `version`, ghi có `base_version` | Không |
+| 3 | 7.2–7.3 | Monaco và preview markdown (dùng lại `MermaidPane`) | Phase 2, 7.1 |
+| 4 | 8 | Staged write và diff | Phase 7; cần cập nhật advisor (mục 8.4) |
+| 4 | 9 | Image Konva, chạy song song với Phase 8 được | Chỉ cần 7.1 (đặc tả `dac-ta-editor-image-pane.md`, giai đoạn 3) và chốt Q6 |
+
+Hệ quả cần biết:
+
+- Phase 5.3 (UI duyệt skill) sẽ dùng lại renderer markdown của Phase 2 và diff Monaco của Phase 8, nên rẻ hơn nếu nhánh giao diện chạy trước.
+- Lộ trình gốc khuyên dùng thật 1–2 tuần sau Mốc A trước khi vào editor. Thứ tự mới bỏ qua Mốc A; thay vào đó dùng thật Mermaid (Phase 2) rồi mới quyết định có vào Phase 7 không.
+- Phase 8 đổi cách agent ghi file, nên phải cập nhật steering của advisor cùng lúc (mục 8.4).
+
 
 ## Lệch thứ tự so với Hermes
 
@@ -51,7 +73,7 @@ Lý do, không phải quên spec:
 | D3 | Envelope thiếu `status`, `key_points`, `transcript_ref`; schema cũ `summary` ≤ 1200 | `agents/contract.py` | 1 |
 | D4 | Không có transcript delegation đầy đủ; `AgentThreadStore` cắt 4000 ký tự và chỉ lưu summary | `agents/thread.py` | 1 |
 | D5 | `spawn` core trả nguyên `final_content` | `agent/subagent.py` `_announce_result` | 1 (lát 2, tùy chọn) |
-| D6 | Mermaid chữ nhỏ, không pan/zoom riêng, chưa ELK. `MarkdownTextRenderer` không override mermaid — Streamdown tự render (chunk lazy `mermaid-*.js`). Chưa xác nhận option ELK / complete-block | Streamdown trong `MarkdownTextRenderer` | 2 |
+| D6 | `MarkdownTextRenderer` không truyền `plugins` cho Streamdown và ghi đè `components.code`, nên mọi khối `language-*` (kể cả `mermaid`) đi vào `CodeBlock`: sơ đồ hiện như code đã tô màu, không phải sơ đồ (theo code và `mermaid-streamdown-note.md`; chưa kiểm tra bằng UI chạy thật). Chưa có pan/zoom riêng, ELK, và `mermaid` 11.16.0 chỉ là phụ thuộc gián tiếp của Streamdown | `MarkdownTextRenderer.tsx` (`components.code`) | 2 |
 | D7 | `search_sessions` vẫn substring + `_SEARCH_LIMIT=5` + excerpt 360 ký tự; **đã** xếp title trước message và không cắt scan ẩn (test `test_sessions.py`). Thiếu: BM25, độ mới, FTS5, tóm tắt | `WebuiSessionAccess.search`, `agent/tools/sessions.py` | 3 |
 | D8 | Không tự tạo skill sau tác vụ phức tạp | `coworker/hook.py` `after_run` | 4 |
 | D9 | Không có UI duyệt skill nháp | WebUI settings coworker | 5 |
@@ -312,9 +334,14 @@ Phụ thuộc `mermaid-streamdown-note.md` ở 0.3. **Không** giả định ELK
 
 ### 2.0 – Spike (nửa ngày, làm trước wrapper)
 
-- [ ] Xác nhận: Streamdown có prop mermaid (layout ELK, `useMaxWidth`) hay phải override component `code`/`pre` khi `language=mermaid`.
-- [ ] Ghim phiên `mermaid` (và plugin ELK nếu tách) trong `webui/package.json`; ghi phiên vào note.
-- [ ] Nếu Streamdown không cho đủ option → custom `MermaidPane`, không fork package.
+Đã có kết quả (`mermaid-streamdown-note.md`, đối chiếu lại 09/10/2026): Streamdown 2.5.0 chỉ render Mermaid qua `plugins.mermaid`; `MarkdownTextRenderer`
+không truyền plugin và còn ghi đè `components.code`, nên hiện khối `language-mermaid` đi vào `CodeBlock`. `mermaid` 11.16.0 có trong `node_modules`
+chỉ như phụ thuộc gián tiếp của Streamdown (`^11.12.2`). Chưa cài `elkjs`, `@mermaid-js/layout-elk`, `@panzoom/panzoom`.
+
+- [x] Xác nhận Streamdown có prop mermaid hay phải override: **chọn Hướng A**, bắt `language === "mermaid"` trong `components.code` của `MarkdownTextRenderer` và render `MermaidPane` lazy.
+- [x] Không fork Streamdown: dùng `MermaidPane` tự viết.
+- [ ] Thêm `mermaid` làm phụ thuộc trực tiếp và ghim phiên (hiện 11.16.0) trong `webui/package.json`; ghi phiên vào note.
+- [ ] Kiểm chứng ELK: `@mermaid-js/layout-elk` (và `elkjs`) tương thích với `mermaid` 11.16; đo kích thước chunk. Nếu không đạt, giữ layout mặc định và bỏ ELK khỏi cổng Phase 2.
 
 ### 2.1 – Wrapper
 
@@ -338,6 +365,7 @@ Phụ thuộc `mermaid-streamdown-note.md` ở 0.3. **Không** giả định ELK
 - Component: Ctrl+wheel không scroll parent; wheel thường scroll parent.
 - Fixture sequence 15 participant: SVG width > container, chữ không scale theo maxWidth.
 - Playwright (nếu CI cho phép): render 1 diagram + toolbar.
+- Hồi quy: thẻ advisor (`AdvisorConsultRow`) và `CoworkerMessageCard` dùng `MarkdownText`; giữ xanh `markdown-text-renderer.test.tsx`, `advisor-consult-row.test.tsx`, `coworker-message-card.test.tsx`. Hiện chưa có test nào render sơ đồ (chỉ có quy tắc chunk trong `vite-config.test.ts`).
 
 ### Cổng
 
@@ -473,6 +501,7 @@ Nhánh: `feat/desktop-roadmap-p5-recall-ui`.
 - [ ] Trang Skill trong settings coworker (WebUI = Desktop webview).
 - [ ] List nháp: tên, persona, create/patch, ngày, link session, confidence, validate.
 - [ ] Chi tiết: render markdown; patch hiện diff; Duyệt / Sửa rồi duyệt / Từ chối.
+- [ ] Dùng lại renderer markdown (Phase 2) và diff Monaco (Phase 8) nếu đã có; nếu chưa, bản đầu dùng `MarkdownText` và diff dạng văn bản.
 - [ ] Skill đang dùng: uses, success rate, Retire / Khôi phục.
 - [ ] API cạnh `coworker/settings_api.py`.
 - [ ] Badge số nháp trên nav.
@@ -524,6 +553,13 @@ Nhánh: `feat/desktop-roadmap-p7-editor-g1`.
 `file_preview_payload` hiện **chỉ đọc**, cap `MAX_FILE_PREVIEW_BYTES = 384 KiB` text / 8 MiB ảnh, **không có `version`**. Endpoint ghi + `base_version` (hash nội dung, kèm mtime để debug) là **việc mới**. Watch / staged là G2.
 
 Giữ test từ chối path ngoài workspace (`test_handle_file_preview_rejects_paths_outside_workspace`).
+
+### Hiện trạng giao diện (đối chiếu 09/10/2026)
+
+- `FilePreviewPanel` (trong khung tab `PreviewPane` bên phải) chỉ **đọc**: file text hiển thị bằng `CodeBlock` (tô màu, có cảnh báo "bị cắt" khi vượt cap), `.md` cũng chỉ hiện như code, **chưa render markdown**; ảnh mở bằng `ImageLightbox` với `data_url`.
+- `ImageLightbox` và `ZoomableImage` đã có zoom/pan (Ctrl+cuộn, pinch, kéo) và duyệt nhiều ảnh. Đây là "panel ảnh hiện có" của ED-03 cho tới khi có Konva (G3); không viết lại.
+- Chưa có `monaco-editor` / `@monaco-editor/react`: thêm lazy trong phase này và đo `time_to_chrome` ngay sau khi thêm.
+- Preview markdown (7.3) dùng `MarkdownTextRenderer` hiện có cộng `MermaidPane` của Phase 2, nên Phase 2 phải xong trước.
 
 ### 7.1 – Workspace file API (đọc + ghi user)
 
@@ -589,6 +625,16 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. Chốt Q2 trước khi merge.
 - [ ] ED-13: `@file` trong chat mở tab.
 - [ ] ED-14 `editor_context`: opt-in (Q5).
 
+### 8.4 – Advisor và steering (phụ thuộc chéo)
+
+Advisor chỉ nhận biết việc ghi file qua `WRITE_TOOLS = {write_file, edit_file, apply_patch}` (`nanobot/coworker/advisor/evidence.py`). Staged write không nằm trong
+tập này và chưa lên đĩa cho tới khi người dùng duyệt, nên nếu không cập nhật, advisor sẽ không thấy các lần ghi đó (đếm bước làm việc, commit gate, gói evidence).
+
+- [ ] Thêm `file_write_staged` vào `WRITE_TOOLS` và vào `tool_call_paths` / `params_paths` (đọc đường dẫn từ đối số của tool mới).
+- [ ] Gói evidence đọc nội dung đang chờ duyệt từ vùng staged cho các file chưa được chấp nhận (ghi rõ "chưa áp dụng"), thay vì chỉ dựa vào `git diff`.
+- [ ] Test: một lần ghi staged được tính là bước làm việc và là "write" cho commit gate; evidence nêu file đang chờ duyệt.
+- Xem `advisor-room-integration.md` (mục 11) cho các vị trí artifact liên quan.
+
 ### Test
 
 - Agent `write_file` thường bị chặn (hoặc chuyển staged) ngoài auto_accept — **cần seam tool filesystem**; ghi rõ file core/`coworker` hook.
@@ -609,6 +655,10 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. Chốt Q2 trước khi merge.
 Nhánh: `feat/desktop-roadmap-p9-image`. Chốt Q3, Q6 trước.
 
 Không làm IM-17, không LLM mask/coords, không model vẽ chữ Việt.
+
+Phụ thuộc (theo đặc tả, giai đoạn 3): chỉ cần workspace file API của Phase 7.1, nên chạy song song với Phase 8 được.
+Hiện trạng (09/10/2026): chưa cài `konva` / `react-konva`; viewer ảnh hiện có (`ImageLightbox`, `ZoomableImage`) chỉ để xem, chưa có công cụ khoanh vùng;
+Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `image_edit`.
 
 ### 9.1 – Konva pane (lazy)
 
@@ -710,4 +760,6 @@ Roadmap **chưa xong** khi mới hết F3. Mốc dùng hàng ngày:
 - **Mốc D (sau Browser P1+):** agent đọc trình duyệt không để session treo; `interact` là mốc sau nữa.
 
 Sau Mốc A, ưu tiên dùng thật hơn là lao vào G1 nếu editor chưa đau.
+
+> Cập nhật 09/10/2026: thứ tự giao diện trước (xem mục "Cập nhật 09/10/2026" đầu file) thay thế khuyến nghị trên và đưa Mermaid lên trước F3, F2, F1. Mốc A khi đó chỉ đạt sau khi F3, F2, F1 được làm lại; Mốc B (sau Phase 8) và Mốc C (sau Phase 9) giữ nguyên điều kiện.
 )

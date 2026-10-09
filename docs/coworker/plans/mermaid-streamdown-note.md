@@ -52,3 +52,11 @@ Có 2 hướng tiếp cận:
 2. **Hướng B (Streamdown `plugins.mermaid` / `plugins.renderers`)**:
    - Truyền plugin vào `plugins` của Streamdown và nhường quyền xử lý tag `code` khi `language === "mermaid"`.
    - Bất lợi: Vẫn phải cấu hình `MermaidConfig` và giải quyết xung đột với `components.code` override hiện tại.
+
+## 5. Đối chiếu hiện trạng (09/10/2026)
+
+- `MarkdownTextRenderer.tsx` không truyền `plugins` cho `<Streamdown>` và `components.code` bắt mọi khối `language-*`, nên khối `mermaid` hiện đi vào
+  `CodeBlock` và hiện như code. Mục D6 cũ của roadmap ("Streamdown tự render") không đúng với code và đã được sửa.
+- Test duy nhất nhắc mermaid là `vite-config.test.ts` (quy tắc chunk `markdown-diagrams` cho `streamdown/dist/mermaid-*`). Không có test render sơ đồ.
+- `mermaid` 11.16.0 chỉ là phụ thuộc gián tiếp của Streamdown 2.5.0 (`^11.12.2`). `elkjs`, `@mermaid-js/layout-elk`, `@panzoom/panzoom` chưa cài.
+- Quyết định cho Phase 2: Hướng A (mục 4). Chưa kiểm chứng: ELK, kích thước chunk. Ghi chú này không kèm ảnh chụp hay log render, trong khi cổng Phase 0.3 của roadmap yêu cầu có bằng chứng.

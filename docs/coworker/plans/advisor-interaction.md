@@ -1,11 +1,42 @@
 # Implementation plan — Advisor tự nhiên + cấu hình chat (agent, advisor, keep-warm cache)
 
-- Status: **draft, chưa triển khai** (chưa sửa code). Viết 2026-09-30. Branch: `develop`.
+- Status: **đã triển khai** (đối chiếu code và test ngày 2026-10-09; xem "Trạng thái triển khai"). Còn lại: 13 kịch bản E2E thủ công chưa có ghi nhận đã chạy. Viết 2026-09-30. Branch: `develop`.
 - Nguồn đối chiếu: `C:\Users\Admin\Workspaces\aicoworker-2026.6.28` — `gateway-source/src/gateway/advisor-consult.ts`,
   `agents/pi-embedded-runner/run/attempt.ts` (nudge trong run), `electron/openclaw-bundled/directives/advisor.cjs`,
   `src/pages/Chat/ChatToolbar.tsx` (toolbar + popup token), `gateway/cache-keepalive-runner.ts`,
   `agents/pi-embedded-runner/cache-keepalive.ts`.
 - Commit style: `feat(coworker): …`, `fix(coworker): …`, `feat(webui): …`.
+
+## Trạng thái triển khai (đối chiếu 2026-10-09)
+
+Cách đối chiếu: với mỗi task, kiểm tra file và test mà task nêu có tồn tại, ký hiệu chính có trong code, và chạy test.
+`tests/coworker`: 553 passed, 3 skipped. WebUI, 7 file test liên quan (`advisor-consult-row`, `coworker-advisor-control`,
+`coworker-participants`, `coworker-cache-pill`, `coworker-persona-control`, `coworker-settings`, `coworker-message-card`):
+64 passed. "Xong" nghĩa là có code và test đang pass; **chưa kiểm lại từng tiêu chí nghiệm thu** trong mô tả task.
+
+| Task | Trạng thái | Bằng chứng (commit đầu tiên của file chính) |
+| --- | --- | --- |
+| T0.1 Ping keep-alive đúng cache key | Xong | `context/keepalive.py` (94f67040, 30/09), `test_keepalive.py` |
+| T0.2 Module chính sách advisor, sửa tên tool | Xong | `advisor/policy.py` (7ae29457, 01/10), `test_advisor_policy.py` |
+| T1.1 Hook `continuation` | Xong | `AgentHook.continuation` trong `agent/hook.py`, nối ở `agent/loop.py`; `tests/agent/test_hook_continuation.py` (13b7d742) |
+| T1.2 Nudge trong run | Xong | `coworker/hook.py`; `test_hook.py`, `test_loop_integration.py` |
+| T1.3 WebUI hiện nudge khi đang stream | Xong | `CoworkerParticipants.tsx`, `coworker-participants.test.tsx` |
+| T2.1 Directive đầy đủ | Xong | `directives.py` (`ADVISOR`), `test_directives.py` |
+| T3.1 `@advisor` không bị thin-context | Xong | `advisor_mention_note` trong `directives.py`, `mark_user_request` trong `hook.py`; `test_advisor_user_request.py` |
+| T4.1 Discussion gate | Xong | `discussion_gate` trong `config.py`, `policy.decide_discussion_gate`; test Settings "edits discussion gate and min chars" |
+| T5.1 Phát hiện kẹt | Xong | `advisor/stuck.py` (d8d83b9a, 01/10), `test_advisor_stuck.py` |
+| T6.1 Thẻ tham vấn inline | Xong | `AdvisorConsultRow.tsx` (289c328f, 01/10), `advisor-consult-model.ts`, `advisor-consult-row.test.tsx` |
+| T7.1 Ngân sách advisor và cảnh báo cache | Xong | `CoworkerAdvisorControl.tsx`, `test_advisor_switch.py`, `coworker-advisor-control.test.tsx` |
+| T-KW1 đến T-KW10 Keep-warm | Xong | `keepalive_state.py`, `cache_policy.py` (8a4d6a75), runner `ensure_runner` / `_runner_loop` trong `keepalive.py`, `session_api.py` (102ac15f), `status.py`, `optimizer.py`, `CoworkerCachePill.tsx` (5238d299), tab Cache trong Settings, `ttl1h` trong `config.py` / `cache_policy.py`, `cache_ttl` trong `anthropic_provider.py` |
+| WS-G Agent trên chat | Phương án 2 (persona theo phiên) đã làm | `persona.py` và `CoworkerPersonaControl.tsx` (9b3be4ac, 01/10), route `session.coworker.persona`; sau đó mở rộng thành persona direct mode (xem `agent-runtime-implementation-plan.md`, Phase 5) |
+| T-DOC1 Tài liệu | Xong | `docs/coworker/README.md` có bảng cấu hình advisor và `context.keepalive`; mục Status này cập nhật ngày 09/10 |
+| Kịch bản E2E thủ công (13 kịch bản) | **Chưa có ghi nhận đã chạy** | Không thấy bằng chứng trong repo; cần chạy tay với gateway và WebUI thật |
+
+Các thay đổi sau plan này, nằm ngoài phạm vi ban đầu:
+
+- Steering của advisor (evidence pack, ledger, checkpoint, commit gate): commit `c4891818` (07/10), `docs/coworker/proposals/advisor-steering.md`.
+- Nudge cho lượt review của room (mặc định tắt) và mẫu đầu ra có định nghĩa hoàn thành (mặc định tắt): `advisor-room-integration.md`, `advisor-output-template.md`.
+- Eval đo advisor, kết quả và hạn chế: `docs/coworker/tests/advisor-eval-conclusion.md`.
 
 ## 1. Mục tiêu
 
