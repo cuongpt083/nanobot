@@ -25,7 +25,7 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | 6 | P2b ảo hóa / P3 time-to-chrome | 0–3 ngày | có điều kiện | Chỉ khi baseline còn jank / chờ lâu |
 | 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | đã code và test (nhánh `feat/desktop-roadmap-p7-editor-g1`); chưa kiểm chứng trên trình duyệt; chưa có watch `fs.changed` | Mở 1 MB < 1 s; không qua Tauri `invoke` |
 | 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa (UI #4; kèm cập nhật advisor) | File ngoài drafts hoặc tab đang mở đều qua staged review |
-| 9 | Image G3 (Konva + skill) | 4–5 ngày | đã code và test (nhánh `feat/desktop-roadmap-p9-image`); chưa kiểm chứng trên Desktop; chưa có IM-12…14 | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
+| 9 | Image G3 (Konva + skill) | 4–5 ngày | đã code và test (nhánh `feat/desktop-roadmap-p9-image`); chưa kiểm chứng trên Desktop; IM-12…14 làm một phần (khóa hình học vùng đã đạt và cây phiên bản chưa có) | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
 | 10 | BrowserSkill P0–P4 (local-only, no Docker) + pane ảnh IM-17 | 9–14 ngày | cuối | 0 session treo trước khi bật `interact` |
 
 Đánh dấu `- [x]` trong từng phase khi xong và đã qua cổng. Không sang phase sau nếu cổng fail, trừ khi có quyết định dừng/bỏ rõ ràng.
@@ -700,7 +700,7 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 - [x] Tools: `image_annotations_read`, `image_edit`, `image_composite`, `render_text`, `image_version_save` (`nanobot/coworker/image/tools.py`), ẩn khi `coworker.image.enabled` tắt (mặc định tắt). `image_edit` dùng lại tool sinh ảnh hiện có; **chưa kiểm chứng với provider thật**.
 - [x] Kho lưu phiên bản ảnh: thư mục tạm `nanobot-image-versions/<hash phiên>/`, ngoài workspace, dọn theo phiên hoặc TTL 24 giờ; route GET `/api/sessions/{key}/image-versions/{id}` chỉ phục vụ id hợp lệ của đúng phiên. **Lưu ý:** ảnh do `image_edit` sinh ra vẫn nằm trong thư mục artifact của tool sinh ảnh, không phải thư mục tạm; cần quyết định nếu muốn gom vào kho này.
 - [x] Skill `image-region-edit` (`nanobot/skills/image-region-edit/SKILL.md`): 7 bước của đặc tả, báo cáo theo số vùng.
-- [ ] IM-12…14: version mới, slider trước/sau, gửi lại giữ region. **Chưa làm.** Ảnh kết quả hiện không mở được trong pane; người dùng chỉ thấy id phiên bản trong câu trả lời của agent.
+- [~] IM-12…14: **IM-12** kết quả là phiên bản mới (route liệt kê phiên bản theo ảnh gốc); so sánh trước/sau bằng thanh trượt, và "Mark up" quay lại vẽ mà không mất phiên bản. **IM-13** báo cáo theo vùng do agent gửi kèm `image_composite` / `image_version_save` (đạt, chưa đạt, một phần, kèm lý do), hiện cạnh từng ghi chú. **IM-14** "Gửi lại" chỉ nhắc các vùng chưa đạt; ghi chú vùng đã đạt bị khóa. **Còn thiếu:** khóa cả hình học của vùng đã đạt; lịch sử phiên bản dạng cây (IM-15, IM-16) chưa làm.
 
 ### Test
 
@@ -724,7 +724,7 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 - **Test:** `tests/coworker/test_image_review.py` 28 pass (gồm tẩy); `annotation-model.test.ts` 15 pass; `image-review-pane.test.tsx` 9 pass. Toàn bộ WebUI: 11 lỗi có sẵn, cộng một test theo thời gian (`image-gallery`, `LinearPanel`) chỉ fail khi chạy song song và pass khi chạy riêng. Pytest coworker/webui: 4 lỗi có sẵn.
 - **Chưa kiểm chứng:** trình duyệt thật (vẽ, zoom, gửi); provider sinh ảnh thật với `image_edit`; agent thật làm theo skill; route ảnh phiên bản chưa có test HTTP riêng.
 - **Cờ:** `coworker.image.enabled` tắt mặc định. Pane vẫn gửi được khi cờ tắt, nhưng agent sẽ không có tool để đọc chú thích; cần bật cờ trước khi dùng thật.
-- **Chưa làm:** IM-12…14, đính kèm ảnh đánh dấu (annotated PNG). Tay cầm đổi kích thước chỉ có ở hình chữ nhật và ellipse, cọ không đổi kích thước sau khi vẽ.
+- **Chưa làm:** đính kèm ảnh đánh dấu (annotated PNG); khóa hình học vùng đã đạt; cây phiên bản (IM-15, IM-16). Route liệt kê phiên bản chưa có test HTTP riêng.
 
 G4 (sticky header sequence, version tree đầy đủ, PV-08) **không** nằm trong roadmap lần này. IM-17 đã chuyển vào Phase 10.
 
