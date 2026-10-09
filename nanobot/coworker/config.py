@@ -263,12 +263,19 @@ class CodingAgentConfig(Base):
     review: bool = True
 
 
+class StagingConfig(Base):
+    """Reviewed file changes (Phase 8). Off by default until the editor review path is verified."""
+
+    enabled: bool = False
+
+
 class CoworkerConfig(Base):
     advisor: AdvisorConfig = Field(default_factory=AdvisorConfig)
     room: RoomConfig = Field(default_factory=RoomConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     workflows: WorkflowConfig = Field(default_factory=WorkflowConfig)
     coding: CodingAgentConfig = Field(default_factory=CodingAgentConfig)
+    staging: StagingConfig = Field(default_factory=StagingConfig)
 
     def agent(self, agent_id: str) -> RoomAgentConfig | None:
         key = agent_id.strip().lstrip("@").lower()

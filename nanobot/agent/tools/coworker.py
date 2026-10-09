@@ -9,6 +9,7 @@ from nanobot.coworker.agents.notes_tool import AgentNotesTool
 from nanobot.coworker.coding.tools import CodingAgentTool
 from nanobot.coworker.context.tools import MarkContextWastedTool
 from nanobot.coworker.room.tools import AgentsListTool, RoomDelegateTool, RoomStateTool
+from nanobot.coworker.staged.tools import FileWriteStagedTool
 from nanobot.coworker.workflows.tools import WorkflowDistillTool, WorkflowRunTool
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "AgentNotesTool",
     "AgentsListTool",
     "CodingAgentTool",
+    "FileWriteStagedTool",
     "MarkContextWastedTool",
     "RoomDelegateTool",
     "RoomStateTool",

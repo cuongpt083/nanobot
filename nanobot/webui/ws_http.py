@@ -151,7 +151,13 @@ _WEBUI_MUTATION_REQUEST_ATTR = "_nanobot_webui_mutation_request"
 # Per-session coworker sections; must equal the keys of ``coworker.session_api.SECTIONS`` (tested).
 _COWORKER_SECTIONS = "advisor|keepalive|context|persona|coding"
 _COWORKER_SESSION_ACTIONS = tuple(f"session.coworker.{s}" for s in _COWORKER_SECTIONS.split("|"))
-_WORKSPACE_WRITE_ACTIONS = ("session.workspace.write", "session.workspace.rename", "session.workspace.delete")
+_WORKSPACE_WRITE_ACTIONS = (
+    "session.workspace.write",
+    "session.workspace.rename",
+    "session.workspace.delete",
+    "session.workspace.resolve",
+    "session.workspace.tabs",
+)
 _NO_STORE_HEADERS = [("Cache-Control", "no-store")]
 
 
@@ -530,7 +536,7 @@ class GatewayHTTPHandler:
             return True
         if re.match(rf"^/api/sessions/[^/]+/(delete|coworker/({_COWORKER_SECTIONS}))$", path):
             return True
-        if re.match(r"^/api/sessions/[^/]+/workspace/(write|rename|delete)$", path):
+        if re.match(r"^/api/sessions/[^/]+/workspace/(write|rename|delete|resolve|tabs)$", path):
             return True
         if re.match(r"^/api/webui/automations/(enable|disable|delete|run|update)$", path):
             return True
@@ -833,11 +839,11 @@ class GatewayHTTPHandler:
         if m:
             return self._handle_file_preview(request, m.group(1))
 
-        m = re.match(r"^/api/sessions/([^/]+)/workspace/(list|read)$", got)
+        m = re.match(r"^/api/sessions/([^/]+)/workspace/(list|read|changes)$", got)
         if m:
             return self._handle_workspace_read(request, m.group(1), m.group(2))
 
-        m = re.match(r"^/api/sessions/([^/]+)/workspace/(write|rename|delete)$", got)
+        m = re.match(r"^/api/sessions/([^/]+)/workspace/(write|rename|delete|resolve|tabs)$", got)
         if m:
             return self._handle_workspace_mutation(request, m.group(1), m.group(2))
 
@@ -1292,10 +1298,31 @@ class GatewayHTTPHandler:
         path = _query_first(_parse_query(request.path), "path")
         try:
             scope = self.workspaces.scope_for_session_key(decoded_key)
-            payload = list_dir(path, scope=scope) if op == "list" else read_file(path, scope=scope)
+            if op == "changes":
+                from nanobot.coworker.staged.store import list_pending
+
+                payload: dict[str, Any] = {"changes": list_pending(Path(scope.project_path))}
+            elif op == "list":
+                payload = list_dir(path, scope=scope)
+            else:
+                payload = read_file(path, scope=scope)
         except WorkspaceFileError as e:
             return self._workspace_error(e)
         return _http_json_response(payload, extra_headers=_NO_STORE_HEADERS)
+
+    def _set_open_tabs(self, decoded_key: str, payload: dict[str, Any]) -> Response:
+        """Record which project files the editor has open, so the staged-write guard can see them."""
+        from nanobot.coworker.runtime import session_state
+
+        raw: object = payload.get("paths")
+        items = cast("list[object]", raw) if isinstance(raw, list) else []
+        paths = [p for p in items if isinstance(p, str)][:50]
+        if self.session_manager is None:
+            return _http_error(503, "session manager unavailable")
+        session = self.session_manager.get_or_create(decoded_key)
+        session_state(session)["open_tabs"] = paths
+        self.session_manager.save(session)
+        return _http_json_response({"open_tabs": paths}, extra_headers=_NO_STORE_HEADERS)
 
     def _handle_workspace_mutation(self, request: WsRequest, key: str, op: str) -> Response:
         # Writes need the authenticated WebSocket, like every other WebUI mutation.
@@ -1309,9 +1336,25 @@ class GatewayHTTPHandler:
         if not _is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
         payload = _mutation_payload(request) or {}
+        if op == "tabs":
+            return self._set_open_tabs(decoded_key, payload)
         try:
             scope = self.workspaces.scope_for_session_key(decoded_key)
-            if op == "write":
+            if op == "resolve":
+                from nanobot.coworker.staged import store as staged_store
+
+                try:
+                    result = staged_store.resolve(
+                        Path(scope.project_path),
+                        str(payload.get("id") or ""),
+                        str(payload.get("action") or ""),
+                        scope=scope,
+                    )
+                except staged_store.ProposalError as e:
+                    return _http_json_response(
+                        {"error": e.message, **e.details}, status=e.status, extra_headers=_NO_STORE_HEADERS
+                    )
+            elif op == "write":
                 result = write_file(
                     payload.get("path"),
                     payload.get("content"),

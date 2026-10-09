@@ -56,6 +56,8 @@ from nanobot.coworker.runtime import (
     session_state,
     turn_kind,
 )
+from nanobot.coworker.staged.guard import block_message, blocked_paths
+from nanobot.coworker.staged.tools import STAGED_TOOL
 from nanobot.coworker.transcript import as_dict, as_list, content_text, is_auto_turn
 from nanobot.coworker.workflows import drive
 from nanobot.coworker.workflows.registry import list_workflows
@@ -458,7 +460,11 @@ class CoworkerHook(AgentHook):
         tool: Any,
         params: Any,
     ) -> str | None:
-        """C2: block a first commit/push/reset/rm that follows unreviewed writes (once per write count)."""
+        """Phase 8: direct writes outside the drafts folder go through a reviewed proposal instead."""
+        staged = self._staging_block(tool_call, params)
+        if staged is not None:
+            return staged
+        # C2: block a first commit/push/reset/rm that follows unreviewed writes (once per write count).
         if not self._key or self._reviewed_since_write or self._gated_at_write == self._written:
             return None
         if not policy.is_irreversible_call(tool_call.name, params if params is not None else tool_call.arguments):
@@ -468,6 +474,27 @@ class CoworkerHook(AgentHook):
         except Exception:
             logger.exception("coworker: commit gate failed for {}", self._key)
             return None
+
+    def _staging_block(self, tool_call: ToolCallRequest, params: Any) -> str | None:
+        if tool_call.name not in WRITE_TOOLS or not self._key:
+            return None
+        if not load_coworker_config().staging.enabled:
+            return None
+        session = get_session(self._key)
+        root = project_root_for(session) if session is not None else None
+        if session is None or root is None:
+            return None
+        typed = as_dict(params) or as_dict(tool_call.arguments) or {}
+        paths = params_paths(tool_call.name, typed)
+        open_tabs = {str(p) for p in as_list(session_state(session).get("open_tabs")) or []}
+        if tool_call.name == "file_write_staged":
+            return None  # the proposal itself is the reviewed path
+        # apply_patch without readable paths cannot be checked, so it is refused rather than guessed at.
+        blocked = blocked_paths(paths, root, open_tabs) if paths else ["(paths not readable in this call)"]
+        if not blocked:
+            return None
+        logger.info("coworker: staged-write guard blocked {} for {}: {}", tool_call.name, self._key, blocked)
+        return json.dumps({"status": "staging_required", "message": block_message(blocked)}, ensure_ascii=False)
 
     async def _commit_gate(self, tool_call: ToolCallRequest) -> str | None:
         session = get_session(self._key)
@@ -707,6 +734,8 @@ class CoworkerHook(AgentHook):
             hidden.add(WASTED_TOOL)
         if not coding_on:
             hidden.add(CODING_TOOL)
+        if not cfg.staging.enabled:
+            hidden.add(STAGED_TOOL)
 
         if persona_agent is not None:
             if persona_agent.memory != "thread+notes":

@@ -27,7 +27,9 @@ from nanobot.coworker.transcript import (
     tool_calls,
 )
 
-WRITE_TOOLS = frozenset({"write_file", "edit_file", "apply_patch"})
+# file_write_staged proposes a write (it lands only on accept), but it is still a write the review
+# gate and the evidence pack must see.
+WRITE_TOOLS = frozenset({"write_file", "edit_file", "apply_patch", "file_write_staged"})
 EXEC_TOOLS = frozenset({"exec", "exec_session"})
 
 EVIDENCE_MAX_CHARS = 40_000
