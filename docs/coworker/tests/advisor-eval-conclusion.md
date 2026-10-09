@@ -11,7 +11,7 @@ chi phí tăng rõ ràng.** Đây là "lợi ích chưa rõ", không phải "adv
 
 ## 2. Số liệu (cùng cấu hình, runner `gemini-3.8-flash-tiered`, advisor `claude-sonnet-5-5`, `max_parallel = 1`)
 
-Nhánh `off`: `coworker-eval-v4-advisor-off.json`. Nhánh `on`: `coworker-eval-v5-advisor-on.json` (sau Phase B).
+Nhánh `off`: `coworker-eval-v4-advisor-off.json`. Nhánh `on`: `coworker-eval-v5-advisor-on.json` (sau Phase B). Các file nằm trong `docs/coworker/plans/archive/eval/` (xem README ở đó).
 
 | Kịch bản | Nhánh | n | Điểm từng run | TB (sd) | Token TB | Thời gian TB | Lời gọi advisor thành công |
 |---|---|---|---|---|---|---|---|
@@ -70,5 +70,5 @@ advisor trong lượt review, và có 1–2 nudge mỗi run ở `crm-followup`.
 
 ## 7. File liên quan
 
-`docs/coworker/plans/`: `coworker-eval-v4-advisor-off.json`, `…v5-advisor-on.json` (và `.runs.jsonl`), các file `v2`, `v3`,
+`docs/coworker/plans/archive/eval/`: `coworker-eval-v4-advisor-off.json`, `…v5-advisor-on.json` (và `.runs.jsonl`), các file `v2`, `v3`,
 `smoke`, `check`, `phaseb-check` là dữ liệu trung gian; chỉ `v4-off` và `v5-on` được dùng ở bảng trên.

@@ -48,10 +48,13 @@ from nanobot.session.model_selection import SESSION_MODEL_PRESET_METADATA_KEY
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SCENARIOS_DIR = REPO_ROOT / "tests" / "coworker" / "eval" / "scenarios"
-PLANS_DIR = REPO_ROOT / "docs" / "coworker" / "plans"
-# Never write a live run here: it holds the committed Phase 0 baseline.
-PROTECTED_OUTPUTS = (PLANS_DIR / "agent-runtime-baseline.json", PLANS_DIR / "coworker-eval-baseline.json")
-DEFAULT_DRYRUN_OUTPUT = PLANS_DIR / "agent-runtime-baseline-dryrun.json"
+# Finished eval results live in the plans archive; the committed Phase 0 baseline is there and must never be overwritten.
+EVAL_RESULTS_DIR = REPO_ROOT / "docs" / "coworker" / "plans" / "archive" / "eval"
+PROTECTED_OUTPUTS = (
+    EVAL_RESULTS_DIR / "agent-runtime-baseline.json",
+    EVAL_RESULTS_DIR / "coworker-eval-baseline.json",
+)
+DEFAULT_DRYRUN_OUTPUT = EVAL_RESULTS_DIR / "agent-runtime-baseline-dryrun.json"
 
 JUDGE_SYSTEM_PROMPT = (
     "You are an impartial evaluator of AI multi-agent runs. You have no tools and take no actions. "
@@ -1313,7 +1316,7 @@ def main() -> int:
     else:
         if output_path is None:
             print("--output is required for a live run (pick a new file, e.g. "
-                  "docs/coworker/plans/coworker-eval-<label>.json).", file=sys.stderr)
+                  "docs/coworker/tests/coworker-eval-<label>.json).", file=sys.stderr)
             return 2
         if output_path.resolve() in {p.resolve() for p in PROTECTED_OUTPUTS}:
             print(f"Refusing to write a live run to the protected baseline {output_path}.", file=sys.stderr)

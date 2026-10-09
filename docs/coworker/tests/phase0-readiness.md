@@ -38,13 +38,13 @@ uv run --no-sync python -m scripts.coworker_eval --preflight --advisor-preset cl
 # 1) Smoke: 1 kịch bản có ủy quyền, 1 run, nhánh advisor bật (tốn token, nhỏ)
 uv run --no-sync python -m scripts.coworker_eval -s crm-followup -r 1 \
   --advisor-preset claude-sonnet-5-5 --label smoke-on --keep-workspace \
-  -o docs/coworker/plans/coworker-eval-smoke-on.json
+  -o docs/coworker/plans/archive/eval/coworker-eval-smoke-on.json
 
 # 2) Chỉ khi smoke đạt (mục 4): hai nhánh, 3 run mỗi kịch bản
 uv run --no-sync python -m scripts.coworker_eval -r 3 --advisor-preset off \
-  --label advisor-off -o docs/coworker/plans/coworker-eval-v2-advisor-off.json
+  --label advisor-off -o docs/coworker/plans/archive/eval/coworker-eval-v2-advisor-off.json
 uv run --no-sync python -m scripts.coworker_eval -r 3 --advisor-preset claude-sonnet-5-5 \
-  --label advisor-current -o docs/coworker/plans/coworker-eval-v2-advisor-current.json
+  --label advisor-current -o docs/coworker/plans/archive/eval/coworker-eval-v2-advisor-current.json
 ```
 
 Khi chạy dài: dùng `Start-Process`, chuyển hướng **cả stdout và stderr** ra file, kiểm tra

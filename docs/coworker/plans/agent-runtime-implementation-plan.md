@@ -109,7 +109,7 @@ Phase 0 tạo số liệu nền để chứng minh các phase sau có hiệu qu�
 - [ ] **0.1 – Sửa xóa preset khi tắt persona.** Trong `persona.set_persona_id`, lưu preset mà persona đã gán vào `state["persona_preset"]`. Khi tắt persona, chỉ `pop` `SESSION_MODEL_PRESET_METADATA_KEY` nếu giá trị hiện tại vẫn bằng `persona_preset`.
 - [ ] **0.2 – Chặn tự delegate khi đội persona.** Trong `RoomDelegateTool.execute`, nếu `by == "owner"` và `get_persona_id(session) == target` thì trả lỗi "bạn đang là @target". `directives.room_owner` loại persona đang bật khỏi roster.
 - [ ] **0.3 – Đồng bộ tài liệu.** Sửa README đoạn Persona: "prepends" thành "appends" (hành vi hiện tại), ghi chú sẽ đổi ở Phase 5.
-- [ ] **0.4 – Bộ eval baseline.** Tạo `tests/coworker/eval/` với 4–6 kịch bản và script `scripts/coworker_eval.py` (chi tiết ở phần Kiểm thử). Chạy trên code hiện tại, lưu kết quả vào `docs/coworker/plans/agent-runtime-baseline.json`.
+- [ ] **0.4 – Bộ eval baseline.** Tạo `tests/coworker/eval/` với 4–6 kịch bản và script `scripts/coworker_eval.py` (chi tiết ở phần Kiểm thử). Chạy trên code hiện tại, lưu kết quả vào `docs/coworker/plans/archive/eval/coworker-eval-baseline.json` (tên file thực tế).
 - [ ] **0.5 – Đo thời gian và token theo guest.** Thêm `duration_s`, `tokens_in`, `tokens_out` vào `GuestOutcome` và ghi một dòng log có cấu trúc mỗi guest. Phase 6 sẽ đưa lên WebUI.
 
 ### Test

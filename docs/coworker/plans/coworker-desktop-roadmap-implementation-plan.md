@@ -204,7 +204,7 @@ Ngưỡng Phase 6 (chốt sau khi có số; giá trị dưới là **đề xuấ
 
 `scripts/coworker_eval.py` **đã có**, bao gồm 7 kịch bản trong `tests/coworker/eval/scenarios/` (`crm-followup`, `edutech-course`, `nutritech-plan`, `persona-nutri`, `persona_delegation`, `presale-design`, `script-update`).
 
-- [ ] Chạy cả 7 kịch bản hiện có 2 lần (bao gồm `persona_delegation`), lưu `docs/coworker/plans/coworker-eval-baseline.json` với runner `gemini-3.8-flash-tiered`, advisor `claude-sonnet-5-5`, judge `claude-opus-5-5`.
+- [ ] Chạy cả 7 kịch bản hiện có 2 lần (bao gồm `persona_delegation`), lưu `docs/coworker/plans/archive/eval/coworker-eval-baseline.json` với runner `gemini-3.8-flash-tiered`, advisor `claude-sonnet-5-5`, judge `claude-opus-5-5`.
 - [x] Skeleton YAML cho `recall_queries` (F2) và `repeat_tasks` (F1). `persona_delegation` đã được bổ sung vào bộ kịch bản đánh giá baseline.
 - [x] Spike Streamdown (không đoán): `webui/src/components/` không có chữ `mermaid`; diagram đi qua chunk Streamdown. Đọc option mermaid của đúng phiên Streamdown đang ghim; thử `mode=streaming` với khối chưa đóng. Ghi `docs/coworker/plans/mermaid-streamdown-note.md` (commit `7db5ba87`).
 
