@@ -3,11 +3,15 @@ import { useTranslation } from "react-i18next";
 
 import { MarkdownText } from "@/components/MarkdownText";
 import { MonacoEditor } from "@/components/workspace/MonacoEditor";
+import { ChangeReview } from "@/components/workspace/ChangeReview";
 import { WorkspaceTree } from "@/components/workspace/WorkspaceTree";
 import {
   isWorkspaceConflict,
+  listStagedChanges,
   readWorkspaceFile,
   saveWorkspaceFile,
+  setWorkspaceOpenTabs,
+  type StagedChange,
   type WebUIMutationTransport,
 } from "@/lib/api";
 import { useThemeValue } from "@/hooks/useTheme";
@@ -73,6 +77,8 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
   const [activePath, setActivePath] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [previewOn, setPreviewOn] = useState(true);
+  const [changes, setChanges] = useState<StagedChange[]>([]);
+  const [reviewing, setReviewing] = useState<StagedChange | null>(null);
   const openedRef = useRef(new Set<string>());
   // Callbacks registered once (the editor's save command) read the latest buffers through this ref.
   const buffersRef = useRef(buffers);
@@ -115,10 +121,28 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
     }
   }, [base, sessionKey, t, token]);
 
+  const refreshChanges = useCallback(async () => {
+    try {
+      setChanges(await listStagedChanges(token, sessionKey, base));
+    } catch {
+      // The change list is a convenience; the editor works without it.
+    }
+  }, [base, sessionKey, token]);
+
+  useEffect(() => {
+    void refreshChanges();
+  }, [refreshChanges]);
+
+  // The gateway needs the open tabs so an agent write to them is reviewed rather than made directly.
+  const openPathsKey = buffers.map((b) => b.path).join("\n");
+  useEffect(() => {
+    const paths = openPathsKey ? openPathsKey.split("\n") : [];
+    void setWorkspaceOpenTabs(client, sessionKey, paths).catch(() => undefined);
+  }, [client, openPathsKey, sessionKey]);
+
   useEffect(() => {
     void open(initialPath);
     // Only the file that was requested opens on mount; later opens come from the tree.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPath]);
 
   /** Save the buffer. ``baseVersion`` overrides the loaded version (used after a conflict is resolved). */
@@ -187,6 +211,18 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
     setActivePath((current) => (current === path ? null : current));
   };
 
+  /** After a decision: an accepted change to an open, clean file is reloaded; to a dirty one, the conflict banner shows. */
+  const onDecided = (change: StagedChange, action: "accept" | "reject") => {
+    setReviewing(null);
+    setNotice(null);
+    void refreshChanges();
+    if (action !== "accept") return;
+    const buffer = buffersRef.current.find((b) => b.path === change.path);
+    if (!buffer) return;
+    if (buffer.text === buffer.savedText) void reload(change.path);
+    else patch(change.path, { conflict: true });
+  };
+
   const isMarkdown = active?.language === "markdown";
   const dirty = active ? active.text !== active.savedText : false;
 
@@ -226,6 +262,12 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
                 </div>
               );
             })}
+            {changes.length > 0 ? (
+              <button type="button" className="ml-auto px-2 text-xs font-medium text-amber-700 dark:text-amber-200"
+                onClick={() => setReviewing(reviewing ? null : changes[0])}>
+                {t("workspace.changesPending", { defaultValue: "{{count}} proposed change(s)", count: changes.length })}
+              </button>
+            ) : null}
             {isMarkdown ? (
               <button type="button" className="ml-auto px-2 text-xs text-muted-foreground"
                 onClick={() => setPreviewOn((value) => !value)}>
@@ -255,6 +297,29 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
             </div>
           ) : null}
 
+          {reviewing ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              {changes.length > 1 ? (
+                <div className="flex gap-1 overflow-x-auto border-b border-border/50 px-2 py-1 text-xs">
+                  {changes.map((change) => (
+                    <button key={change.id} type="button" onClick={() => setReviewing(change)}
+                      className={cn("rounded px-2 py-0.5", change.id === reviewing.id ? "bg-muted font-medium" : "text-muted-foreground")}>
+                      {change.path}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <ChangeReview
+                key={reviewing.id}
+                change={reviewing}
+                sessionKey={sessionKey}
+                token={token}
+                client={client}
+                base={base}
+                onDecided={onDecided}
+              />
+            </div>
+          ) : (
           <div className="flex min-h-0 flex-1">
             {active ? (
               <>
@@ -280,6 +345,7 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
               </p>
             )}
           </div>
+          )}
 
           <div className="flex items-center justify-between border-t border-border/50 px-3 py-1 text-[11px] text-muted-foreground">
             <span>{active?.path ?? ""}</span>

@@ -1538,3 +1538,53 @@ export async function deleteWorkspaceFile(
     base_version: baseVersion,
   });
 }
+
+/** A file change an agent proposed and the user has not decided on yet. */
+export interface StagedChange {
+  id: string;
+  path: string;
+  content: string;
+  base_version: string | null;
+  proposed_version: string;
+  by: string;
+  created_at: number;
+  /** The file no longer matches the version the agent read: accepting would be refused. */
+  stale: boolean;
+  current_version: string | null;
+}
+
+export async function listStagedChanges(
+  token: string,
+  key: string,
+  base: string = "",
+): Promise<StagedChange[]> {
+  const payload = await request<{ changes: StagedChange[] }>(
+    `${base}/api/sessions/${encodeURIComponent(key)}/workspace/changes`,
+    token,
+    { cache: "no-store" },
+    API_READ_TIMEOUT_MS,
+  );
+  return payload.changes;
+}
+
+export async function resolveStagedChange(
+  transport: WebUIMutationTransport,
+  key: string,
+  id: string,
+  action: "accept" | "reject",
+): Promise<{ id: string; status: string; path: string }> {
+  return mutation<{ id: string; status: string; path: string }>(transport, "session.workspace.resolve", {
+    key,
+    id,
+    action,
+  });
+}
+
+/** Tell the gateway which project files the editor has open (the guard treats them as under review). */
+export async function setWorkspaceOpenTabs(
+  transport: WebUIMutationTransport,
+  key: string,
+  paths: string[],
+): Promise<void> {
+  await mutation(transport, "session.workspace.tabs", { key, paths });
+}

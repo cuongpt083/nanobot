@@ -7,6 +7,8 @@ const api = vi.hoisted(() => ({
   saveWorkspaceFile: vi.fn(),
   renameWorkspaceFile: vi.fn(),
   deleteWorkspaceFile: vi.fn(),
+  listStagedChanges: vi.fn(),
+  setWorkspaceOpenTabs: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -43,6 +45,8 @@ function file(path: string, content: string, version: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.listStagedChanges.mockResolvedValue([]);
+  api.setWorkspaceOpenTabs.mockResolvedValue(undefined);
   api.listWorkspaceDir.mockResolvedValue({
     path: "",
     entries: [

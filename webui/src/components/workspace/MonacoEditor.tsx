@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { useEffect, useRef, useState } from "react";
 import type * as Monaco from "monaco-editor";
 
@@ -102,7 +103,6 @@ export function MonacoEditor({ value, language, dark, onChange, onSave }: Monaco
       editorRef.current = null;
     };
     // The editor is created once per mount; later prop changes are applied by the effects below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Replace the text only when it differs from the editor's own, so typing never moves the cursor.
