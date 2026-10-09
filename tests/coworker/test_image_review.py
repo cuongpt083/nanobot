@@ -15,7 +15,13 @@ from PIL import Image
 
 from nanobot.coworker.config import ImageReviewConfig
 from nanobot.coworker.image import raster, versions
-from nanobot.coworker.image.annotations import MAX_EDITS, SCHEMA, AnnotationError, parse_annotations
+from nanobot.coworker.image.annotations import (
+    MAX_EDITS,
+    SCHEMA,
+    AnnotationError,
+    describe,
+    parse_annotations,
+)
 from nanobot.coworker.image.tools import ImageCompositeTool, _resolve
 
 
@@ -202,3 +208,32 @@ async def test_image_tools_are_off_until_the_setting_is_on(tmp_path: Path, monke
     monkeypatch.setattr("nanobot.coworker.image.tools.project_root_for", lambda session: tmp_path)
     monkeypatch.setattr(tool, "session", lambda: object())
     assert tool._context() == "image review is not enabled"
+
+
+# ---------- eraser (IM-04) ----------
+
+def test_an_eraser_stroke_removes_only_what_came_before_it() -> None:
+    doc = parse_annotations(_doc(edits=[
+        {"id": 1, "shape": "rect", "box": [0.1, 0.1, 0.9, 0.9]},
+        {"id": 2, "shape": "brush", "points": [[0.5, 0.5]], "radius": 0.1, "erase": True},
+    ]))
+    mask = raster.region_mask(doc, (100, 100))
+    assert mask.getpixel((50, 50)) == 0  # the stroke removed the middle
+    assert mask.getpixel((15, 15)) == 255  # the rectangle corner outside the stroke stays
+
+
+def test_an_eraser_listed_before_the_region_has_no_effect() -> None:
+    doc = parse_annotations(_doc(edits=[
+        {"id": 1, "shape": "brush", "points": [[0.5, 0.5]], "radius": 0.1, "erase": True},
+        {"id": 2, "shape": "rect", "box": [0.1, 0.1, 0.9, 0.9]},
+    ]))
+    assert raster.region_mask(doc, (100, 100)).getpixel((50, 50)) == 255
+
+
+def test_erase_is_only_for_brush_strokes_and_must_be_a_boolean() -> None:
+    with pytest.raises(AnnotationError):
+        parse_annotations(_doc(edits=[{"id": 1, "shape": "brush", "points": [[0.5, 0.5]], "radius": 0.02, "erase": "yes"}]))
+    doc = parse_annotations(_doc(edits=[{"id": 1, "shape": "brush", "points": [[0.5, 0.5]], "radius": 0.02, "erase": True}]))
+    assert doc.edits[0].erase is True
+    assert describe(doc)[0]["erase"] is True
+

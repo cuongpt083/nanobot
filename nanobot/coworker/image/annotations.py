@@ -32,6 +32,8 @@ class Edit:
     points: tuple[tuple[float, float], ...] = ()
     radius: float = 0.0
     point: tuple[float, float] | None = None
+    # A brush stroke that removes from the marked area instead of adding to it (eraser, IM-04).
+    erase: bool = False
 
 
 @dataclass(frozen=True)
@@ -108,7 +110,12 @@ def _edit(raw: object, index: int) -> Edit:
     radius = item.get("radius")
     if isinstance(radius, bool) or not isinstance(radius, (int, float)) or not 0 < float(radius) <= MAX_BRUSH_RADIUS:
         raise AnnotationError(f"edits[{index}].radius must be in (0, {MAX_BRUSH_RADIUS}]")
-    return Edit(id=edit_id, shape="brush", note=note, points=tuple(points), radius=float(radius))
+    erase = item.get("erase", False)
+    if not isinstance(erase, bool):
+        raise AnnotationError(f"edits[{index}].erase must be a boolean")
+    return Edit(
+        id=edit_id, shape="brush", note=note, points=tuple(points), radius=float(radius), erase=erase,
+    )
 
 
 def parse_annotations(raw: object) -> Annotations:
@@ -155,5 +162,7 @@ def describe(annotations: Annotations) -> list[dict[str, Any]]:
         if edit.shape == "brush":
             entry["stroke_points"] = len(edit.points)
             entry["radius"] = edit.radius
+            if edit.erase:
+                entry["erase"] = True
         out.append(entry)
     return out

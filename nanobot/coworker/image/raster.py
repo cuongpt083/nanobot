@@ -27,27 +27,32 @@ def _px(point: tuple[float, float], size: tuple[int, int]) -> tuple[float, float
 
 def _draw_edit(draw: ImageDraw.ImageDraw, edit: Edit, size: tuple[int, int]) -> None:
     short = min(size)
+    # An eraser stroke writes 0 over what came before; every other region writes 255.
+    fill = 0 if edit.erase else 255
     if edit.shape == "rect" and edit.box is not None:
         x0, y0, x1, y1 = edit.box
-        draw.rectangle([x0 * size[0], y0 * size[1], x1 * size[0], y1 * size[1]], fill=255)
+        draw.rectangle([x0 * size[0], y0 * size[1], x1 * size[0], y1 * size[1]], fill=fill)
     elif edit.shape == "ellipse" and edit.box is not None:
         x0, y0, x1, y1 = edit.box
-        draw.ellipse([x0 * size[0], y0 * size[1], x1 * size[0], y1 * size[1]], fill=255)
+        draw.ellipse([x0 * size[0], y0 * size[1], x1 * size[0], y1 * size[1]], fill=fill)
     elif edit.shape == "brush":
         radius = edit.radius * short
         pixels = [_px(p, size) for p in edit.points]
         if len(pixels) > 1:
-            draw.line(pixels, fill=255, width=max(1, int(radius * 2)), joint="curve")
+            draw.line(pixels, fill=fill, width=max(1, int(radius * 2)), joint="curve")
         for x, y in pixels:
-            draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=255)
+            draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=fill)
     elif edit.shape == "pin" and edit.point is not None:
         x, y = _px(edit.point, size)
         radius = PIN_RADIUS * short
-        draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=255)
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=fill)
 
 
 def region_mask(annotations: Annotations, size: tuple[int, int]) -> Image.Image:
-    """A grayscale mask (255 inside any region) at the original image's size."""
+    """A grayscale mask at the original image's size: 255 where edits may land.
+
+    Regions are applied in order, so an eraser stroke removes only what the regions before it added.
+    """
     if size[0] <= 0 or size[1] <= 0:
         raise RasterError("image has no size")
     mask = Image.new("L", size, 0)
