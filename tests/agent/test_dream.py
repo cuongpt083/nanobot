@@ -681,6 +681,9 @@ class TestEphemeralHooks:
 
         spy = MagicMock(spec=AgentHook)
         spy.wants_streaming.return_value = False
+        # Unset, this returns a truthy MagicMock: the runner would inject it as a user
+        # message every turn, and the turn would never end (the memory blow-up).
+        spy.continuation.return_value = None
         spy.before_iteration = AsyncMock()
         spy.after_iteration = AsyncMock()
 
