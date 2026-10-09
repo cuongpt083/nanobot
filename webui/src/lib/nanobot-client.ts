@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import { createHostWebSocket } from "./runtime";
 import type { EditorContext } from "./editor-context";
+import { emitWorkspaceChange } from "./workspace-events";
 
 /** WebSocket readyState constants, referenced by value to stay portable
  * across runtimes that don't expose a global ``WebSocket`` (tests, SSR). */
@@ -1222,6 +1223,11 @@ export class NanobotClient {
 
     if (parsed.event === "runtime_model_updated") {
       this.emitRuntimeModelUpdate(parsed.model_name || null, parsed.model_preset ?? null);
+      return;
+    }
+
+    if (parsed.event === "workspace_changed") {
+      emitWorkspaceChange({ sessionKey: parsed.session_key, path: parsed.path });
       return;
     }
 

@@ -1416,6 +1416,11 @@ class GatewayHTTPHandler:
         session = self.session_manager.get_or_create(decoded_key)
         session_state(session)["open_tabs"] = paths
         self.session_manager.save(session)
+        # The runtime watches these files for changes made on disk (fs.changed).
+        from nanobot.webui.workspace_watch import open_files
+
+        scope = self.workspaces.scope_for_session_key(decoded_key)
+        open_files.set(decoded_key, Path(scope.project_path), paths)
         return _http_json_response({"open_tabs": paths}, extra_headers=_NO_STORE_HEADERS)
 
     def _handle_workspace_mutation(self, request: WsRequest, key: str, op: str) -> Response:
@@ -1443,6 +1448,7 @@ class GatewayHTTPHandler:
                         str(payload.get("id") or ""),
                         str(payload.get("action") or ""),
                         scope=scope,
+                        content=payload.get("content"),
                     )
                 except staged_store.ProposalError as e:
                     return _http_json_response(

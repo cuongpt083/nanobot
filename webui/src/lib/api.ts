@@ -1572,11 +1572,14 @@ export async function resolveStagedChange(
   key: string,
   id: string,
   action: "accept" | "reject",
-): Promise<{ id: string; status: string; path: string }> {
-  return mutation<{ id: string; status: string; path: string }>(transport, "session.workspace.resolve", {
+  content?: string,
+): Promise<{ id: string; status: string; path: string; partial?: boolean }> {
+  // ``content`` is set only when the user kept part of the proposal; the gateway writes it instead of the whole.
+  return mutation<{ id: string; status: string; path: string; partial?: boolean }>(transport, "session.workspace.resolve", {
     key,
     id,
     action,
+    ...(content !== undefined ? { content } : {}),
   });
 }
 

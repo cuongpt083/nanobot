@@ -3,6 +3,7 @@ only lets direct writes through inside the drafts folder when no editor tab has 
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -185,3 +186,102 @@ def test_guard_refuses_a_patch_whose_paths_cannot_be_read(root: Path, monkeypatc
     hook = _hook_with(monkeypatch, root, enabled=True, open_tabs=[])
     blocked = _block(hook, _call("apply_patch", edits=[{"old": "a"}]))
     assert blocked is not None and "not readable" in blocked
+
+
+def test_accepting_part_of_a_proposal_writes_the_assembled_text(root: Path) -> None:
+    record = _propose(root, content="kept line\nnew line\n")
+    result = store.resolve(root, record["id"], "accept", scope=_scope(root), content="kept line\n")
+    assert result["partial"] is True and result["status"] == "accepted"
+    assert (root / "plan.md").read_bytes() == b"kept line\n"
+
+
+def test_accepting_the_whole_proposal_is_not_marked_partial(root: Path) -> None:
+    record = _propose(root, content="v2 text\n")
+    result = store.resolve(root, record["id"], "accept", scope=_scope(root), content="v2 text\n")
+    assert result["partial"] is False
+
+
+def test_a_partial_accept_still_refuses_a_file_changed_since_the_proposal(root: Path) -> None:
+    record = _propose(root)
+    (root / "plan.md").write_bytes(b"someone else\n")
+    with pytest.raises(store.ProposalError) as exc:
+        store.resolve(root, record["id"], "accept", scope=_scope(root), content="partial\n")
+    assert exc.value.status == 409
+    assert (root / "plan.md").read_bytes() == b"someone else\n"
+
+
+# ---------- what the advisor sees (8.4) ----------
+
+def _staged_call_message(path: str) -> list[dict]:
+    call = {"id": "t1", "type": "function", "function": {
+        "name": "file_write_staged",
+        "arguments": json.dumps({"path": path, "content": "x", "base_version": None}),
+    }}
+    return [{"role": "user", "content": "go"}, {"role": "assistant", "content": "", "tool_calls": [call]}]
+
+
+def test_a_staged_write_counts_as_a_write_for_the_run(root: Path) -> None:
+    from nanobot.coworker.advisor.evidence import written_paths
+
+    assert written_paths(_staged_call_message("notes/new.md")) == ["notes/new.md"]
+
+
+def test_the_advisor_sees_a_pending_proposal_as_not_applied_until_it_is_decided(root: Path) -> None:
+    from nanobot.coworker.advisor.evidence import collect_evidence_sync
+
+    record = _propose(root, content="proposed body\n")
+    evidence = collect_evidence_sync([], root)
+    assert "plan.md" in evidence
+    assert "not applied yet" in evidence
+    assert "proposed body" in evidence
+
+    store.resolve(root, record["id"], "reject", scope=_scope(root))
+    assert "not applied yet" not in collect_evidence_sync([], root)
+
+
+def test_a_proposal_whose_file_moved_on_is_flagged_stale_to_the_advisor(root: Path) -> None:
+    from nanobot.coworker.advisor.evidence import collect_evidence_sync
+
+    _propose(root, content="proposed body\n")
+    (root / "plan.md").write_bytes(b"changed underneath\n")
+    assert "changed on disk since it was proposed" in collect_evidence_sync([], root)
+
+
+# ---------- end to end: the agent's tool call, the user's partial decision, the disk (8.4 test) ----------
+
+async def test_an_agent_proposal_is_reviewed_hunk_by_hunk_and_only_the_kept_text_reaches_disk(
+    root: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nanobot.coworker.config import CoworkerConfig, StagingConfig
+    from nanobot.coworker.staged import tools as staged_tools
+    from nanobot.coworker.staged.guard import blocked_paths
+
+    (root / "notes.md").write_bytes(b"one\ntwo\nthree\n")
+    session = SimpleNamespace(key="websocket:abc", metadata={})
+    request = SimpleNamespace(session_key="websocket:abc")
+    monkeypatch.setattr(staged_tools, "load_coworker_config",
+                        lambda: CoworkerConfig(staging=StagingConfig(enabled=True)))
+    monkeypatch.setattr("nanobot.coworker.advisor.tool.project_root_for", lambda s: root)
+    monkeypatch.setattr(staged_tools, "get_persona_id", lambda s: "sales-writer")
+    tool = staged_tools.FileWriteStagedTool()
+    monkeypatch.setattr(tool, "session", lambda: session)
+    monkeypatch.setattr(tool, "request", lambda: request)
+
+    # The agent reads the file (version v), then proposes two edits in one new text.
+    version = content_version(b"one\ntwo\nthree\n")
+    proposed = "ONE\ntwo\nTHREE\n"
+    result = await tool.execute(path="notes.md", content=proposed, base_version=version)
+    assert '"staged"' in str(result)
+
+    # The guard would refuse a direct write to the same file: the proposal is the only route.
+    assert blocked_paths(["notes.md"], root, set()) == ["notes.md"]
+    [pending] = store.list_pending(root)
+    assert pending["by"] == "sales-writer"
+
+    # The user keeps the first change only: the text assembled from that hunk is what gets written.
+    kept = "ONE\ntwo\nthree\n"
+    decided = store.resolve(root, pending["id"], "accept", scope=_scope(root), content=kept)
+
+    assert decided["partial"] is True
+    assert (root / "notes.md").read_bytes() == kept.encode("utf-8")
+    assert store.list_pending(root) == []

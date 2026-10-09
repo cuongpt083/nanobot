@@ -578,7 +578,7 @@ Giữ test từ chối path ngoài workspace (`test_handle_file_preview_rejects_
 - [x] `GET` read (`/workspace/read`): trả `version` (sha256 rút gọn). Sửa được tới 5 MiB; file lớn hơn trả 413 (chưa có chế độ xem-only cho file lớn, ED-04 để sau).
 - [x] Ghi từ user: **đi qua WebSocket đã xác thực** (mutation `session.workspace.write`), không phải HTTP thường, theo cách mọi mutation WebUI khác của repo làm. Lệch `base_version` → 409 kèm `current_version`. Không chặn agent (G2).
 - [x] Rename (`session.workspace.rename`, cùng thư mục, không ghi đè); delete (`session.workspace.delete`, chỉ file, có kiểm version). Confirm ở phía client.
-- [ ] Watch: sự kiện WS `fs.changed` (user|persona). **Chưa làm.** Hiện chỉ phát hiện xung đột khi lưu (409); file đổi bên ngoài không tự làm mới.
+- [x] Watch: sự kiện WS `fs.changed`. Gateway kiểm (mtime, size) của các file tab đang mở mỗi 2 s (`nanobot/webui/workspace_watch.py`, task nền trong runtime WebSocket) và gửi `workspace_changed` cho mọi kết nối WebUI. Editor kiểm đĩa ngay khi nhận sự kiện; polling 4 s vẫn là dự phòng. Đây là polling phía server, không phải sự kiện từ hệ điều hành.
 - [x] Xác thực bằng token API; `..` và đường dẫn tuyệt đối ra ngoài project bị từ chối (403), đã có test.
 
 ### 7.2 – Monaco pane
@@ -628,28 +628,28 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.
 
 - [x] Tool `file_write_staged` (`nanobot/coworker/staged/tools.py`): ghi vào hàng chờ kèm `base_version`, không ghi lên đĩa cho tới khi người dùng chấp nhận.
 - [x] Quy tắc (`nanobot/coworker/staged/guard.py`, gắn trong `CoworkerHook.before_execute_tool`): ghi trực tiếp chỉ được vào `.coworker/drafts/` và file không mở trong tab. `apply_patch` không đọc được đường dẫn thì bị chặn. Cờ `coworker.staging.enabled` **mặc định tắt**; khi tắt, tool bị ẩn và guard không chạy.
-- [x] `changes` (đọc, `GET .../workspace/changes`) và `resolve` (`session.workspace.resolve`, accept hoặc reject cả file). Hunk-level chưa làm.
+- [x] `changes` (đọc, `GET .../workspace/changes`) và `resolve` (`session.workspace.resolve`): accept hoặc reject cả file, hoặc accept một phần với `content` đã ghép từ các hunk được giữ (server vẫn kiểm `base_version`).
 - [x] ED-16: version lệch → 409, đề xuất giữ ở trạng thái chờ, agent phải đọc lại. Đã test.
 - [x] Đề xuất mới cho cùng một đường dẫn thay thế đề xuất cũ (`superseded`).
 
 ### 8.2 – Diff UI
 
 - [x] Monaco diff side-by-side, chỉ đọc (`DiffView.tsx`). Chế độ inline chưa làm.
-- [x] Accept / reject cả file (`ChangeReview.tsx`). Accept hunk chưa làm.
+- [x] Accept / reject cả file, và accept từng hunk (`ChangeReview.tsx`, tách hunk ở `components/workspace/hunks.ts`). Mặc định giữ tất cả nên hành vi cũ không đổi; hunk bị bỏ bị loại khỏi đề xuất. File quá lớn (trên 4 triệu ô LCS) chỉ accept/reject được cả file.
 - [x] Danh sách chờ duyệt có tên persona (`by`) trong nút đếm và trên màn duyệt.
-- [x] ED-15: tab đang mở có đề xuất của agent → chấm cam trên tab; danh sách đề xuất làm mới mỗi 4 s (không cần tải lại). Hiện chỉ phát hiện đề xuất; thay đổi trực tiếp trên đĩa không được theo dõi (chưa có `fs.changed`).
+- [x] ED-15: tab đang mở có đề xuất của agent → chấm cam trên tab; danh sách đề xuất làm mới mỗi 4 s. **Thay đổi trên đĩa của file đang mở** (không qua đề xuất): kiểm mỗi 4 s; tab không có chữ chưa lưu nhận nội dung mới và được đánh dấu "Changed on disk" đến khi mở; tab có chữ chưa lưu nhận banner xung đột, không bị ghi đè. Chưa có sự kiện `fs.changed` từ gateway: phát hiện là polling, và không có diff riêng cho thay đổi từ đĩa.
 
 ### 8.3 – Chat ↔ editor
 
 - [x] ED-12: bôi đen trong editor → menu chuột phải "Hỏi agent về đoạn này" đưa vào ô soạn tin trích dẫn kèm đường dẫn và dòng (`From notes.md, lines 2-3:`). Người dùng vẫn phải tự gửi. Chưa có phím tắt.
-- [~] ED-13: file trong tin nhắn chat mở ở editor (text mở thẳng ở chế độ sửa; nút "Quay lại xem trước" đổi về chế độ xem). **Chưa** có `@` gợi ý file trong ô soạn tin.
+- [x] ED-13: file trong tin nhắn chat mở ở editor (text mở thẳng ở chế độ sửa; "Quay lại xem trước" đổi về xem). Gõ `@đường/dẫn` trong ô soạn tin hiện gợi ý file của project (thư mục trước, lọc theo tiền tố, Tab/Enter để chọn, Esc để đóng); chọn thư mục thì gợi ý mở trong thư mục đó. Gợi ý chỉ mở khi token có `/` hoặc `.`, vì `@` trơn thuộc menu app và session có sẵn.
 - [x] ED-14 `editor_context`: công tắc "Chia sẻ với agent" trong editor, **tắt mặc định**, nhớ theo trình duyệt. Khi bật, tin nhắn gửi kèm đường dẫn file đang mở và đoạn đang chọn (tối đa 4 000 ký tự), chỉ trong session đó. Backend đưa vào như dữ liệu, chỉ với kết nối WebUI tin cậy.
 
 ### 8.4 – Advisor và steering (phụ thuộc chéo)
 
 - [x] Thêm `file_write_staged` vào `WRITE_TOOLS` (`nanobot/coworker/advisor/evidence.py`). `params_paths` đọc khóa `path` chung nên đường dẫn được nhận dạng.
-- [ ] Gói evidence đọc nội dung đang chờ duyệt cho các file chưa được chấp nhận (ghi "chưa áp dụng"). **Chưa làm**; evidence hiện vẫn dựa vào `git diff`.
-- [ ] Test: một lần ghi staged được đếm là bước làm việc và là "write" cho commit gate. **Chưa có test riêng**; mới có test guard và test tập `WRITE_TOOLS` gián tiếp.
+- [x] Gói evidence đọc nội dung đang chờ duyệt cho các file chưa được chấp nhận (ghi "not applied yet", hoặc "changed on disk since it was proposed"): `advisor/evidence.py` `pending_proposals_section`. Tối đa 5 đề xuất, mỗi đề xuất 800 ký tự.
+- [x] Test: một lần ghi staged được đếm là ghi trong lượt (`written_paths`, cùng tập `WRITE_TOOLS` mà commit gate dùng). Chưa có test end-to-end qua commit gate.
 - Xem `advisor-room-integration.md` (mục 11) cho các vị trí artifact liên quan.
 
 ### Kết quả Phase 8 (đo ngày 09/10/2026)
@@ -664,9 +664,9 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.
 ### Test
 
 - Agent `write_file` thường bị chặn ngoài thư mục nháp: **đã test** qua hook (`_staging_block`).
-- Accept một hunk không đụng hunk khác: **chưa** (chưa có hunk).
+- Accept một hunk không đụng hunk khác: **đã test** (`workspace-hunks.test.ts`, và luồng giao diện `staged-change-review.test.tsx`).
 - Conflict: user đang gõ và có đề xuất được chấp nhận: **đã test** (banner, không ghi đè).
-- e2e: delegate ghi file → hiện diff → accept → disk đúng: **chưa**.
+- e2e: delegate ghi file → hiện diff → accept → disk đúng: **chưa** (cần agent thật và trình duyệt).
 
 ### Cổng G2
 
@@ -674,7 +674,7 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.
 - [x] Ghi trực tiếp chỉ cho phép trong thư mục nháp và khi không mở tab.
 - [x] Bôi đen hỏi agent: chat nhận đúng path + line range (đã test).
 
-**Kết luận:** các điều kiện của G2 đã có trong code và test. Chưa đóng G2 vì: (1) chưa kiểm chứng trên trình duyệt thật; (2) duyệt từng hunk chưa làm; (3) ED-13 chưa có `@` gợi ý file; (4) theo dõi thay đổi trực tiếp trên đĩa chưa làm. Giữ `coworker.staging.enabled` tắt mặc định cho đến khi kiểm chứng xong.
+**Kết luận:** đã có trong code và test: ghi có duyệt, duyệt cả file và từng hunk, ED-12, ED-13, ED-14, ED-15 (kiểm trên đĩa, nhận sự kiện `fs.changed`), advisor thấy đề xuất đang chờ, và e2e ở phía backend (tool gọi → hàng chờ → chấp nhận một phần → đĩa). Chưa đóng G2 vì chưa kiểm chứng trên trình duyệt thật và Desktop, và chưa có e2e qua agent thật (model thật gọi tool).
 
 ---
 

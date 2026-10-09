@@ -130,3 +130,32 @@ describe("staged change review in the editor", () => {
     expect(screen.getByTestId("change-review")).toBeInTheDocument();
   });
 });
+
+describe("keeping part of a proposal (8.2)", () => {
+  it("accepts only the kept change and sends the assembled text", async () => {
+    api.readWorkspaceFile.mockResolvedValue({ path: "notes.md", content: "a\nb\nc", version: "sha256:v1", size: 5 });
+    api.listStagedChanges.mockResolvedValue([change({ content: "A\nb\nC" })]);
+    api.resolveStagedChange.mockResolvedValue({ id: "c1", status: "accepted", path: "notes.md", partial: true });
+    renderEditor();
+    fireEvent.click(await screen.findByRole("button", { name: "1 proposed change(s)" }));
+
+    const second = await screen.findByRole("checkbox", { name: "Keep change at line 3" });
+    fireEvent.click(second);
+    fireEvent.click(await screen.findByRole("button", { name: "Accept 1 of 2 changes" }));
+
+    await waitFor(() => expect(api.resolveStagedChange).toHaveBeenCalledTimes(1));
+    expect(api.resolveStagedChange).toHaveBeenCalledWith(client, "websocket:abc", "c1", "accept", "A\nb\nc");
+  });
+
+  it("keeps the plain accept when every change is kept", async () => {
+    api.readWorkspaceFile.mockResolvedValue({ path: "notes.md", content: "a\nb\nc", version: "sha256:v1", size: 5 });
+    api.listStagedChanges.mockResolvedValue([change({ content: "A\nb\nC" })]);
+    api.resolveStagedChange.mockResolvedValue({ id: "c1", status: "accepted", path: "notes.md" });
+    renderEditor();
+    fireEvent.click(await screen.findByRole("button", { name: "1 proposed change(s)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
+
+    await waitFor(() => expect(api.resolveStagedChange).toHaveBeenCalledTimes(1));
+    expect(api.resolveStagedChange).toHaveBeenCalledWith(client, "websocket:abc", "c1", "accept");
+  });
+});
