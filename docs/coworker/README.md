@@ -125,6 +125,14 @@ off or inert by default, so an unconfigured install behaves exactly like upstrea
   and no consult (or ≥ `reconsultGap` since the last one), the runner appends a review nudge in the same run
   when no user input is waiting. Never interrupts real user messages. Coding result turns (`[auto-coding-result]`)
   are nudged to inspect the diff (`coding_agent action="diff"`) and consult before recommending a merge.
+- Advice template (opt-in, coding mode, off by default): `outputTemplate: true` makes the advisor answer in a fixed
+  order (verdict, goal, **definition of done**, **how to**, risks, unverified) and extends the ledger with `goal`,
+  `doneWhen`, `steps` and `unverified`. Unlike `mustFix`/`verify`, a reply that is silent about `goal` or `doneWhen`
+  keeps the previous ones, and only the advisor changes an item's status. Unmet items are pinned under
+  "Advisor commitments"; `doneGateDoneWhen: true` also lets them hold the done-gate. Design:
+  `docs/coworker/plans/advisor-output-template.md`.
+- Room review nudge (opt-in, off by default): `roomReviewNudge: true` asks the coordinator for one consult before it
+  posts a room's final report. The review turn is exempt from the thin-context refusal either way.
 - Inline consult cards (WebUI): calls to `advisor` render directly in the message activity timeline:
   - **Running**: clock icon + sheen label ("Đang hỏi advisor · {focus}").
   - **Advice card**: brain icon, focus title, `n/max` budget badge, model name, and 4-line collapsed markdown advice with expandable toggle.
