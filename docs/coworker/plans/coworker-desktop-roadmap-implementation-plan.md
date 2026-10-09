@@ -638,13 +638,13 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.
 - [x] Monaco diff side-by-side, chỉ đọc (`DiffView.tsx`). Chế độ inline chưa làm.
 - [x] Accept / reject cả file (`ChangeReview.tsx`). Accept hunk chưa làm.
 - [x] Danh sách chờ duyệt có tên persona (`by`) trong nút đếm và trên màn duyệt.
-- [ ] ED-15: tab đang mở bị agent sửa → badge trên tab. **Chưa.** Hiện chỉ có: nếu chấp nhận một đề xuất cho file đang mở và chưa có thay đổi, buffer được tải lại; nếu có thay đổi chưa lưu, hiện banner xung đột (không mất ký tự user).
+- [x] ED-15: tab đang mở có đề xuất của agent → chấm cam trên tab; danh sách đề xuất làm mới mỗi 4 s (không cần tải lại). Hiện chỉ phát hiện đề xuất; thay đổi trực tiếp trên đĩa không được theo dõi (chưa có `fs.changed`).
 
 ### 8.3 – Chat ↔ editor
 
-- [ ] ED-12: bôi đen → hỏi agent (path, line range, text). **Chưa làm.**
-- [ ] ED-13: `@file` trong chat mở tab. **Chưa làm.**
-- [ ] ED-14 `editor_context`: opt-in (Q5). **Chưa làm.**
+- [x] ED-12: bôi đen trong editor → menu chuột phải "Hỏi agent về đoạn này" đưa vào ô soạn tin trích dẫn kèm đường dẫn và dòng (`From notes.md, lines 2-3:`). Người dùng vẫn phải tự gửi. Chưa có phím tắt.
+- [~] ED-13: file trong tin nhắn chat mở ở editor (text mở thẳng ở chế độ sửa; nút "Quay lại xem trước" đổi về chế độ xem). **Chưa** có `@` gợi ý file trong ô soạn tin.
+- [x] ED-14 `editor_context`: công tắc "Chia sẻ với agent" trong editor, **tắt mặc định**, nhớ theo trình duyệt. Khi bật, tin nhắn gửi kèm đường dẫn file đang mở và đoạn đang chọn (tối đa 4 000 ký tự), chỉ trong session đó. Backend đưa vào như dữ liệu, chỉ với kết nối WebUI tin cậy.
 
 ### 8.4 – Advisor và steering (phụ thuộc chéo)
 
@@ -657,6 +657,8 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.
 
 - **Lệch khỏi plan:** duyệt đi qua WebSocket mutation (`session.workspace.resolve`, `session.workspace.tabs`), giống Phase 7; danh sách đề xuất là GET. Tên persona lấy từ `get_persona_id`, mặc định `coordinator`.
 - **Test:** `tests/coworker/test_staged_writes.py` 17 pass (store: đề xuất, xung đột, thay thế, accept, reject, ngoài project; guard qua `CoworkerHook`). WebUI: `staged-change-review.test.tsx` 6 pass; `workspace-editor.test.tsx` 8 pass; `file-preview-edit-entry.test.tsx` 2 pass. Toàn bộ WebUI vẫn đúng 11 lỗi có sẵn (i18n zh-CN, sw.test.ts).
+- **Đợt 8.3 / ED-15 (cùng ngày):** `tests/webui/test_editor_context.py` 5 pass; `test_websocket_channel.py` có 2 test mới (đường tin cậy và không tin cậy); `nanobot-client.test.ts` 85 pass (có test `editor_context`); `workspace-editor-agent.test.tsx` 7 pass (hỏi agent, chia sẻ, badge và làm mới). Toàn bộ pytest coworker/webui/websocket: 1437 pass, 4 lỗi có sẵn. Toàn bộ WebUI: 11 lỗi có sẵn.
+- **Thay đổi hành vi cần xác nhận:** (1) text mở từ chat giờ vào editor ngay (trước là xem trước); (2) câu bọc trích dẫn ở backend đổi từ "earlier assistant response" thành "earlier reply or a project file", vì trích dẫn từ editor không phải phản hồi của assistant.
 - **Chưa có test:** route WebSocket `session.workspace.resolve` và `session.workspace.tabs` (chỉ kiểm tra qua store và hàm); luồng agent thật ghi tệp đề xuất rồi người dùng duyệt.
 - **Chưa kiểm chứng:** trình duyệt thật; agent thật chọn `file_write_staged` khi cờ bật.
 
@@ -671,9 +673,9 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.
 
 - [x] Mọi file agent ghi ngoài thư mục nháp hoặc đang mở trong tab editor đều đi qua bước duyệt (khi cờ bật).
 - [x] Ghi trực tiếp chỉ cho phép trong thư mục nháp và khi không mở tab.
-- [ ] Bôi đen hỏi agent: chat nhận đúng path + line range. **Chưa** (8.3).
+- [x] Bôi đen hỏi agent: chat nhận đúng path + line range (đã test).
 
-**Kết luận:** chưa đạt G2 vì còn 8.3 và ED-15. Có thể bật `coworker.staging.enabled` để thử phần duyệt đề xuất, nhưng nên giữ tắt mặc định cho đến khi kiểm chứng trên trình duyệt.
+**Kết luận:** các điều kiện của G2 đã có trong code và test. Chưa đóng G2 vì: (1) chưa kiểm chứng trên trình duyệt thật; (2) duyệt từng hunk chưa làm; (3) ED-13 chưa có `@` gợi ý file; (4) theo dõi thay đổi trực tiếp trên đĩa chưa làm. Giữ `coworker.staging.enabled` tắt mặc định cho đến khi kiểm chứng xong.
 
 ---
 
