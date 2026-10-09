@@ -25,7 +25,7 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | 6 | P2b ảo hóa / P3 time-to-chrome | 0–3 ngày | có điều kiện | Chỉ khi baseline còn jank / chờ lâu |
 | 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | đã code và test (nhánh `feat/desktop-roadmap-p7-editor-g1`); chưa kiểm chứng trên trình duyệt; chưa có watch `fs.changed` | Mở 1 MB < 1 s; không qua Tauri `invoke` |
 | 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa (UI #4; kèm cập nhật advisor) | File ngoài drafts hoặc tab đang mở đều qua staged review |
-| 9 | Image G3 (Konva + skill) | 4–5 ngày | chưa (UI #4, song song 8) | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
+| 9 | Image G3 (Konva + skill) | 4–5 ngày | đã code và test (nhánh `feat/desktop-roadmap-p9-image`); chưa kiểm chứng trên Desktop; chưa có di chuyển/đổi kích thước vùng, cọ có chỉnh size và tẩy, IM-12…14 | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
 | 10 | BrowserSkill P0–P4 (local-only, no Docker) + pane ảnh IM-17 | 9–14 ngày | cuối | 0 session treo trước khi bật `interact` |
 
 Đánh dấu `- [x]` trong từng phase khi xong và đã qua cổng. Không sang phase sau nếu cổng fail, trừ khi có quyết định dừng/bỏ rõ ràng.
@@ -122,7 +122,7 @@ Các câu hỏi kiến trúc cốt lõi đã được giải quyết:
 | Q3 | Lưu phiên bản ảnh trong workspace hay kho riêng? | Kho riêng tại OS temporary directory (`tempfile.gettempdir()/nanobot-image-versions/<session>/`), ngoài workspace. Vòng đời tạm thời (ephemeral), dọn theo session kết thúc/reboot/TTL, không lưu vĩnh viễn. Gateway cấp route đọc ảnh tạm có kiểm soát phạm vi an toàn. | Đã chốt |
 | Q4 | Khôi phục hàng Docker Linux cho BrowserSkill? | **Không.** Bỏ hoàn toàn Docker. BrowserSkill chỉ chạy local trên Windows Desktop (headless/Chrome local). | Đã chốt |
 | Q5 | `editor_context` bật mặc định? | Tắt mặc định, user opt-in. | Đề xuất |
-| Q6 | Provider ảnh đầu tiên có nhận mask không? | Chốt trước khi viết Phase 9 `image_edit`. | Mở (Phase 9) |
+| Q6 | Provider ảnh đầu tiên có nhận mask không? | **Không phụ thuộc vào provider.** Model sửa cả ảnh, `image_composite` giữ pixel ngoài vùng khoanh bằng mask dựng từ hình học trên server. Nếu sau này có provider nhận mask thì chỉ bổ sung tham số. | Đã chốt |
 
 ## Not-to-do (PR vi phạm thì không merge)
 
@@ -690,17 +690,17 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 
 ### 9.1 – Konva pane (lazy)
 
-- [ ] IM-01…10: zoom/pan, rect, ellipse, brush, pin, số thứ tự, undo, notes, `composite_to_original` default on.
-- [ ] Tọa độ 0–1 theo ảnh gốc; mask PNG cùng size, vùng sửa trong suốt.
+- [~] IM-01…10: đã có zoom (lăn chuột) và pan (công cụ Pan), nút Fit, rect, ellipse, brush, pin, số thứ tự theo thứ tự tạo với màu riêng, undo/redo (nút và Ctrl+Z / Ctrl+Y), ghi chú từng vùng và ghi chú chung, công tắc "chỉ sửa trong vùng khoanh" (bật mặc định). **Chưa:** di chuyển và đổi kích thước vùng (IM-03), cọ có chỉnh kích thước và tẩy (IM-04); cọ hiện có kích thước cố định. Chọn ghi chú làm nổi vùng tương ứng (IM-08).
+- [~] Tọa độ 0–1 theo ảnh gốc: đã có. **Lệch khỏi plan:** không gửi mask PNG. Nét cọ gửi dưới dạng các điểm và bán kính; server dựng mask (`raster.region_mask`), nên không có file mask nhị phân nào đi qua request.
 
 ### 9.2 – Payload + tools
 
-- [ ] Schema `nanobot.image-annotations/v1`.
-- [ ] IM-11: gửi chat kèm mask, annotated image, JSON.
-- [ ] Tools: `image_annotations_read`, `image_edit`, `image_composite`, `render_text`, `image_version_save`.
-- [ ] Kho lưu phiên bản ảnh: Lưu tại OS temporary directory (`tempfile.gettempdir()/nanobot-image-versions/<session>/`), hoàn toàn ngoài workspace người dùng. Ephemeral, tự dọn dẹp theo session kết thúc/reboot/TTL. Gateway cấp route đọc ảnh tạm trong thư mục này có scoped allowance (`resolve_allowed_path`).
-- [ ] Skill `image-region-edit` (built-in coworker): phân loại vùng, gộp không chồng, prompt EN, báo cáo theo số vùng.
-- [ ] IM-12…14: version mới, slider trước/sau, gửi lại giữ region.
+- [x] Schema `nanobot.image-annotations/v1`: validate ở server (`nanobot/coworker/image/annotations.py`), 25 test backend, cùng giới hạn (50 vùng, 1 000 ký tự, 2 000 điểm cọ) phía client.
+- [~] IM-11: gửi chat. Ghi file annotation vào workspace cạnh ảnh (`<tên>.annotations.json`, có kiểm phiên bản) rồi gửi một tin nhắn yêu cầu sửa, kèm đường dẫn ảnh và file annotation. **Lệch khỏi plan:** không đính kèm ảnh đánh dấu (annotated PNG); agent đọc ảnh gốc qua `image_annotations_read`.
+- [x] Tools: `image_annotations_read`, `image_edit`, `image_composite`, `render_text`, `image_version_save` (`nanobot/coworker/image/tools.py`), ẩn khi `coworker.image.enabled` tắt (mặc định tắt). `image_edit` dùng lại tool sinh ảnh hiện có; **chưa kiểm chứng với provider thật**.
+- [x] Kho lưu phiên bản ảnh: thư mục tạm `nanobot-image-versions/<hash phiên>/`, ngoài workspace, dọn theo phiên hoặc TTL 24 giờ; route GET `/api/sessions/{key}/image-versions/{id}` chỉ phục vụ id hợp lệ của đúng phiên. **Lưu ý:** ảnh do `image_edit` sinh ra vẫn nằm trong thư mục artifact của tool sinh ảnh, không phải thư mục tạm; cần quyết định nếu muốn gom vào kho này.
+- [x] Skill `image-region-edit` (`nanobot/skills/image-region-edit/SKILL.md`): 7 bước của đặc tả, báo cáo theo số vùng.
+- [ ] IM-12…14: version mới, slider trước/sau, gửi lại giữ region. **Chưa làm.** Ảnh kết quả hiện không mở được trong pane; người dùng chỉ thấy id phiên bản trong câu trả lời của agent.
 
 ### Test
 
@@ -712,8 +712,19 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 
 ### Cổng G3
 
-- Sửa nhiều vùng một lần gửi trên Desktop local.
-- Agent báo đạt/chưa đạt theo số vùng.
+- [ ] Sửa nhiều vùng một lần gửi trên Desktop local. **Chưa kiểm chứng:** không có trình duyệt hay Desktop trong môi trường làm việc; cần chạy thật trước khi đóng cổng.
+- [~] Agent báo đạt/chưa đạt theo số vùng: có trong skill, chưa chạy thật với model.
+
+
+### Kết quả Phase 9 (đo ngày 09/10/2026)
+
+- **Phụ thuộc:** nhánh tạo từ `feat/desktop-roadmap-p8-editor-g2`, vì pane dùng workspace API của 7.1 và file editor đã có.
+- **Thư viện:** `konva` 10.7.0 và `react-konva` 18.2.16 (ghim chính xác). Bản react-konva 19 cần React 19, repo đang dùng React 18. Konva 10.7.1 mới ra 4 ngày nên chưa dùng (quy tắc tối thiểu 2 tuần). Pillow khai báo trực tiếp trong `pyproject.toml`; trước đó đi qua dependency gián tiếp.
+- **Bundle:** pane tải lazy, chunk khoảng 305 KB raw (khoảng 95 KB gzip); shell `index` tăng khoảng 1 KB.
+- **Test:** `tests/coworker/test_image_review.py` 25 pass; `annotation-model.test.ts` 7 pass; `image-review-pane.test.tsx` 7 pass. Toàn bộ WebUI: 11 lỗi có sẵn (i18n zh-CN, sw.test.ts). Pytest coworker/webui/websocket: 4 lỗi có sẵn (symlink Windows, test settings).
+- **Chưa kiểm chứng:** trình duyệt thật (vẽ, zoom, gửi); provider sinh ảnh thật với `image_edit`; agent thật làm theo skill; route ảnh phiên bản chưa có test HTTP riêng.
+- **Cờ:** `coworker.image.enabled` tắt mặc định. Pane vẫn gửi được khi cờ tắt, nhưng agent sẽ không có tool để đọc chú thích; cần bật cờ trước khi dùng thật.
+- **Chưa làm:** IM-03 (di chuyển/đổi kích thước), IM-04 (cọ có size và tẩy), IM-12…14, đính kèm ảnh đánh dấu.
 
 G4 (sticky header sequence, version tree đầy đủ, PV-08) **không** nằm trong roadmap lần này. IM-17 đã chuyển vào Phase 10.
 
