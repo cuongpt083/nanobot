@@ -17,7 +17,12 @@ from nanobot.config.paths import get_media_dir
 from nanobot.coworker.advisor.tool import project_root_for
 from nanobot.coworker.config import ImageReviewConfig, load_coworker_config
 from nanobot.coworker.image import raster, versions
-from nanobot.coworker.image.annotations import AnnotationError, describe, parse_annotations
+from nanobot.coworker.image.annotations import (
+    AnnotationError,
+    describe,
+    parse_annotations,
+    parse_report,
+)
 from nanobot.coworker.tools_base import CoworkerTool
 from nanobot.security.workspace_policy import WorkspaceBoundaryError, resolve_allowed_path
 
@@ -194,6 +199,13 @@ class ImageEditTool(_ImageTool):
         "original": {"type": "string", "description": "Project path of the image the user annotated."},
         "edited": {"type": "string", "description": "Path of the edited image (from image_edit)."},
         "annotations": {"type": "string", "description": "Project path of the annotation JSON file."},
+        "report": {
+            "type": "array",
+            "description": (
+                "Your per-region report: a list of {id, status, reason} where status is done, not_done or partial "
+                "and reason is one short sentence. Pass the region numbers the user saw."
+            ),
+        },
     },
     "required": ["original", "edited", "annotations"],
 })
@@ -210,12 +222,20 @@ class ImageCompositeTool(_ImageTool):
             "image is stored as it is."
         )
 
-    async def execute(self, original: str = "", edited: str = "", annotations: str = "", **kwargs: Any) -> ToolResult:
+    async def execute(
+        self,
+        original: str = "",
+        edited: str = "",
+        annotations: str = "",
+        report: list[Any] | None = None,
+        **kwargs: Any,
+    ) -> ToolResult:
         ctx = self._context()
         if isinstance(ctx, str):
             return self.payload("error", error=ctx)
         root, _ = ctx
         try:
+            regions_report = parse_report(report)
             original_path = _resolve(original, root)
             edited_path = _resolve(edited, root, extra_roots=[get_media_dir()])
             doc = parse_annotations(json.loads(_resolve(annotations, root).read_text(encoding="utf-8")))
@@ -231,9 +251,10 @@ class ImageCompositeTool(_ImageTool):
             else:
                 result = edit
             data = _png_bytes(result)
-        except (ValueError, AnnotationError, OSError, raster.RasterError) as exc:
+            source = versions.source_key(original, root)
+        except (ValueError, AnnotationError, OSError, raster.RasterError, versions.VersionError) as exc:
             return self.payload("error", error=str(exc))
-        saved = versions.save_version(self._session_key(), data)
+        saved = versions.save_version(self._session_key(), data, source=source, report=regions_report)
         return self.payload("version", version=saved.id, width=saved.width, height=saved.height)
 
 
@@ -279,15 +300,25 @@ class RenderTextTool(_ImageTool):
                     (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)), font,
                 )
             data = _png_bytes(drawn)
-        except (ValueError, OSError, raster.RasterError) as exc:
+            source_name = versions.source_key(image, root)
+        except (ValueError, OSError, raster.RasterError, versions.VersionError) as exc:
             return self.payload("error", error=str(exc))
-        saved = versions.save_version(self._session_key(), data)
+        saved = versions.save_version(self._session_key(), data, source=source_name)
         return self.payload("version", version=saved.id, width=saved.width, height=saved.height)
 
 
 @tool_parameters({
     "type": "object",
-    "properties": {"image": {"type": "string", "description": "Project path of the image to keep."}},
+    "properties": {
+        "image": {"type": "string", "description": "Project path of the image to keep."},
+        "report": {
+            "type": "array",
+            "description": (
+                "Your per-region report: a list of {id, status, reason} where status is done, not_done or partial "
+                "and reason is one short sentence. Pass the region numbers the user saw."
+            ),
+        },
+    },
     "required": ["image"],
 })
 class ImageVersionSaveTool(_ImageTool):
@@ -299,14 +330,16 @@ class ImageVersionSaveTool(_ImageTool):
     def description(self) -> str:
         return "Store a project image as a temporary version (for before/after comparison in the review pane)."
 
-    async def execute(self, image: str = "", **kwargs: Any) -> ToolResult:
+    async def execute(self, image: str = "", report: list[Any] | None = None, **kwargs: Any) -> ToolResult:
         ctx = self._context()
         if isinstance(ctx, str):
             return self.payload("error", error=ctx)
         root, _ = ctx
         try:
+            regions_report = parse_report(report)
             data = _resolve(image, root).read_bytes()
-            saved = versions.save_version(self._session_key(), data)
-        except (ValueError, OSError, versions.VersionError) as exc:
+            source_name = versions.source_key(image, root)
+            saved = versions.save_version(self._session_key(), data, source=source_name, report=regions_report)
+        except (ValueError, OSError, AnnotationError, versions.VersionError) as exc:
             return self.payload("error", error=str(exc))
         return self.payload("version", version=saved.id, width=saved.width, height=saved.height)

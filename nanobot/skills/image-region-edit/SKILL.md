@@ -28,7 +28,10 @@ Your job is the judgement: understand each note, choose how to change it, check 
    - `1 — done: logo swapped to the white version, about 20% smaller`
    - `2 — not done: the person behind is still partly visible; tried once, the mask is too small. Ask whether to widen it.`
 
-   Use the region numbers the user saw. Give the version id of the final image so the user can open it.
+   Pass the same report as the `report` argument of the last `image_composite` (or `image_version_save`) call, as a list of
+   `{id, status, reason}` with status `done`, `not_done` or `partial`. The review pane shows it next to each note, and the
+   user can resend only the regions that are not done. Use the region numbers the user saw. Give the version id of the
+   final image so the user can open it.
 
 ## Rules
 

@@ -150,6 +150,33 @@ def parse_annotations(raw: object) -> Annotations:
     )
 
 
+REPORT_STATUSES = ("done", "not_done", "partial")
+MAX_REASON_CHARS = 300
+
+
+def parse_report(raw: object) -> list[dict[str, Any]]:
+    """The agent's per-region report (IM-13): region id, status, and a short reason. Empty when absent."""
+    if raw is None:
+        return []
+    items = _as_list(raw)
+    if items is None or len(items) > MAX_EDITS:
+        raise AnnotationError(f"report must be a list of at most {MAX_EDITS} items")
+    report: list[dict[str, Any]] = []
+    for index, item in enumerate(items):
+        entry = _as_dict(item)
+        if entry is None:
+            raise AnnotationError(f"report[{index}] must be an object")
+        region_id = entry.get("id")
+        if isinstance(region_id, bool) or not isinstance(region_id, int) or region_id < 1:
+            raise AnnotationError(f"report[{index}].id must be a positive integer")
+        status = entry.get("status")
+        if status not in REPORT_STATUSES:
+            raise AnnotationError(f"report[{index}].status must be one of {', '.join(REPORT_STATUSES)}")
+        reason = _text(entry.get("reason"), f"report[{index}].reason", limit=MAX_REASON_CHARS)
+        report.append({"id": region_id, "status": status, "reason": reason})
+    return report
+
+
 def describe(annotations: Annotations) -> list[dict[str, Any]]:
     """A compact per-region view for the model: id, shape, where, and the note."""
     out: list[dict[str, Any]] = []

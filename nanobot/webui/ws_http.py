@@ -847,6 +847,10 @@ class GatewayHTTPHandler:
         if m:
             return self._handle_image_version(request, m.group(1), m.group(2))
 
+        m = re.match(r"^/api/sessions/([^/]+)/image-versions$", got)
+        if m:
+            return self._handle_image_versions(request, m.group(1))
+
         m = re.match(r"^/api/sessions/([^/]+)/workspace/(write|rename|delete|resolve|tabs)$", got)
         if m:
             return self._handle_workspace_mutation(request, m.group(1), m.group(2))
@@ -1290,6 +1294,37 @@ class GatewayHTTPHandler:
             status=error.status,
             extra_headers=_NO_STORE_HEADERS,
         )
+
+    def _handle_image_versions(self, request: WsRequest, key: str) -> Response:
+        """The temporary versions made from one image (``?image=<project path>``), newest first, with reports."""
+        from nanobot.coworker.image.versions import VersionError, list_versions, source_key
+
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        decoded_key = _decode_api_key(key)
+        if decoded_key is None:
+            return _http_error(400, "invalid session key")
+        if not _is_websocket_channel_session_key(decoded_key):
+            return _http_error(404, "session not found")
+        image = _query_first(_parse_query(request.path), "image")
+        if not image:
+            return _http_error(400, "image is required")
+        scope = self.workspaces.scope_for_session_key(decoded_key)
+        try:
+            source = source_key(image, Path(scope.project_path))
+        except VersionError:
+            return _http_error(403, "image is outside the project")
+        listed: list[dict[str, Any]] = [
+            {
+                "id": item.get("id"),
+                "width": item.get("width"),
+                "height": item.get("height"),
+                "created_at": item.get("created_at"),
+                "report": item.get("report") or [],
+            }
+            for item in list_versions(decoded_key, source)
+        ]
+        return _http_json_response({"versions": listed}, extra_headers=_NO_STORE_HEADERS)
 
     def _handle_image_version(self, request: WsRequest, key: str, version_id: str) -> Response:
         """A temporary image version of this session (edit results, screenshots). Scoped to the session."""

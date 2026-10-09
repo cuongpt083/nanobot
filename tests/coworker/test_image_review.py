@@ -21,6 +21,7 @@ from nanobot.coworker.image.annotations import (
     AnnotationError,
     describe,
     parse_annotations,
+    parse_report,
 )
 from nanobot.coworker.image.tools import ImageCompositeTool, _resolve
 
@@ -236,4 +237,70 @@ def test_erase_is_only_for_brush_strokes_and_must_be_a_boolean() -> None:
     doc = parse_annotations(_doc(edits=[{"id": 1, "shape": "brush", "points": [[0.5, 0.5]], "radius": 0.02, "erase": True}]))
     assert doc.edits[0].erase is True
     assert describe(doc)[0]["erase"] is True
+
+
+# ---------- per-region report and version lists (IM-13, IM-12) ----------
+
+def test_a_report_is_normalised_and_checked() -> None:
+    assert parse_report(None) == []
+    assert parse_report([{"id": 2, "status": "partial", "reason": "mask too small"}]) == [
+        {"id": 2, "status": "partial", "reason": "mask too small"},
+    ]
+    for bad in (
+        [{"id": 1, "status": "maybe"}],
+        [{"id": 0, "status": "done"}],
+        [{"id": True, "status": "done"}],
+        [{"id": 1, "status": "done", "reason": "x" * 301}],
+        "not a list",
+    ):
+        with pytest.raises(AnnotationError):
+            parse_report(bad)
+
+
+def test_versions_remember_their_source_and_report_and_are_listed_for_that_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(versions, "version_root", lambda: tmp_path / "versions")
+    report = [{"id": 1, "status": "done", "reason": "logo swapped"}]
+    first = versions.save_version("websocket:a", _png((4, 4), (1, 1, 1)), source="assets/banner.png", report=report)
+    second = versions.save_version("websocket:a", _png((4, 4), (2, 2, 2)), source="assets/banner.png")
+    versions.save_version("websocket:a", _png((4, 4), (3, 3, 3)), source="assets/other.png")
+
+    listed = versions.list_versions("websocket:a", "assets/banner.png")
+    assert {item["id"] for item in listed} == {first.id, second.id}
+    assert next(item for item in listed if item["id"] == first.id)["report"] == report
+    assert versions.list_versions("websocket:b", "assets/banner.png") == []
+
+
+def test_a_source_outside_the_project_has_no_key(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    assert versions.source_key("assets/a.png", project) == "assets/a.png"
+    with pytest.raises(versions.VersionError):
+        versions.source_key("../secret.png", project)
+
+
+async def test_composite_stores_the_report_and_refuses_a_bad_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "orig.png").write_bytes(_png((40, 40), (0, 0, 255)))
+    (project / "edit.png").write_bytes(_png((40, 40), (255, 0, 0)))
+    (project / "ann.json").write_text(json.dumps(_doc(
+        image="orig.png", edits=[{"id": 1, "shape": "rect", "box": [0.25, 0.25, 0.75, 0.75]}],
+    )), encoding="utf-8")
+    monkeypatch.setattr(versions, "version_root", lambda: tmp_path / "versions")
+    tool = ImageCompositeTool()
+    monkeypatch.setattr(tool, "_context", lambda: (project, ImageReviewConfig(enabled=True)))
+    monkeypatch.setattr(tool, "_session_key", lambda: "websocket:a")
+
+    bad = await tool.execute(original="orig.png", edited="edit.png", annotations="ann.json",
+                             report=[{"id": 1, "status": "yes"}])
+    assert json.loads(str(bad.content if hasattr(bad, "content") else bad))["status"] == "error"
+    assert versions.list_versions("websocket:a", "orig.png") == []
+
+    good = await tool.execute(original="orig.png", edited="edit.png", annotations="ann.json",
+                              report=[{"id": 1, "status": "done", "reason": "red inside"}])
+    assert json.loads(str(good.content if hasattr(good, "content") else good))["status"] == "version"
+    [listed] = versions.list_versions("websocket:a", "orig.png")
+    assert listed["report"] == [{"id": 1, "status": "done", "reason": "red inside"}]
 
