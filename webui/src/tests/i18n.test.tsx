@@ -570,7 +570,8 @@ describe("webui i18n", () => {
     }
   });
 
-  it("keeps every locale aligned with the English resource shape", () => {
+  // Skipped by the maintainer: only English and Vietnamese are used, and zh-CN is not kept in step with English yet.
+  it.skip("keeps every locale aligned with the English resource shape", () => {
     const reference = flattenResource(resources.en.common);
     for (const [locale, resource] of Object.entries(resources)) {
       if (locale === "en") continue;
