@@ -23,7 +23,7 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | 4 | F1 draft (CLI `/skills review`) | 2,5–3,5 ngày | chưa | Nháp hợp lệ; không tự active |
 | 5 | F2 summarize + UI duyệt skill | 2–3 ngày | chưa | Tóm tắt cache; duyệt nháp trên WebUI/Desktop |
 | 6 | P2b ảo hóa / P3 time-to-chrome | 0–3 ngày | có điều kiện | Chỉ khi baseline còn jank / chờ lâu |
-| 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | chưa (UI #2–3) | Mở 1 MB < 1 s; không qua Tauri `invoke` |
+| 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | đã code và test (nhánh `feat/desktop-roadmap-p7-editor-g1`); chưa kiểm chứng trên trình duyệt; chưa có watch `fs.changed` | Mở 1 MB < 1 s; không qua Tauri `invoke` |
 | 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa (UI #4; kèm cập nhật advisor) | File ngoài drafts hoặc tab đang mở đều qua staged review |
 | 9 | Image G3 (Konva + skill) | 4–5 ngày | chưa (UI #4, song song 8) | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
 | 10 | BrowserSkill P0–P4 (local-only, no Docker) | 8–12 ngày | cuối | 0 session treo trước khi bật `interact` |
@@ -575,26 +575,26 @@ Giữ test từ chối path ngoài workspace (`test_handle_file_preview_rejects_
 
 ### 7.1 – Workspace file API (đọc + ghi user)
 
-- [ ] `GET` list dir. Mọi path đi qua `WorkspaceScope` + `resolve_allowed_path` (không viết lại boundary).
-- [ ] `GET` read: mở rộng preview: trả `version`; nới cap sửa text lên 5 MB **xem-only** trên file lớn hơn (ED-04).
-- [ ] `PUT` write từ **user** (webview, HTTP loopback): body + `base_version`; lệch → 409 Conflict. Chưa chặn agent (G2). Không `invoke`.
-- [ ] `POST` rename; `DELETE` luôn cần confirm phía client.
-- [ ] Watch: sự kiện WS `fs.changed` (user|persona). Có thể polling ngắn nếu WS chưa sẵn.
-- [ ] Loopback + bootstrap token; chặn `..`.
+- [x] `GET` list dir (`/api/sessions/{key}/workspace/list`). Mọi path đi qua `resolve_allowed_path` với gốc là project; link trỏ ra ngoài bị ẩn.
+- [x] `GET` read (`/workspace/read`): trả `version` (sha256 rút gọn). Sửa được tới 5 MiB; file lớn hơn trả 413 (chưa có chế độ xem-only cho file lớn, ED-04 để sau).
+- [x] Ghi từ user: **đi qua WebSocket đã xác thực** (mutation `session.workspace.write`), không phải HTTP thường, theo cách mọi mutation WebUI khác của repo làm. Lệch `base_version` → 409 kèm `current_version`. Không chặn agent (G2).
+- [x] Rename (`session.workspace.rename`, cùng thư mục, không ghi đè); delete (`session.workspace.delete`, chỉ file, có kiểm version). Confirm ở phía client.
+- [ ] Watch: sự kiện WS `fs.changed` (user|persona). **Chưa làm.** Hiện chỉ phát hiện xung đột khi lưu (409); file đổi bên ngoài không tự làm mới.
+- [x] Xác thực bằng token API; `..` và đường dẫn tuyệt đối ra ngoài project bị từ chối (403), đã có test.
 
 ### 7.2 – Monaco pane
 
-- [ ] Lazy load Monaco khi mở pane.
-- [ ] Cây file: mở, tạo, đổi tên, xóa (confirm).
-- [ ] Tab, dirty, khôi phục tab (localStorage keys, nội dung SoT = disk).
-- [ ] ED-03: text → Monaco; `.md` → Monaco + preview (`MermaidPane`); ảnh → panel ảnh hiện có (Konva ở G3).
-- [ ] Syntax, find/replace, multi-cursor, Ctrl+S, autosave option, theme app.
-- [ ] Không `invoke` nội dung file.
+- [x] Monaco tải lazy khi mở editor. Chỉ nạp core và định nghĩa tokenizer cần dùng; **không** kéo dịch vụ ngôn ngữ TypeScript/JSON/CSS/HTML (ban đầu kéo theo 6,9 MB worker, đã bỏ).
+- [x] Cây file: mở, mở rộng thư mục (lazy), tạo, đổi tên, xóa (confirm). Tên file nhập bằng hộp thoại trình duyệt tạm thời; cần thay bằng ô nhập inline.
+- [x] Tab, dirty (•), đóng tab hỏi trước khi bỏ thay đổi. **Chưa** khôi phục tab sau khi tải lại trang (localStorage).
+- [x] ED-03: text → Monaco; `.md` → Monaco + preview markdown (dùng `MarkdownText`, có `MermaidPane` cho khối mermaid); ảnh vẫn ở panel ảnh hiện có (Konva ở G3).
+- [x] Syntax (tokenizer), Ctrl+S, theme sáng/tối theo app; find/replace và multi-cursor có sẵn trong Monaco. **Chưa** autosave.
+- [x] Không `invoke` nội dung file: đọc và ghi đều qua HTTP/WebSocket của gateway.
 
 ### 7.3 – Preview markdown
 
-- [ ] PV-01…04, PV-07, PV-09 (scroll sync) dùng chung renderer chat.
-- [ ] Debounce preview ≤ 300 ms sau khi ngừng gõ.
+- [x] Preview dùng chung renderer chat (`MarkdownText`). **Chưa** PV-07, PV-09 (scroll sync).
+- [x] Debounce preview 300 ms; mở file khác thì hiện ngay, không chờ.
 
 ### Test
 
@@ -604,6 +604,14 @@ Giữ test từ chối path ngoài workspace (`test_handle_file_preview_rejects_
 - Unit: version đổi sau write.
 - Playwright: mở, sửa, lưu, mở lại.
 - Grep: không có `invoke` mang content trong `desktop/` + `webui/`.
+
+### Kết quả Phase 7 (đo ngày 09/10/2026)
+
+- **Lệch khỏi plan:** (1) ghi đi qua WebSocket mutation, không HTTP loopback, theo đúng cách repo làm; (2) JSON hiển thị như văn bản thường, vì Monaco chỉ có tokenizer JSON qua dịch vụ ngôn ngữ (đã bỏ để giữ bundle nhỏ).
+- **Test:** `tests/webui/test_workspace_files.py` 14 pass (1 bỏ qua do symlink cần quyền trên Windows). WebUI: `workspace-editor.test.tsx` 8 pass, `file-preview-edit-entry.test.tsx` 2 pass. Toàn bộ WebUI: 2217 pass, 11 fail, cùng 11 lỗi có sẵn của Phase 2.
+- **Bundle:** shell (`index`) 528 KB, không đổi. Editor: `editor.api` 2,7 MB raw (695 KB gzip) và worker 81 KB gzip, chỉ tải khi mở editor; khoảng 780 KB gzip cho lần mở đầu tiên.
+- **Chưa kiểm chứng:** mở, sửa, lưu và mở lại trong trình duyệt thật; Playwright; hành vi Monaco thật (test dùng stub). Đây là việc cần làm trước khi coi Phase 7 là xong.
+- **Chưa làm:** watch `fs.changed`, khôi phục tab sau khi tải lại, autosave, PV-07/PV-09, xem-only cho file trên 5 MiB, ô nhập inline thay hộp thoại trình duyệt.
 
 ### Cổng G1
 
