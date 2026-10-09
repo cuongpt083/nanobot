@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Circle, Ellipse, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from "react-konva";
 import type Konva from "konva";
 import { useTranslation } from "react-i18next";
@@ -30,7 +30,16 @@ import {
   type Region,
   type RegionShape,
 } from "@/components/image/annotation-model";
-import { ApiError, isWorkspaceConflict, readWorkspaceFile, saveWorkspaceFile, type WebUIMutationTransport } from "@/lib/api";
+import {
+  ApiError,
+  fetchImageVersionDataUrl,
+  isWorkspaceConflict,
+  listImageVersions,
+  readWorkspaceFile,
+  saveWorkspaceFile,
+  type ImageVersionSummary,
+  type WebUIMutationTransport,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /** ``eraser`` is a brush stroke that removes from the marked area (IM-04). */
@@ -57,12 +66,23 @@ export function annotationPathFor(imagePath: string): string {
 }
 
 /** The message that asks the agent to act on the annotation file. Instructions are in English. */
-export function editRequestText(imagePath: string, annotationPath: string): string {
-  return [
+export function editRequestText(imagePath: string, annotationPath: string, redo?: number[]): string {
+  const parts = [
     `Edit the image ${imagePath} following the region annotations in ${annotationPath}.`,
     "Use the image-region-edit skill and report the result region by region.",
-  ].join(" ");
+  ];
+  if (redo && redo.length > 0) {
+    parts.push(`Redo only regions ${redo.join(", ")}; keep the other regions as they are.`);
+  }
+  return parts.join(" ");
 }
+
+const STATUS_LABEL = { done: "Done", not_done: "Not done", partial: "Partly done" } as const;
+const STATUS_STYLE = {
+  done: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200",
+  not_done: "bg-red-500/15 text-red-700 dark:text-red-200",
+  partial: "bg-amber-500/15 text-amber-700 dark:text-amber-200",
+} as const;
 
 interface ImageReviewPaneProps {
   sessionKey: string;
@@ -105,8 +125,48 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
   const [size, setSize] = useState({ width: 640, height: 420 });
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [versions, setVersions] = useState<ImageVersionSummary[]>([]);
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+  const [versionSrc, setVersionSrc] = useState<string | null>(null);
+  const [comparePosition, setComparePosition] = useState(50);
+  // Choosing a version shows the comparison; the user can go back to marking up without losing the version,
+  // so the report and the resend still apply while regions are added or changed.
+  const [showCompare, setShowCompare] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
+  const activeVersion = versions.find((version) => version.id === activeVersionId) ?? null;
+  const comparing = activeVersion !== null && versionSrc !== null && showCompare;
+
+  // Versions the agent made from this image (IM-12). A list failure leaves the editor working without them.
+  const refreshVersions = useCallback(async () => {
+    try {
+      setVersions(await listImageVersions(token, sessionKey, path));
+    } catch {
+      // The version list is a convenience.
+    }
+  }, [path, sessionKey, token]);
+
+  useEffect(() => {
+    void refreshVersions();
+  }, [refreshVersions]);
+
+  useEffect(() => {
+    if (!activeVersionId) {
+      setVersionSrc(null);
+      return;
+    }
+    let cancelled = false;
+    fetchImageVersionDataUrl(token, sessionKey, activeVersionId)
+      .then((url) => {
+        if (!cancelled) setVersionSrc(url);
+      })
+      .catch(() => {
+        if (!cancelled) setVersionSrc(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeVersionId, sessionKey, token]);
 
   const apply = (next: (current: typeof doc) => typeof doc) => {
     setHistory((current) => commit(current, next(current.present)));
@@ -273,7 +333,16 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
     apply((current) => setNote(current, id, text));
   };
 
-  const canSend = !sending && (doc.regions.length > 0 || doc.globalNote.trim().length > 0);
+  // IM-14: once a version has a report, its done regions keep their notes; only the rest is asked again.
+  const reportById = new Map((activeVersion?.report ?? []).map((entry) => [entry.id, entry] as const));
+  const resendMode = activeVersion !== null && reportById.size > 0;
+  const lockedIds = new Set(resendMode
+    ? [...reportById.values()].filter((entry) => entry.status === "done").map((entry) => entry.id)
+    : []);
+  const redoIds = resendMode ? doc.regions.map((region) => region.id).filter((id) => !lockedIds.has(id)) : [];
+  const canSend = !sending && (resendMode
+    ? redoIds.length > 0
+    : doc.regions.length > 0 || doc.globalNote.trim().length > 0);
 
   const send = async () => {
     if (!canSend) return;
@@ -292,7 +361,8 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
         content: JSON.stringify(toPayload(doc, path, null), null, 2),
         baseVersion,
       });
-      onSend(editRequestText(path, annotationPath));
+      onSend(editRequestText(path, annotationPath, resendMode ? redoIds : undefined));
+      void refreshVersions();
     } catch (reason) {
       setError(isWorkspaceConflict(reason)
         ? t("image.review.conflict", { defaultValue: "The annotation file changed on disk. Reload the image and try again." })
@@ -440,6 +510,32 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
             ))}
           </span>
         ) : null}
+        {versions.length > 0 ? (
+          <select aria-label={t("image.review.version", { defaultValue: "Version" })} value={activeVersionId ?? ""}
+            onChange={(event) => {
+              setActiveVersionId(event.target.value || null);
+              setShowCompare(true);
+            }}
+            className="rounded border border-border/60 bg-background px-1 py-0.5 text-xs">
+            <option value="">{t("image.review.original", { defaultValue: "Original" })}</option>
+            {versions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {`${new Date(version.created_at).toLocaleTimeString()} · ${version.width}×${version.height}`}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {activeVersion ? (
+          <button type="button" onClick={() => setShowCompare((value) => !value)}
+            className="rounded px-2 py-1 text-muted-foreground">
+            {showCompare
+              ? t("image.review.markUp", { defaultValue: "Mark up" })
+              : t("image.review.compare", { defaultValue: "Compare" })}
+          </button>
+        ) : null}
+        <button type="button" onClick={() => void refreshVersions()} className="rounded px-2 py-1 text-muted-foreground">
+          {t("image.review.refresh", { defaultValue: "Refresh versions" })}
+        </button>
         <span className="mx-1 h-4 w-px bg-border/70" aria-hidden />
         <button type="button" aria-label={t("image.review.undo", { defaultValue: "Undo" })}
           disabled={history.past.length === 0} onClick={() => setHistory((current) => undo(current))}
@@ -464,7 +560,24 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div ref={containerRef} className="relative min-h-[240px] min-w-0 flex-1 bg-muted/30">
-          {image ? (
+          {comparing && versionSrc ? (
+            <div className="flex h-full min-h-[240px] flex-col" data-testid="image-compare">
+              <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+                <img src={src} alt={t("image.review.before", { defaultValue: "Before" })}
+                  className="max-h-full max-w-full object-contain" />
+                <img src={versionSrc} alt={t("image.review.after", { defaultValue: "After" })}
+                  className="absolute inset-0 m-auto max-h-full max-w-full object-contain"
+                  style={{ clipPath: `inset(0 0 0 ${comparePosition}%)` }} />
+              </div>
+              <label className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                {t("image.review.before", { defaultValue: "Before" })}
+                <input type="range" min={0} max={100} value={comparePosition} className="flex-1"
+                  aria-label={t("image.review.compare", { defaultValue: "Compare before and after" })}
+                  onChange={(event) => setComparePosition(Number(event.target.value))} />
+                {t("image.review.after", { defaultValue: "After" })}
+              </label>
+            </div>
+          ) : image ? (
             <Stage
               ref={stageRef}
               width={size.width}
@@ -553,6 +666,11 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
               onClick={() => setSelected(region.id)}>
               <div className="mb-1 flex items-center justify-between">
                 <span className="font-medium" style={{ color: colorOf(region) }}>{regionLabel(region)}</span>
+                {reportById.get(region.id) ? (
+                  <span className={cn("rounded px-1.5 py-0.5 text-[10px]", STATUS_STYLE[reportById.get(region.id)?.status ?? "not_done"])}>
+                    {STATUS_LABEL[reportById.get(region.id)?.status ?? "not_done"]}
+                  </span>
+                ) : null}
                 <button type="button" className="text-muted-foreground underline"
                   onClick={() => apply((current) => removeRegion(current, region.id))}>
                   {t("image.review.remove", { defaultValue: "Remove" })}
@@ -562,7 +680,11 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
                 className="min-h-[44px] w-full rounded border border-border/60 bg-background p-1.5 text-sm text-foreground"
                 value={drafts[region.id] ?? region.note}
                 onChange={(event) => setDrafts((current) => ({ ...current, [region.id]: event.target.value }))}
+                disabled={lockedIds.has(region.id)}
                 onBlur={() => commitNote(region.id)} />
+              {reportById.get(region.id) ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">{reportById.get(region.id)?.reason}</p>
+              ) : null}
             </div>
           ))}
 
@@ -574,7 +696,9 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
             className="mt-auto rounded bg-foreground px-3 py-2 text-sm text-background disabled:opacity-50">
             {sending
               ? t("image.review.sending", { defaultValue: "Sending..." })
-              : t("image.review.send", { defaultValue: "Send edits" })}
+              : resendMode
+                ? t("image.review.resend", { defaultValue: "Resend the regions not done" })
+                : t("image.review.send", { defaultValue: "Send edits" })}
           </button>
         </aside>
       </div>

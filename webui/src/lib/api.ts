@@ -1588,3 +1588,56 @@ export async function setWorkspaceOpenTabs(
 ): Promise<void> {
   await mutation(transport, "session.workspace.tabs", { key, paths });
 }
+
+/** One version of an image the agent made (IM-12), with its per-region report (IM-13). */
+export interface ImageVersionReport {
+  id: number;
+  status: "done" | "not_done" | "partial";
+  reason: string;
+}
+
+export interface ImageVersionSummary {
+  id: string;
+  width: number;
+  height: number;
+  created_at: number;
+  report: ImageVersionReport[];
+}
+
+export async function listImageVersions(
+  token: string,
+  key: string,
+  imagePath: string,
+  base: string = "",
+): Promise<ImageVersionSummary[]> {
+  const query = new URLSearchParams({ image: imagePath });
+  const payload = await request<{ versions: ImageVersionSummary[] }>(
+    `${base}/api/sessions/${encodeURIComponent(key)}/image-versions?${query}`,
+    token,
+    { cache: "no-store" },
+    API_READ_TIMEOUT_MS,
+  );
+  return payload.versions;
+}
+
+/** A version's image as a data URL, so it can be drawn without a bearer header on an <img>. */
+export async function fetchImageVersionDataUrl(
+  token: string,
+  key: string,
+  versionId: string,
+  base: string = "",
+): Promise<string> {
+  const res = await fetchWithTimeout(
+    `${base}/api/sessions/${encodeURIComponent(key)}/image-versions/${versionId}`,
+    { headers: { Authorization: `Bearer ${token}` }, credentials: "same-origin", cache: "no-store" },
+    API_READ_TIMEOUT_MS,
+  );
+  if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
+  const blob = await res.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
