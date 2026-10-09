@@ -2042,6 +2042,25 @@ describe("NanobotClient", () => {
     });
   });
 
+  it("sends the editor file and selection only when the caller attaches them", () => {
+    const client = new NanobotClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    client.sendMessage("chat-x", "Check this", undefined, {
+      editorContext: { path: "notes/plan.md", start_line: 2, end_line: 4, selection: "picked" },
+    });
+    client.sendMessage("chat-x", "No file this time");
+
+    const [withEditor, withoutEditor] = lastSocket().sent.slice(-2).map((frame) => JSON.parse(frame as string));
+    expect(withEditor.editor_context).toEqual({ path: "notes/plan.md", start_line: 2, end_line: 4, selection: "picked" });
+    expect(withoutEditor).not.toHaveProperty("editor_context");
+  });
+
   it("sends automation intent separately from the user's text", () => {
     const client = new NanobotClient({
       url: "ws://test",

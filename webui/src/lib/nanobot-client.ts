@@ -12,6 +12,7 @@ import type {
   WorkspaceScopePayload,
 } from "./types";
 import { createHostWebSocket } from "./runtime";
+import type { EditorContext } from "./editor-context";
 
 /** WebSocket readyState constants, referenced by value to stay portable
  * across runtimes that don't expose a global ``WebSocket`` (tests, SSR). */
@@ -993,6 +994,7 @@ export class NanobotClient {
       mcpPresets?: OutboundMcpPresetMention[];
       sessionMentions?: SessionMention[];
       quotedContext?: string;
+      editorContext?: EditorContext;
       intent?: "create_automation";
       workspaceScope?: WorkspaceScopePayload | null;
       turnId?: string;
@@ -1013,6 +1015,7 @@ export class NanobotClient {
         ? { session_mentions: options.sessionMentions }
         : {}),
       ...(options?.quotedContext?.trim() ? { quoted_context: options.quotedContext.trim() } : {}),
+      ...(options?.editorContext ? { editor_context: options.editorContext } : {}),
       ...(options?.intent === "create_automation" ? { intent: options.intent } : {}),
       ...(options?.workspaceScope ? { workspace_scope: options.workspaceScope } : {}),
       ...(options?.turnId ? { turn_id: options.turnId } : {}),

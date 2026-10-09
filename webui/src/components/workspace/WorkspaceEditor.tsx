@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { MarkdownText } from "@/components/MarkdownText";
-import { MonacoEditor } from "@/components/workspace/MonacoEditor";
 import { ChangeReview } from "@/components/workspace/ChangeReview";
+import { MonacoEditor, type EditorSelection } from "@/components/workspace/MonacoEditor";
 import { WorkspaceTree } from "@/components/workspace/WorkspaceTree";
 import {
   isWorkspaceConflict,
@@ -15,10 +15,19 @@ import {
   type WebUIMutationTransport,
 } from "@/lib/api";
 import { useThemeValue } from "@/hooks/useTheme";
+import {
+  EDITOR_CONTEXT_SELECTION_MAX_CHARS,
+  isEditorContextShared,
+  publishEditorContext,
+  setEditorContextShared,
+} from "@/lib/editor-context";
 import { cn } from "@/lib/utils";
 
 /** How long the markdown preview waits after the last keystroke before re-rendering. */
 export const PREVIEW_DEBOUNCE_MS = 300;
+
+/** How often the editor asks the gateway for pending proposals, so a new one shows without a reload (ED-15). */
+export const CHANGES_POLL_MS = 4_000;
 
 interface Buffer {
   path: string;
@@ -38,6 +47,8 @@ interface WorkspaceEditorProps {
   client: WebUIMutationTransport;
   initialPath: string;
   base?: string;
+  /** Send a selection to the chat composer as a quote (ED-12). */
+  onAskAgent?: (quote: string) => void;
 }
 
 function languageOf(path: string): string {
@@ -70,7 +81,7 @@ function useDebounced<T>(value: T, delay: number, resetKey: string): T {
  * Saves carry the version the file was opened at; a save against a file changed on disk is refused
  * and the user chooses between reloading and keeping their own text.
  */
-export function WorkspaceEditor({ sessionKey, token, client, initialPath, base = "" }: WorkspaceEditorProps) {
+export function WorkspaceEditor({ sessionKey, token, client, initialPath, base = "", onAskAgent }: WorkspaceEditorProps) {
   const { t } = useTranslation();
   const dark = useThemeValue() === "dark";
   const [buffers, setBuffers] = useState<Buffer[]>([]);
@@ -79,6 +90,8 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
   const [previewOn, setPreviewOn] = useState(true);
   const [changes, setChanges] = useState<StagedChange[]>([]);
   const [reviewing, setReviewing] = useState<StagedChange | null>(null);
+  const [shareContext, setShareContext] = useState(isEditorContextShared);
+  const [selected, setSelected] = useState<{ path: string; selection: EditorSelection } | null>(null);
   const openedRef = useRef(new Set<string>());
   // Callbacks registered once (the editor's save command) read the latest buffers through this ref.
   const buffersRef = useRef(buffers);
@@ -89,6 +102,8 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
     [buffers, activePath],
   );
   const debouncedText = useDebounced(active?.text ?? "", PREVIEW_DEBOUNCE_MS, active?.path ?? "");
+  // A selection only applies to the file it was made in.
+  const selection = selected && active && selected.path === active.path ? selected.selection : null;
 
   const patch = useCallback((path: string, change: Partial<Buffer>) => {
     setBuffers((current) => current.map((b) => (b.path === path ? { ...b, ...change } : b)));
@@ -132,6 +147,31 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
   useEffect(() => {
     void refreshChanges();
   }, [refreshChanges]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void refreshChanges();
+    }, CHANGES_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [refreshChanges]);
+
+  // What the editor shows, for the next message in this session if the user has opted in (ED-14).
+  const activeFilePath = active?.path ?? null;
+  useEffect(() => {
+    if (!activeFilePath) {
+      publishEditorContext(sessionKey, null);
+      return;
+    }
+    publishEditorContext(sessionKey, selection
+      ? {
+        path: activeFilePath,
+        start_line: selection.startLine,
+        end_line: selection.endLine,
+        selection: selection.text.slice(0, EDITOR_CONTEXT_SELECTION_MAX_CHARS),
+      }
+      : { path: activeFilePath });
+  }, [sessionKey, activeFilePath, selection]);
+  useEffect(() => () => publishEditorContext(sessionKey, null), [sessionKey]);
 
   // The gateway needs the open tabs so an agent write to them is reviewed rather than made directly.
   const openPathsKey = buffers.map((b) => b.path).join("\n");
@@ -223,6 +263,12 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
     else patch(change.path, { conflict: true });
   };
 
+  const askAgent = (picked: EditorSelection) => {
+    if (!active || !onAskAgent) return;
+    const where = picked.startLine === picked.endLine ? `line ${picked.startLine}` : `lines ${picked.startLine}-${picked.endLine}`;
+    onAskAgent(`From ${active.path}, ${where}:\n${picked.text.slice(0, EDITOR_CONTEXT_SELECTION_MAX_CHARS)}`);
+  };
+
   const isMarkdown = active?.language === "markdown";
   const dirty = active ? active.text !== active.savedText : false;
 
@@ -256,6 +302,11 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
                     className="max-w-[160px] truncate" onClick={() => setActivePath(buffer.path)}>
                     {buffer.path.split("/").pop()}{isDirty ? " •" : ""}
                   </button>
+                  {changes.some((change) => change.path === buffer.path) ? (
+                    <span role="img" aria-label={t("workspace.proposedBadge", { defaultValue: "The agent proposed a change to this file" })}
+                      title={t("workspace.proposedBadge", { defaultValue: "The agent proposed a change to this file" })}
+                      className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  ) : null}
                   <button type="button" aria-label={`Close ${buffer.path}`} onClick={() => close(buffer.path)}>
                     ×
                   </button>
@@ -331,6 +382,9 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
                     dark={dark}
                     onChange={(text) => patch(active.path, { text })}
                     onSave={() => void save(active.path)}
+                    onSelectionChange={(next) => setSelected(next ? { path: active.path, selection: next } : null)}
+                    onAskAgent={askAgent}
+                    askAgentLabel={t("workspace.askAgent", { defaultValue: "Ask the agent about this" })}
                   />
                 </div>
                 {isMarkdown && previewOn ? (
@@ -350,6 +404,14 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
           <div className="flex items-center justify-between border-t border-border/50 px-3 py-1 text-[11px] text-muted-foreground">
             <span>{active?.path ?? ""}</span>
             <span>{dirty ? t("workspace.unsaved", { defaultValue: "Unsaved" }) : t("workspace.saved", { defaultValue: "Saved" })}</span>
+            <label className="flex items-center gap-1">
+              <input type="checkbox" checked={shareContext}
+                onChange={(event) => {
+                  setEditorContextShared(event.target.checked);
+                  setShareContext(event.target.checked);
+                }} />
+              {t("workspace.shareWithAgent", { defaultValue: "Share with agent" })}
+            </label>
             <span>{t("workspace.saveHint", { defaultValue: "Ctrl+S to save" })}</span>
           </div>
         </section>

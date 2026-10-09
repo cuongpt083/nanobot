@@ -1,4 +1,5 @@
 import type { ContextCompaction, NotificationEvent, RecoveryState, RetryStatus as WireRetryStatus } from "../../../packages/client-events/notifications";
+import type { EditorContext } from "./editor-context";
 export type { RecoveryState } from "../../../packages/client-events/notifications";
 
 type Role = "user" | "assistant" | "tool" | "system";
@@ -2010,6 +2011,7 @@ export type Outbound =
       mcp_presets?: OutboundMcpPresetMention[];
       session_mentions?: SessionMention[];
       quoted_context?: string;
+      editor_context?: EditorContext;
       intent?: "create_automation";
       workspace_scope?: WorkspaceScopePayload;
       turn_id?: string;

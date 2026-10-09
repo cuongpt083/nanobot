@@ -54,23 +54,48 @@ export function monacoLanguage(language: string): string {
   return mapped in LANGUAGE_MODULES ? mapped : "plaintext";
 }
 
+/** A non-empty selection, with 1-based line numbers. */
+export interface EditorSelection {
+  text: string;
+  startLine: number;
+  endLine: number;
+}
+
 interface MonacoEditorProps {
   value: string;
   language: string;
   dark: boolean;
   onChange: (text: string) => void;
   onSave: () => void;
+  /** Called when the selection changes; ``null`` when nothing is selected. */
+  onSelectionChange?: (selection: EditorSelection | null) => void;
+  /** Context-menu action that sends the selection to the agent (ED-12). */
+  onAskAgent?: (selection: EditorSelection) => void;
+  askAgentLabel?: string;
 }
 
-export function MonacoEditor({ value, language, dark, onChange, onSave }: MonacoEditorProps) {
+export function MonacoEditor({
+  value,
+  language,
+  dark,
+  onChange,
+  onSave,
+  onSelectionChange,
+  onAskAgent,
+  askAgentLabel = "Ask the agent about this",
+}: MonacoEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const monacoRef = useRef<MonacoModule | null>(null);
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
+  const onSelectionRef = useRef(onSelectionChange);
+  const onAskRef = useRef(onAskAgent);
   const [failed, setFailed] = useState(false);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
+  onSelectionRef.current = onSelectionChange;
+  onAskRef.current = onAskAgent;
 
   useEffect(() => {
     let disposed = false;
@@ -92,6 +117,25 @@ export function MonacoEditor({ value, language, dark, onChange, onSave }: Monaco
         });
         editor.onDidChangeModelContent(() => onChangeRef.current(editor?.getValue() ?? ""));
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => onSaveRef.current());
+        const readSelection = (current: Pick<Editor, "getSelection" | "getModel">): EditorSelection | null => {
+          const selection = current.getSelection();
+          const model = current.getModel();
+          if (!selection || !model || selection.isEmpty()) return null;
+          const text = model.getValueInRange(selection);
+          return text.trim() ? { text, startLine: selection.startLineNumber, endLine: selection.endLineNumber } : null;
+        };
+        const instance = editor;
+        instance.onDidChangeCursorSelection(() => onSelectionRef.current?.(readSelection(instance)));
+        editor.addAction({
+          id: "nanobot.askAgent",
+          label: askAgentLabel,
+          contextMenuGroupId: "navigation",
+          precondition: "editorHasSelection",
+          run: (current) => {
+            const selected = readSelection(current);
+            if (selected) onAskRef.current?.(selected);
+          },
+        });
         editorRef.current = editor;
       })
       .catch(() => {

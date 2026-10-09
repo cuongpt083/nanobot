@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { FilePreviewAvailabilityProvider } from "@/components/FilePreviewAvailabilityContext";
 import { FilePreviewPanel } from "@/components/FilePreviewPanel";
+import { readSharedEditorContext } from "@/lib/editor-context";
 import { PreviewPane } from "@/components/PreviewPane";
 import { FileActionsProvider } from "@/components/FileActions";
 import { WebPreviewContext } from "@/components/WebLink";
@@ -919,6 +920,7 @@ export function ThreadShell({
     setQuotedContext(text);
     setComposerFocusSignal((value) => value + 1);
   }, [setQuotedContext]);
+  const getEditorContext = useCallback(() => readSharedEditorContext(previewSessionKey), [previewSessionKey]);
 
   useEffect(() => {
     return () => {
@@ -1798,6 +1800,7 @@ export function ThreadShell({
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
           ingressLimits={ingressLimits}
           quotedContext={quotedContext}
+          getEditorContext={getEditorContext}
           focusRequest={composerFocusSignal}
           onQuotedContextChange={setQuotedContext}
         />
@@ -1851,6 +1854,7 @@ export function ThreadShell({
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
           ingressLimits={ingressLimits}
           quotedContext={quotedContext}
+          getEditorContext={getEditorContext}
           onQuotedContextChange={setQuotedContext}
         />
       )}
@@ -2011,6 +2015,7 @@ export function ThreadShell({
               path={activePreview.value}
               token={token}
               client={client}
+              onAskAgent={handleQuoteSelection}
               loadPreview={filePreviews.load}
               initialPreview={filePreviews.peek(activePreview.value)}
             />

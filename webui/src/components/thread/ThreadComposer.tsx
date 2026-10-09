@@ -92,6 +92,7 @@ import { useComposerMentionInput } from "@/hooks/useComposerMentionInput";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import type { SendAttachment, SendOptions } from "@/hooks/useNanobotStream";
+import type { EditorContext } from "@/lib/editor-context";
 import { useVoiceRecorder, type VoiceRecorderErrorKey } from "@/hooks/useVoiceRecorder";
 import type {
   CliAppInfo,
@@ -243,6 +244,8 @@ interface ThreadComposerProps {
   transcriptionProvider?: string | null;
   ingressLimits?: WebUIIngressLimits | null;
   quotedContext?: string | null;
+  /** Read at send time: the editor file the user opted to share with this session, if any. */
+  getEditorContext?: () => EditorContext | null;
   focusRequest?: number;
   onQuotedContextChange?: (text: string | null) => void;
 }
@@ -949,6 +952,7 @@ export function ThreadComposer({
   transcriptionProvider = null,
   ingressLimits = null,
   quotedContext = null,
+  getEditorContext,
   focusRequest = 0,
   onQuotedContextChange,
 }: ThreadComposerProps) {
@@ -2047,11 +2051,13 @@ export function ThreadComposer({
         : undefined;
     const attachedCliApps = activeCliMentionApps.map(cliAppMentionPayload);
     const attachedMcpPresets = activeMcpPresetMentions.map(mcpPresetMentionPayload);
+    const editorContext = getEditorContext?.() ?? null;
     const options: SendOptions | undefined =
       attachedCliApps.length > 0
       || attachedMcpPresets.length > 0
       || activeSessionMentions.length > 0
       || normalizedQuotedContext
+      || editorContext
         ? {
             ...(attachedCliApps.length > 0 ? { cliApps: attachedCliApps } : {}),
             ...(attachedMcpPresets.length > 0 ? { mcpPresets: attachedMcpPresets } : {}),
@@ -2059,6 +2065,7 @@ export function ThreadComposer({
               ? { sessionMentions: activeSessionMentions }
               : {}),
             ...(normalizedQuotedContext ? { quotedContext: normalizedQuotedContext } : {}),
+            ...(editorContext ? { editorContext } : {}),
           }
         : undefined;
     const hasPlainTextCommandPayload =

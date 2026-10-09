@@ -22,6 +22,7 @@ import type {
   UIMessageTurnFields,
 } from "@/lib/thread-event-projection";
 import { formatQuotedUserMessage } from "@/lib/user-message-quote";
+import type { EditorContext } from "@/lib/editor-context";
 import { readLocalPreferences } from "@/lib/local-preferences";
 import { playTurnCompleteSound } from "@/lib/notification-sound";
 import type {
@@ -70,6 +71,8 @@ export interface SendOptions {
   mcpPresets?: OutboundMcpPresetMention[];
   sessionMentions?: SessionMention[];
   quotedContext?: string;
+  /** The editor file and selection the user opted to share with this message. */
+  editorContext?: EditorContext;
   workspaceScope?: WorkspaceScopePayload | null;
   sideChannel?: boolean;
   finalizeActiveTurn?: boolean;

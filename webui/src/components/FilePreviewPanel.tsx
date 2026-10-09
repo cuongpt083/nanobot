@@ -19,6 +19,8 @@ interface FilePreviewPanelProps {
   token: string;
   /** Mutation transport; when present, text files can be opened in the editor. */
   client?: WebUIMutationTransport;
+  /** Send a selection from the editor to the chat composer as a quote (ED-12). */
+  onAskAgent?: (quote: string) => void;
   loadPreview?: (path: string) => Promise<FilePreviewPayload>;
   initialPreview?: FilePreviewPayload;
 }
@@ -33,11 +35,13 @@ export function FilePreviewPanel({
   path,
   token,
   client,
+  onAskAgent,
   loadPreview,
   initialPreview,
 }: FilePreviewPanelProps) {
   const { t } = useTranslation();
-  const [editing, setEditing] = useState(false);
+  // Text files open in the editor (ED-13); the user can switch back to the read-only preview.
+  const [editMode, setEditMode] = useState<"edit" | "preview">("edit");
   const [state, setState] = useState<PreviewState>(() => initialPreview
     ? { status: "ready", payload: initialPreview } : { status: "loading" });
   const [imageOpen, setImageOpen] = useState(false);
@@ -69,6 +73,7 @@ export function FilePreviewPanel({
     };
   }, [path, sessionKey, loadPreview]);
 
+  const editing = Boolean(client) && state.status === "ready" && state.payload.kind === "text" && editMode === "edit";
   const displayPath = state.status === "ready" ? state.payload.display_path : path;
   const { name } = splitFilePath(displayPath);
   const fileName = name || displayPath;
@@ -86,7 +91,7 @@ export function FilePreviewPanel({
     <section aria-label={t("filePreview.aria")} data-testid="file-preview-panel" className="flex min-h-0 flex-1 flex-col">
           {client && state.status === "ready" && state.payload.kind === "text" ? (
             <div className="flex justify-end border-b border-border/50 px-2 py-1">
-              <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setEditing((value) => !value)}>
+              <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setEditMode((mode) => (mode === "edit" ? "preview" : "edit"))}>
                 {editing
                   ? t("filePreview.backToPreview", { defaultValue: "Back to preview" })
                   : t("filePreview.edit", { defaultValue: "Edit" })}
@@ -100,6 +105,7 @@ export function FilePreviewPanel({
                 token={token}
                 client={client}
                 initialPath={state.status === "ready" ? state.payload.display_path : path}
+                onAskAgent={onAskAgent}
               />
             </Suspense>
           ) : (
