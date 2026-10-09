@@ -135,6 +135,14 @@ from nanobot.webui.transcript import (
     build_webui_trace_detail_response,
     webui_transcript_revision,
 )
+from nanobot.webui.workspace_files import (
+    WorkspaceFileError,
+    delete_file,
+    list_dir,
+    read_file,
+    rename_file,
+    write_file,
+)
 from nanobot.webui.workspaces import WebUIWorkspaceController
 
 _SLOW_WEBUI_HTTP_LOG_MS = 1_000
@@ -143,6 +151,7 @@ _WEBUI_MUTATION_REQUEST_ATTR = "_nanobot_webui_mutation_request"
 # Per-session coworker sections; must equal the keys of ``coworker.session_api.SECTIONS`` (tested).
 _COWORKER_SECTIONS = "advisor|keepalive|context|persona|coding"
 _COWORKER_SESSION_ACTIONS = tuple(f"session.coworker.{s}" for s in _COWORKER_SECTIONS.split("|"))
+_WORKSPACE_WRITE_ACTIONS = ("session.workspace.write", "session.workspace.rename", "session.workspace.delete")
 _NO_STORE_HEADERS = [("Cache-Control", "no-store")]
 
 
@@ -521,6 +530,8 @@ class GatewayHTTPHandler:
             return True
         if re.match(rf"^/api/sessions/[^/]+/(delete|coworker/({_COWORKER_SECTIONS}))$", path):
             return True
+        if re.match(r"^/api/sessions/[^/]+/workspace/(write|rename|delete)$", path):
+            return True
         if re.match(r"^/api/webui/automations/(enable|disable|delete|run|update)$", path):
             return True
         if path in {"/api/webui/recovery/continue", "/api/webui/recovery/dismiss"}:
@@ -559,6 +570,12 @@ class GatewayHTTPHandler:
                 return _http_error(400, "missing session key")
             sec = action.split(".")[-1]
             return f"/api/sessions/{quote(key, safe='')}/coworker/{sec}"
+        if action in _WORKSPACE_WRITE_ACTIONS:
+            key = payload.get("key")
+            if not isinstance(key, str) or not key.strip():
+                return _http_error(400, "missing session key")
+            op = action.split(".")[-1]
+            return f"/api/sessions/{quote(key, safe='')}/workspace/{op}"
         connect_action = _WEBUI_CHANNEL_CONNECT_ACTIONS.get(action)
         if connect_action is not None:
             channel = payload.get("channel")
@@ -815,6 +832,14 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/sessions/([^/]+)/file-preview$", got)
         if m:
             return self._handle_file_preview(request, m.group(1))
+
+        m = re.match(r"^/api/sessions/([^/]+)/workspace/(list|read)$", got)
+        if m:
+            return self._handle_workspace_read(request, m.group(1), m.group(2))
+
+        m = re.match(r"^/api/sessions/([^/]+)/workspace/(write|rename|delete)$", got)
+        if m:
+            return self._handle_workspace_mutation(request, m.group(1), m.group(2))
 
         m = re.match(r"^/api/sessions/([^/]+)/automations$", got)
         if m:
@@ -1248,6 +1273,58 @@ class GatewayHTTPHandler:
             accept_encoding=_combined_list_header(request.headers, "Accept-Encoding"),
             extra_headers=_NO_STORE_HEADERS,
         )
+
+    def _workspace_error(self, error: WorkspaceFileError) -> Response:
+        return _http_json_response(
+            {"error": error.message, **error.details},
+            status=error.status,
+            extra_headers=_NO_STORE_HEADERS,
+        )
+
+    def _handle_workspace_read(self, request: WsRequest, key: str, op: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        decoded_key = _decode_api_key(key)
+        if decoded_key is None:
+            return _http_error(400, "invalid session key")
+        if not _is_websocket_channel_session_key(decoded_key):
+            return _http_error(404, "session not found")
+        path = _query_first(_parse_query(request.path), "path")
+        try:
+            scope = self.workspaces.scope_for_session_key(decoded_key)
+            payload = list_dir(path, scope=scope) if op == "list" else read_file(path, scope=scope)
+        except WorkspaceFileError as e:
+            return self._workspace_error(e)
+        return _http_json_response(payload, extra_headers=_NO_STORE_HEADERS)
+
+    def _handle_workspace_mutation(self, request: WsRequest, key: str, op: str) -> Response:
+        # Writes need the authenticated WebSocket, like every other WebUI mutation.
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if not getattr(request, _WEBUI_MUTATION_REQUEST_ATTR, False):
+            return _http_error(405, "WebUI mutations require an authenticated WebSocket")
+        decoded_key = _decode_api_key(key)
+        if decoded_key is None:
+            return _http_error(400, "invalid session key")
+        if not _is_websocket_channel_session_key(decoded_key):
+            return _http_error(404, "session not found")
+        payload = _mutation_payload(request) or {}
+        try:
+            scope = self.workspaces.scope_for_session_key(decoded_key)
+            if op == "write":
+                result = write_file(
+                    payload.get("path"),
+                    payload.get("content"),
+                    base_version=payload.get("base_version"),
+                    scope=scope,
+                )
+            elif op == "rename":
+                result = rename_file(payload.get("path"), payload.get("name"), scope=scope)
+            else:
+                result = delete_file(payload.get("path"), base_version=payload.get("base_version"), scope=scope)
+        except WorkspaceFileError as e:
+            return self._workspace_error(e)
+        return _http_json_response(result, extra_headers=_NO_STORE_HEADERS)
 
     def _handle_file_preview(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):
