@@ -1129,6 +1129,15 @@ export function ThreadShell({
     },
     [workspaceScope],
   );
+  // An image edit request goes to the chat like any message; the annotation file is already saved (Phase 9).
+  const sendImageEdit = useCallback((content: string) => {
+    if (!chatId) return;
+    const submitted = send(content, [], withWorkspaceScope());
+    if (submitted && !submitted.sideChannel) {
+      activeViewportTurnByChatIdRef.current.set(chatId, submitted.turnId);
+      setSubmittedViewportTurnId(submitted.turnId);
+    }
+  }, [chatId, send, withWorkspaceScope]);
 
   const refreshModelSettings = useCallback(async () => {
     try {
@@ -2016,6 +2025,7 @@ export function ThreadShell({
               token={token}
               client={client}
               onAskAgent={handleQuoteSelection}
+              onSendImageEdit={sendImageEdit}
               loadPreview={filePreviews.load}
               initialPreview={filePreviews.peek(activePreview.value)}
             />

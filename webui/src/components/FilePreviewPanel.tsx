@@ -12,6 +12,10 @@ import type { FilePreviewPayload } from "@/lib/types";
 const LazyWorkspaceEditor = lazy(() =>
   import("@/components/workspace/WorkspaceEditor").then((module) => ({ default: module.WorkspaceEditor })),
 );
+// Konva loads only when an image is opened for annotation (Phase 9).
+const LazyImageReviewPane = lazy(() =>
+  import("@/components/image/ImageReviewPane").then((module) => ({ default: module.ImageReviewPane })),
+);
 
 interface FilePreviewPanelProps {
   sessionKey: string;
@@ -21,6 +25,8 @@ interface FilePreviewPanelProps {
   client?: WebUIMutationTransport;
   /** Send a selection from the editor to the chat composer as a quote (ED-12). */
   onAskAgent?: (quote: string) => void;
+  /** Sends an image edit request to the chat (Phase 9). When absent, images are only viewed. */
+  onSendImageEdit?: (content: string) => void;
   loadPreview?: (path: string) => Promise<FilePreviewPayload>;
   initialPreview?: FilePreviewPayload;
 }
@@ -36,12 +42,15 @@ export function FilePreviewPanel({
   token,
   client,
   onAskAgent,
+  onSendImageEdit,
   loadPreview,
   initialPreview,
 }: FilePreviewPanelProps) {
   const { t } = useTranslation();
   // Text files open in the editor (ED-13); the user can switch back to the read-only preview.
   const [editMode, setEditMode] = useState<"edit" | "preview">("edit");
+  // Images open for annotation when an edit request can be sent; otherwise they are only viewed.
+  const [imageMode, setImageMode] = useState<"annotate" | "view">("annotate");
   const [state, setState] = useState<PreviewState>(() => initialPreview
     ? { status: "ready", payload: initialPreview } : { status: "loading" });
   const [imageOpen, setImageOpen] = useState(false);
@@ -74,6 +83,8 @@ export function FilePreviewPanel({
   }, [path, sessionKey, loadPreview]);
 
   const editing = Boolean(client) && state.status === "ready" && state.payload.kind === "text" && editMode === "edit";
+  const annotating = Boolean(client && onSendImageEdit) && state.status === "ready"
+    && state.payload.kind === "image" && imageMode === "annotate";
   const displayPath = state.status === "ready" ? state.payload.display_path : path;
   const { name } = splitFilePath(displayPath);
   const fileName = name || displayPath;
@@ -98,7 +109,28 @@ export function FilePreviewPanel({
               </button>
             </div>
           ) : null}
-          {editing && client ? (
+          {client && onSendImageEdit && state.status === "ready" && state.payload.kind === "image" ? (
+            <div className="flex justify-end border-b border-border/50 px-2 py-1">
+              <button type="button" className="text-xs text-muted-foreground underline"
+                onClick={() => setImageMode((mode) => (mode === "annotate" ? "view" : "annotate"))}>
+                {annotating
+                  ? t("filePreview.viewImage", { defaultValue: "View only" })
+                  : t("filePreview.annotate", { defaultValue: "Mark up and ask for edits" })}
+              </button>
+            </div>
+          ) : null}
+          {annotating && client && onSendImageEdit && state.status === "ready" && state.payload.kind === "image" ? (
+            <Suspense fallback={<div role="status" className="p-4 text-sm text-muted-foreground">{t("image.review.loading", { defaultValue: "Loading image..." })}</div>}>
+              <LazyImageReviewPane
+                sessionKey={sessionKey}
+                token={token}
+                client={client}
+                path={state.payload.display_path}
+                src={state.payload.data_url}
+                onSend={onSendImageEdit}
+              />
+            </Suspense>
+          ) : editing && client ? (
             <Suspense fallback={<div role="status" className="p-4 text-sm text-muted-foreground">{t("workspace.loading", { defaultValue: "Loading editor..." })}</div>}>
               <LazyWorkspaceEditor
                 sessionKey={sessionKey}
