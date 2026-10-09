@@ -18,7 +18,7 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | 0 | Baseline WebView2 + eval | 1–1,5 ngày | một phần (chờ số đo & eval run) | Có số đo ổn định, 2 lần chạy |
 | 0.5 | Gỡ Pi room guest (Lựa chọn A) + dọn tàn dư agy | 1–1,5 ngày | xong (`abff70c8`) | Toàn bộ room guest chạy AgentRuntime; tests room xanh, 156 coding tests pass |
 | 1 | F3 brief / envelope | 2–3 ngày | chưa | Token guest −40% vs `full`; envelope hợp lệ ≥ 90% |
-| 2 | Mermaid P2a (ELK, pan/zoom, viewport) | 2–3 ngày | chưa (UI #1; spike 2.0 đã có kết luận) | Sequence 15 participant đọc được; Ctrl+cuộn zoom sơ đồ |
+| 2 | Mermaid P2a (ELK, pan/zoom, viewport) | 2–3 ngày | đã code và test (nhánh `feat/desktop-roadmap-p2-mermaid`); chưa kiểm chứng trên trình duyệt | Sequence 15 participant đọc được; Ctrl+cuộn zoom sơ đồ |
 | 3 | F2 FTS5 (chưa tóm tắt) | 2–3 ngày | chưa | Recall@5 ≥ 0,8; p95 < 200 ms |
 | 4 | F1 draft (CLI `/skills review`) | 2,5–3,5 ngày | chưa | Nháp hợp lệ; không tự active |
 | 5 | F2 summarize + UI duyệt skill | 2–3 ngày | chưa | Tóm tắt cache; duyệt nháp trên WebUI/Desktop |
@@ -340,39 +340,51 @@ chỉ như phụ thuộc gián tiếp của Streamdown (`^11.12.2`). Chưa cài 
 
 - [x] Xác nhận Streamdown có prop mermaid hay phải override: **chọn Hướng A**, bắt `language === "mermaid"` trong `components.code` của `MarkdownTextRenderer` và render `MermaidPane` lazy.
 - [x] Không fork Streamdown: dùng `MermaidPane` tự viết.
-- [ ] Thêm `mermaid` làm phụ thuộc trực tiếp và ghim phiên (hiện 11.16.0) trong `webui/package.json`; ghi phiên vào note.
-- [ ] Kiểm chứng ELK: `@mermaid-js/layout-elk` (và `elkjs`) tương thích với `mermaid` 11.16; đo kích thước chunk. Nếu không đạt, giữ layout mặc định và bỏ ELK khỏi cổng Phase 2.
+- [x] Thêm `mermaid` làm phụ thuộc trực tiếp và ghim chính xác `11.16.0` (cùng bản mà Streamdown đang dùng; không có bản trùng).
+- [x] Kiểm chứng ELK: **dùng `@mermaid-js/layout-elk@0.2.3`**, peer `mermaid ^11.0.2`, phụ thuộc `elkjs`. Bản `1.x` yêu cầu `mermaid ^12` nên **không dùng được** với Streamdown (ghim `^11`). Đăng ký qua `mermaid.registerLayoutLoaders(elk.default)`.
+- [x] Thêm `@panzoom/panzoom@4.6.2` (không có phụ thuộc). Đo chunk: xem mục "Kết quả Phase 2" bên dưới.
 
 ### 2.1 – Wrapper
 
-- [ ] Component `MermaidPane` (lazy): Mermaid + ELK mặc định cho flowchart và loại hỗ trợ; diagram tự khai báo layout thì giữ.
-- [ ] Tắt `useMaxWidth` cho sequence/flowchart; sequence: `wrap: true`, `mirrorActors: false`.
-- [ ] `@panzoom/panzoom`: **Ctrl+cuộn / pinch** zoom; kéo pan; nhấp đúp reset. Cuộn thường = cuộn trang. Không bind wheel thường.
-- [ ] Thanh công cụ: zoom ±, fit width/height, fullscreen overlay, tải SVG/PNG, copy source.
-- [ ] Lỗi cú pháp: báo kèm dòng, giữ bản render hợp lệ gần nhất.
-- [ ] Intersection Observer: không layout khi ra ngoài viewport.
-- [ ] Debounce; chỉ `mermaid.render` khi khối hoàn chỉnh (nếu 0.3 xác nhận Streamdown đang parse dở).
+- [x] Component `MermaidPane` (lazy): `webui/src/components/mermaid/MermaidPane.tsx`; mermaid và ELK được import động qua `mermaid-loader.ts`. Ghi đè tuỳ diagram (frontmatter `layout`) vẫn đúng vì mermaid đọc frontmatter sau cấu hình chung.
+- [x] `useMaxWidth` tắt cho flowchart và sequence; sequence `wrap: true`, `mirrorActors: false` (`mermaid-config.ts`).
+- [x] Ctrl+cuộn zoom (`zoomWithWheel`, chỉ khi `ctrlKey`), chụm và kéo pan qua Panzoom; nhấp đúp reset. Cuộn thường không bị chặn. Không dùng bind wheel mặc định của Panzoom (v4 không gắn wheel).
+- [x] Thanh công cụ: zoom ±, fit (reset), toàn màn hình (Esc để thoát), tải SVG, tải PNG, copy source. **Chưa có** "fit width/height" riêng: chỉ có reset về 100%.
+- [x] Lỗi cú pháp: báo dòng khi mermaid có nêu; giữ SVG hợp lệ gần nhất trên màn hình.
+- [x] Không layout khi ngoài viewport (IntersectionObserver, rootMargin 200px).
+- [x] Debounce 150 ms; khối đang stream chỉ hiện mã nguồn, không render (`streaming` từ `MarkdownTextRenderer`).
 
 ### 2.2 – Gắn vào chat
 
-- [ ] `MarkdownTextRenderer` / Streamdown: override mermaid → `MermaidPane`. Không fork Streamdown.
-- [ ] Theme dark/light theo app.
-- [ ] Lazy: không kéo Mermaid/ELK vào bundle lần mở app đầu (đã có manual chunk mermaid trong vite — kiểm tra còn đúng).
+- [x] `MarkdownTextRenderer`: khối `mermaid` được chặn ở override `pre` (trước `isRenderedCodeBlock`, vì một diagram trong `<pre>` là HTML không hợp lệ) và ở `code`. Không fork Streamdown.
+- [x] Theme dark/light theo `useThemeValue()` (`mermaid.initialize` mỗi lần render).
+- [x] Lazy: đã đo, xem bên dưới. Đã **bỏ** quy tắc gộp `markdown-diagrams` cho mermaid vì nó gom mọi loại diagram thành một file 8 MB.
 
 ### Test
 
-- Unit: config mermaid (ELK, useMaxWidth off).
-- Component: Ctrl+wheel không scroll parent; wheel thường scroll parent.
-- Fixture sequence 15 participant: SVG width > container, chữ không scale theo maxWidth.
-- Playwright (nếu CI cho phép): render 1 diagram + toolbar.
+- [x] Unit: config mermaid (ELK, useMaxWidth off, strict, theme) — `mermaid-config.test.ts`.
+- [x] Component: Ctrl+wheel zoom, wheel thường không bị chặn; render khi đang stream bị hoãn; lỗi giữ SVG cũ và báo dòng; toolbar — `mermaid-pane.test.tsx` (mock mermaid và panzoom).
+- [x] Định tuyến: fence `mermaid` tới `MermaidPane`, ngôn ngữ khác không đổi — `markdown-mermaid-routing.test.tsx`.
+- [ ] Fixture sequence 15 participant: SVG width > container, chữ không scale. **Chưa làm** (cần trình duyệt thật; happy-dom không có layout).
+- [ ] Playwright: render một diagram và toolbar. **Chưa làm.**
+- [x] Hồi quy: `markdown-text-renderer`, `advisor-consult-row`, `coworker-message-card` vẫn xanh.
 - Hồi quy: thẻ advisor (`AdvisorConsultRow`) và `CoworkerMessageCard` dùng `MarkdownText`; giữ xanh `markdown-text-renderer.test.tsx`, `advisor-consult-row.test.tsx`, `coworker-message-card.test.tsx`. Hiện chưa có test nào render sơ đồ (chỉ có quy tắc chunk trong `vite-config.test.ts`).
 
 ### Cổng
 
-- Sequence 15 participant đọc được chữ ở 100% zoom trang.
-- Ctrl+cuộn zoom sơ đồ; cuộn thường cuộn trang.
-- Lỗi cú pháp không xóa bản render tốt trước đó.
-- `time_to_chrome` không tệ hơn baseline ngoài sai số (Mermaid lazy).
+- [ ] Sequence 15 participant đọc được chữ ở 100% zoom trang. **Chưa kiểm chứng** (không có trình duyệt).
+- [ ] Ctrl+cuộn zoom sơ đồ; cuộn thường cuộn trang. Có test đơn vị; **chưa kiểm chứng** trên Desktop.
+- [x] Lỗi cú pháp không xóa bản render tốt trước đó (test đơn vị).
+- [ ] `time_to_chrome` không tệ hơn baseline. **Bỏ qua theo quyết định của bạn** (baseline hiệu năng chưa đo). Lưu ý: shell không đổi kích thước, xem bên dưới.
+
+### Kết quả Phase 2 (đo ngày 09/10/2026)
+
+- **Shell** (`index-*.js`): 528 KB trước và sau (không đổi).
+- **`MarkdownTextRenderer`** (tải cùng luồng chat): 5 KB → 12 KB gzip (MermaidPane và Panzoom).
+- **Mermaid khi có diagram đầu tiên**: core khoảng 131 KB gzip, ELK (`render`) khoảng 602 KB gzip, cộng chunk của loại diagram và cytoscape nếu cần. Chỉ tải khi trang có diagram.
+- Tổng JS (toàn bộ chunk lazy) tăng từ 4,2 MB lên 12,2 MB raw; không phải tất cả đều được tải.
+- Build WebUI thành công; `tsc` sạch; lint sạch cho các file đã đổi.
+- Bộ test WebUI: 2207 pass, 11 fail. Cả 11 đều **có sẵn trên `develop`** (i18n `zh-CN` và service worker), không liên quan Phase 2.
 
 Chưa làm PV-05 cửa sổ riêng, PV-06 sticky header sequence (G4 / Phase 9+).
 
