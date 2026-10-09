@@ -1438,3 +1438,103 @@ export function starPromptAction(
 ): Promise<{ show: boolean }> {
   return mutation<{ show: boolean }>(transport, `star_prompt.${action}`);
 }
+
+export interface WorkspaceDirEntry {
+  name: string;
+  kind: "dir" | "file";
+  size: number | null;
+}
+
+export interface WorkspaceListing {
+  /** Project-relative folder; "" for the project root. */
+  path: string;
+  entries: WorkspaceDirEntry[];
+  truncated: boolean;
+}
+
+export interface WorkspaceFile {
+  path: string;
+  content: string;
+  /** Content version the editor must send back when saving (sha256 prefix). */
+  version: string;
+  size: number;
+}
+
+export interface WorkspaceSaved {
+  path: string;
+  version: string;
+  size: number;
+}
+
+/** The file changed on disk since it was opened; the server refused to overwrite it. */
+export function isWorkspaceConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 409;
+}
+
+export async function listWorkspaceDir(
+  token: string,
+  key: string,
+  path: string = "",
+  base: string = "",
+): Promise<WorkspaceListing> {
+  const query = new URLSearchParams();
+  if (path) query.set("path", path);
+  return request<WorkspaceListing>(
+    `${base}/api/sessions/${encodeURIComponent(key)}/workspace/list?${query}`,
+    token,
+    { cache: "no-store" },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function readWorkspaceFile(
+  token: string,
+  key: string,
+  path: string,
+  base: string = "",
+): Promise<WorkspaceFile> {
+  const query = new URLSearchParams();
+  query.set("path", path);
+  return request<WorkspaceFile>(
+    `${base}/api/sessions/${encodeURIComponent(key)}/workspace/read?${query}`,
+    token,
+    { cache: "no-store" },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/** Save over a file the editor loaded at ``baseVersion``; ``null`` creates a new file. */
+export async function saveWorkspaceFile(
+  transport: WebUIMutationTransport,
+  key: string,
+  file: { path: string; content: string; baseVersion: string | null },
+): Promise<WorkspaceSaved> {
+  return mutation<WorkspaceSaved>(transport, "session.workspace.write", {
+    key,
+    path: file.path,
+    content: file.content,
+    base_version: file.baseVersion,
+  });
+}
+
+export async function renameWorkspaceFile(
+  transport: WebUIMutationTransport,
+  key: string,
+  path: string,
+  name: string,
+): Promise<{ path: string }> {
+  return mutation<{ path: string }>(transport, "session.workspace.rename", { key, path, name });
+}
+
+export async function deleteWorkspaceFile(
+  transport: WebUIMutationTransport,
+  key: string,
+  path: string,
+  baseVersion: string | null,
+): Promise<{ path: string; deleted: boolean }> {
+  return mutation<{ path: string; deleted: boolean }>(transport, "session.workspace.delete", {
+    key,
+    path,
+    base_version: baseVersion,
+  });
+}

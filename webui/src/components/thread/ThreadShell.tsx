@@ -2010,6 +2010,7 @@ export function ThreadShell({
               sessionKey={previewSessionKey}
               path={activePreview.value}
               token={token}
+              client={client}
               loadPreview={filePreviews.load}
               initialPreview={filePreviews.peek(activePreview.value)}
             />

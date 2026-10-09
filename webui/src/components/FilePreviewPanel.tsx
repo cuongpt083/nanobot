@@ -1,17 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CodeBlock } from "@/components/CodeBlock";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { fileKindForPath, splitFilePath } from "@/components/FileReferenceChip";
-import { ApiError, fetchFilePreview } from "@/lib/api";
+import { ApiError, fetchFilePreview, type WebUIMutationTransport } from "@/lib/api";
 import type { FilePreviewPayload } from "@/lib/types";
+
+// Monaco and the editor load only when someone opens the editor.
+const LazyWorkspaceEditor = lazy(() =>
+  import("@/components/workspace/WorkspaceEditor").then((module) => ({ default: module.WorkspaceEditor })),
+);
 
 interface FilePreviewPanelProps {
   sessionKey: string;
   path: string;
   token: string;
+  /** Mutation transport; when present, text files can be opened in the editor. */
+  client?: WebUIMutationTransport;
   loadPreview?: (path: string) => Promise<FilePreviewPayload>;
   initialPreview?: FilePreviewPayload;
 }
@@ -25,10 +32,12 @@ export function FilePreviewPanel({
   sessionKey,
   path,
   token,
+  client,
   loadPreview,
   initialPreview,
 }: FilePreviewPanelProps) {
   const { t } = useTranslation();
+  const [editing, setEditing] = useState(false);
   const [state, setState] = useState<PreviewState>(() => initialPreview
     ? { status: "ready", payload: initialPreview } : { status: "loading" });
   const [imageOpen, setImageOpen] = useState(false);
@@ -75,6 +84,25 @@ export function FilePreviewPanel({
 
   return (
     <section aria-label={t("filePreview.aria")} data-testid="file-preview-panel" className="flex min-h-0 flex-1 flex-col">
+          {client && state.status === "ready" && state.payload.kind === "text" ? (
+            <div className="flex justify-end border-b border-border/50 px-2 py-1">
+              <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setEditing((value) => !value)}>
+                {editing
+                  ? t("filePreview.backToPreview", { defaultValue: "Back to preview" })
+                  : t("filePreview.edit", { defaultValue: "Edit" })}
+              </button>
+            </div>
+          ) : null}
+          {editing && client ? (
+            <Suspense fallback={<div role="status" className="p-4 text-sm text-muted-foreground">{t("workspace.loading", { defaultValue: "Loading editor..." })}</div>}>
+              <LazyWorkspaceEditor
+                sessionKey={sessionKey}
+                token={token}
+                client={client}
+                initialPath={state.status === "ready" ? state.payload.display_path : path}
+              />
+            </Suspense>
+          ) : (
           <div data-file-preview-scroll tabIndex={0}
             className="min-h-0 flex-1 overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60">
             {state.status === "loading" ? (
@@ -133,6 +161,7 @@ export function FilePreviewPanel({
               </div>
             )}
           </div>
+          )}
     </section>
   );
 }
