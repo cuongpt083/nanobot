@@ -297,7 +297,7 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
   };
 
   const removeSelected = () => {
-    if (selected === null) return;
+    if (selected === null || lockedIds.has(selected)) return;
     apply((current) => removeRegion(current, selected));
     setSelected(null);
   };
@@ -405,7 +405,7 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
     const color = colorOf(region);
     const isSelected = selected === region.id;
     const onSelect = () => setSelected(region.id);
-    const draggable = editing;
+    const draggable = editing && !lockedIds.has(region.id);
     const common = {
       onClick: onSelect,
       onTap: onSelect,
@@ -471,7 +471,8 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
 
   /** Corner handles for the selected rectangle or ellipse: drag one to resize, the opposite corner stays. */
   const renderHandles = (region: Region) => {
-    if (!editing || selected !== region.id || !region.box || region.shape === "brush" || region.shape === "pin") {
+    if (!editing || lockedIds.has(region.id) || selected !== region.id || !region.box
+      || region.shape === "brush" || region.shape === "pin") {
       return null;
     }
     const corners = boxCorners(region.box);
@@ -547,7 +548,7 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
           className="rounded px-2 py-1 text-muted-foreground">
           {t("image.review.fit", { defaultValue: "Fit" })}
         </button>
-        <button type="button" disabled={selected === null} onClick={removeSelected}
+        <button type="button" disabled={selected === null || lockedIds.has(selected)} onClick={removeSelected}
           className="rounded px-2 py-1 text-muted-foreground disabled:opacity-40">
           {t("image.review.deleteSelected", { defaultValue: "Delete region" })}
         </button>
@@ -672,6 +673,7 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
                   </span>
                 ) : null}
                 <button type="button" className="text-muted-foreground underline"
+                  disabled={lockedIds.has(region.id)}
                   onClick={() => apply((current) => removeRegion(current, region.id))}>
                   {t("image.review.remove", { defaultValue: "Remove" })}
                 </button>
@@ -683,7 +685,12 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
                 disabled={lockedIds.has(region.id)}
                 onBlur={() => commitNote(region.id)} />
               {reportById.get(region.id) ? (
-                <p className="mt-1 text-[11px] text-muted-foreground">{reportById.get(region.id)?.reason}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {reportById.get(region.id)?.reason}
+                  {lockedIds.has(region.id)
+                    ? ` · ${t("image.review.locked", { defaultValue: "Done: kept as it is" })}`
+                    : ""}
+                </p>
               ) : null}
             </div>
           ))}

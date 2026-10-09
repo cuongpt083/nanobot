@@ -132,7 +132,7 @@ describe("versions and the report (IM-12, IM-13)", () => {
 
     fireEvent.change(screen.getByRole("combobox", { name: "Version" }), { target: { value: VERSION } });
     expect(await screen.findByText("Done")).toBeInTheDocument();
-    expect(screen.getByText("logo swapped")).toBeInTheDocument();
+    expect(screen.getByText(/logo swapped/)).toBeInTheDocument();
     expect(api.listImageVersions).toHaveBeenCalledWith("t", "websocket:abc", "assets/banner.png");
   });
 
@@ -156,7 +156,7 @@ describe("resending only the regions not done (IM-14)", () => {
     await drawRectangle([100, 50], [300, 200]); // region 1
     await screen.findByRole("combobox", { name: "Version" });
     fireEvent.change(screen.getByRole("combobox", { name: "Version" }), { target: { value: VERSION } });
-    await screen.findByText("logo swapped");
+    await screen.findByText(/logo swapped/);
     fireEvent.click(screen.getByRole("button", { name: "Mark up" }));
     await drawRectangle([350, 60], [500, 160]); // region 2, added after the first round
 
@@ -167,6 +167,23 @@ describe("resending only the regions not done (IM-14)", () => {
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
     expect(onSend).toHaveBeenCalledWith(editRequestText("assets/banner.png", "assets/banner.annotations.json", [2]));
     expect(onSend.mock.calls[0][0]).toContain("Redo only regions 2");
+  });
+
+  it("keeps a done region's place: it cannot be removed, and it has no corner handles", async () => {
+    renderPane();
+    await drawRectangle([100, 50], [300, 200]); // region 1
+    await screen.findByRole("combobox", { name: "Version" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Version" }), { target: { value: VERSION } });
+    await screen.findByText(/logo swapped/);
+    fireEvent.click(screen.getByRole("button", { name: "Mark up" }));
+
+    // Select the region by its card, then try to delete it by every route.
+    fireEvent.click(screen.getByText("1 · rectangle"));
+    expect(screen.getByRole("button", { name: "Delete region" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByTestId("image-review-pane"), { key: "Delete" });
+    expect(screen.getByText("1 · rectangle")).toBeInTheDocument();
+    expect(screen.getByText(/Done: kept as it is/)).toBeInTheDocument();
   });
 
   it("does not offer a resend when every region is done", async () => {
