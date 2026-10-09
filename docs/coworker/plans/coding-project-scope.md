@@ -1,7 +1,7 @@
 # Implementation plan — Coding agent dùng thư mục dự án của phiên (+ chế độ `direct` cho thư mục không phải git)
 
 - Status: **draft, chưa triển khai** (chưa sửa code). Viết 2026-10-01. Branch: `develop`.
-- Liên quan: `docs/coworker/plans/advisor-webui.md` (Coding agent, settings), `.agent/security.md` (workspace scope).
+- Liên quan: `docs/coworker/plans/archive/advisor-webui.md` (Coding agent, settings), `.agent/security.md` (workspace scope).
 - Commit style: `feat(coworker): …`, `fix(coworker): …`, `feat(webui): …`.
 
 ## 1. Mục tiêu

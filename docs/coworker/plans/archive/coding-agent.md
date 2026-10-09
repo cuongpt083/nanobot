@@ -1,8 +1,10 @@
+> **Đã lưu trữ 2026-10-09.** Bị thay thế bởi runtime Pi mới (xem `pi-coding-runtime-implementation-plan.md` cùng thư mục và `docs/coworker/coding-pi.md`). Chỉ giữ lại làm lịch sử thiết kế.
+
 # Implementation plan — `coding_agent` tool with Pi and agy backends
 
 > **Historical.** This document describes the original Pi + agy design. Agy was removed and the
 > runtime was rebuilt on Pi only (PiClient v2: phase orchestrator, independent reviewer, extension
-> `nanobot-bridge`). See [`../coding-pi.md`](../coding-pi.md) and
+> `nanobot-bridge`). See [`../../coding-pi.md`](../../coding-pi.md) and
 > [`pi-coding-runtime-implementation-plan.md`](./pi-coding-runtime-implementation-plan.md) for the
 > current architecture.
 

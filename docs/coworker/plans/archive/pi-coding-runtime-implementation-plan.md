@@ -1,3 +1,5 @@
+> **Đã lưu trữ 2026-10-09.** Phase 0–5 đã triển khai (xem lịch sử commit `coworker` ngày 05–06/10/2026). Plan này được giữ lại vì mục **Further Works (A–F)** ở cuối vẫn là danh sách nợ chưa theo dõi ở nơi nào khác. Đối chiếu code ngày 2026-10-09: A, không thấy endpoint trả lời câu hỏi từ UI; D, `awaiting_approval` vẫn là ngõ cụt; C, `backends/agy.py` đã bị xóa nhưng còn tham chiếu `agy` ở `coding/runner.py`, `config.py` và 3 file WebUI; B, E và F chưa kiểm tra lại. Fixture `agy-1.2.13` đã bị xóa khỏi `plans/fixtures/`.
+
 # Implementation plan: Pi Coding Runtime (bỏ Agy, tập trung Pi)
 
 _Cập nhật: 05/10/2026 · Repo: `cuongpt083/nanobot`, nhánh `develop` · Module: `nanobot/coworker/coding/`_
@@ -516,7 +518,7 @@ Quyết định: model và mức thinking của từng phase (plan, implement, r
 
 ### 5.5 – Tài liệu
 
-Viết lại `docs/coworker/plans/coding-agent.md` thành tài liệu kiến trúc mới; thêm `docs/coworker/coding-pi.md` (cài đặt, ghim phiên bản, doctor, cấu hình phase/model, viết contract tốt); cập nhật `docs/coworker/README.md`.
+Viết lại `docs/coworker/plans/archive/coding-agent.md` thành tài liệu kiến trúc mới; thêm `docs/coworker/coding-pi.md` (cài đặt, ghim phiên bản, doctor, cấu hình phase/model, viết contract tốt); cập nhật `docs/coworker/README.md`.
 
 ### Test
 

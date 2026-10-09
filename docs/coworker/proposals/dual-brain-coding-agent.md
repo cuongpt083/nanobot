@@ -2,7 +2,7 @@
 
 - **Ngày lập:** 30/09/2026
 - **Trạng thái:** Draft v2 (viết lại; thay thế bản "Dual-Brain" 3 tầng)
-- **Tài liệu liên quan:** `docs/coworker/README.md`, `docs/coworker/plans/coding-agent.md`
+- **Tài liệu liên quan:** `docs/coworker/README.md`, `docs/coworker/plans/archive/coding-agent.md`
 - **Mã nguồn tham chiếu:** `nanobot/coworker/advisor/`, `nanobot/coworker/hook.py`, `nanobot/coworker/room/scheduler.py`, `nanobot/coworker/status.py`, `webui/src/components/coworker/`; gốc AICoworker: `electron/openclaw-bundled/tools/advisor.cjs`, `directives/advisor.cjs`.
 
 ---

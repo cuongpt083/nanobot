@@ -1,3 +1,5 @@
+> **Đã lưu trữ 2026-10-09.** Đã hoàn thành, trừ một mục kiểm thử bị chặn (máy chủ `agy2api` không truy cập được).
+
 # Implementation Plan: Hỗ trợ Custom Image Providers (agy2api & OpenAI-compatible) trong Nanobot
 
 _Cập nhật: 05/10/2026 · Repo: `cuongpt083/nanobot`, nhánh `develop`_

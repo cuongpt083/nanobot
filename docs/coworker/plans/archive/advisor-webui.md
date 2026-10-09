@@ -1,3 +1,5 @@
+> **Đã lưu trữ 2026-10-09.** Đã triển khai (Phase 1–3); các chỗ khác với thiết kế nằm ở cuối file.
+
 # Implementation plan — Advisor-assisted coding + WebUI participants & config
 
 Status: **implemented (Phases 1–3), with the deviations listed at the end**. Written 2026-09-30. Implements `docs/coworker/proposals/dual-brain-coding-agent.md` (Draft v2).
