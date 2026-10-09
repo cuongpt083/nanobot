@@ -106,6 +106,12 @@ describe("webuiManualChunk", () => {
     ).toBe("markdown-code");
   });
 
+  it("does not force mermaid into one chunk, so its per-diagram loaders stay separately lazy", () => {
+    // Forcing mermaid into one named chunk pulled every diagram type (about 8 MB) in with the first one.
+    expect(webuiManualChunk("/repo/node_modules/mermaid/dist/mermaid.core.mjs")).toBeUndefined();
+    expect(webuiManualChunk("/repo/node_modules/@mermaid-js/layout-elk/dist/mermaid-layout-elk.esm.mjs")).toBeUndefined();
+  });
+
   it("leaves language grammars as independently loaded chunks", () => {
     expect(webuiManualChunk("/repo/node_modules/refractor/lang/python.js")).toBeUndefined();
   });

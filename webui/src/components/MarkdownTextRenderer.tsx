@@ -15,6 +15,7 @@ import { Streamdown, type Components, type StreamdownProps } from "streamdown";
 
 import { AttachmentTile } from "@/components/AttachmentTile";
 import { CodeBlock } from "@/components/CodeBlock";
+import { MermaidPane } from "@/components/mermaid/MermaidPane";
 import { WebLink } from "@/components/WebLink";
 import {
   INLINE_TOKEN_HIGHLIGHT_COLOR,
@@ -552,6 +553,9 @@ export default function MarkdownTextRenderer({
       code({ className: cls, children: kids, node: _node, ...props }) {
         void _node;
         const match = /language-(\w+)/.exec(cls || "");
+        if (match?.[1] === "mermaid") {
+          return <MermaidPane code={String(kids).replace(/\n$/, "")} streaming={streaming} />;
+        }
         if (match) {
           const code = String(kids).replace(/\n$/, "");
           return (
@@ -604,6 +608,11 @@ export default function MarkdownTextRenderer({
       pre({ children: markdownChildren }) {
         const kids = Children.toArray(markdownChildren);
         const lone = kids.length === 1 ? kids[0] : null;
+        // Mermaid must replace the whole <pre>: a diagram element inside it is invalid markup.
+        const mermaidFence = codeFenceFromPreChild(lone);
+        if (mermaidFence?.language === "mermaid") {
+          return <MermaidPane code={mermaidFence.code} streaming={streaming} />;
+        }
         /** Highlighted fences render ``CodeBlock`` (block shell); skip invalid ``<pre><div>``. */
         if (isRenderedCodeBlock(lone)) {
           return <>{markdownChildren}</>;
@@ -820,7 +829,7 @@ export default function MarkdownTextRenderer({
         );
       },
     }),
-    [highlightCode, onOpenFilePreview, t],
+    [highlightCode, onOpenFilePreview, streaming, t],
   );
 
   return (
