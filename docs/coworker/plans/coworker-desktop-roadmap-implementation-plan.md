@@ -25,7 +25,7 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | 6 | P2b ảo hóa / P3 time-to-chrome | 0–3 ngày | có điều kiện | Chỉ khi baseline còn jank / chờ lâu |
 | 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | đã code và test (nhánh `feat/desktop-roadmap-p7-editor-g1`); chưa kiểm chứng trên trình duyệt; chưa có watch `fs.changed` | Mở 1 MB < 1 s; không qua Tauri `invoke` |
 | 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa (UI #4; kèm cập nhật advisor) | File ngoài drafts hoặc tab đang mở đều qua staged review |
-| 9 | Image G3 (Konva + skill) | 4–5 ngày | đã code và test (nhánh `feat/desktop-roadmap-p9-image`); chưa kiểm chứng trên Desktop; chưa có di chuyển/đổi kích thước vùng, cọ có chỉnh size và tẩy, IM-12…14 | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
+| 9 | Image G3 (Konva + skill) | 4–5 ngày | đã code và test (nhánh `feat/desktop-roadmap-p9-image`); chưa kiểm chứng trên Desktop; chưa có IM-12…14 | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
 | 10 | BrowserSkill P0–P4 (local-only, no Docker) + pane ảnh IM-17 | 9–14 ngày | cuối | 0 session treo trước khi bật `interact` |
 
 Đánh dấu `- [x]` trong từng phase khi xong và đã qua cổng. Không sang phase sau nếu cổng fail, trừ khi có quyết định dừng/bỏ rõ ràng.
@@ -690,7 +690,7 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 
 ### 9.1 – Konva pane (lazy)
 
-- [~] IM-01…10: đã có zoom (lăn chuột) và pan (công cụ Pan), nút Fit, rect, ellipse, brush, pin, số thứ tự theo thứ tự tạo với màu riêng, undo/redo (nút và Ctrl+Z / Ctrl+Y), ghi chú từng vùng và ghi chú chung, công tắc "chỉ sửa trong vùng khoanh" (bật mặc định). **Chưa:** di chuyển và đổi kích thước vùng (IM-03), cọ có chỉnh kích thước và tẩy (IM-04); cọ hiện có kích thước cố định. Chọn ghi chú làm nổi vùng tương ứng (IM-08).
+- [x] IM-01…10: zoom (lăn chuột), pan, Fit, rect, ellipse, brush, pin, eraser, số thứ tự theo thứ tự tạo với màu riêng, undo/redo (nút và Ctrl+Z / Ctrl+Y), ghi chú từng vùng và chung, chọn ghi chú làm nổi vùng (IM-08), công tắc "chỉ sửa trong vùng khoanh" (bật mặc định). IM-03: kéo vùng để di chuyển (giữ kích thước, không ra khỏi ảnh); hình chữ nhật và ellipse có 4 tay cầm góc để đổi kích thước; Delete xóa vùng đang chọn. IM-04: cọ có 3 cỡ (S/M/L); tẩy là nét cọ có `erase: true`, xóa phần đã đánh dấu theo đúng thứ tự vẽ (server dựng mask theo thứ tự). Tay cầm chỉ có ở hình chữ nhật và ellipse, không có ở cọ và ghim.
 - [~] Tọa độ 0–1 theo ảnh gốc: đã có. **Lệch khỏi plan:** không gửi mask PNG. Nét cọ gửi dưới dạng các điểm và bán kính; server dựng mask (`raster.region_mask`), nên không có file mask nhị phân nào đi qua request.
 
 ### 9.2 – Payload + tools
@@ -721,10 +721,10 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 - **Phụ thuộc:** nhánh tạo từ `feat/desktop-roadmap-p8-editor-g2`, vì pane dùng workspace API của 7.1 và file editor đã có.
 - **Thư viện:** `konva` 10.7.0 và `react-konva` 18.2.16 (ghim chính xác). Bản react-konva 19 cần React 19, repo đang dùng React 18. Konva 10.7.1 mới ra 4 ngày nên chưa dùng (quy tắc tối thiểu 2 tuần). Pillow khai báo trực tiếp trong `pyproject.toml`; trước đó đi qua dependency gián tiếp.
 - **Bundle:** pane tải lazy, chunk khoảng 305 KB raw (khoảng 95 KB gzip); shell `index` tăng khoảng 1 KB.
-- **Test:** `tests/coworker/test_image_review.py` 25 pass; `annotation-model.test.ts` 7 pass; `image-review-pane.test.tsx` 7 pass. Toàn bộ WebUI: 11 lỗi có sẵn (i18n zh-CN, sw.test.ts). Pytest coworker/webui/websocket: 4 lỗi có sẵn (symlink Windows, test settings).
+- **Test:** `tests/coworker/test_image_review.py` 28 pass (gồm tẩy); `annotation-model.test.ts` 15 pass; `image-review-pane.test.tsx` 9 pass. Toàn bộ WebUI: 11 lỗi có sẵn, cộng một test theo thời gian (`image-gallery`, `LinearPanel`) chỉ fail khi chạy song song và pass khi chạy riêng. Pytest coworker/webui: 4 lỗi có sẵn.
 - **Chưa kiểm chứng:** trình duyệt thật (vẽ, zoom, gửi); provider sinh ảnh thật với `image_edit`; agent thật làm theo skill; route ảnh phiên bản chưa có test HTTP riêng.
 - **Cờ:** `coworker.image.enabled` tắt mặc định. Pane vẫn gửi được khi cờ tắt, nhưng agent sẽ không có tool để đọc chú thích; cần bật cờ trước khi dùng thật.
-- **Chưa làm:** IM-03 (di chuyển/đổi kích thước), IM-04 (cọ có size và tẩy), IM-12…14, đính kèm ảnh đánh dấu.
+- **Chưa làm:** IM-12…14, đính kèm ảnh đánh dấu (annotated PNG). Tay cầm đổi kích thước chỉ có ở hình chữ nhật và ellipse, cọ không đổi kích thước sau khi vẽ.
 
 G4 (sticky header sequence, version tree đầy đủ, PV-08) **không** nằm trong roadmap lần này. IM-17 đã chuyển vào Phase 10.
 
