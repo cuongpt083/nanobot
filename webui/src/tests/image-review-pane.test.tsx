@@ -77,7 +77,7 @@ function renderPane(onSend = vi.fn()) {
 
 describe("annotation paths and the request text", () => {
   it("puts the annotation file next to the image", () => {
-    expect(annotationPathFor("assets/banner.v3.png")).toBe("assets/banner.v3.annotations.json");
+    expect(annotationPathFor("assets/banner.v3.png")).toBe("assets/banner.v3.edit.annotations.json");
     expect(annotationPathFor("photo")).toBe("photo.annotations.json");
   });
 

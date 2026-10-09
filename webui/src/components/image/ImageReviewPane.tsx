@@ -33,6 +33,7 @@ import {
   type RegionShape,
 } from "@/components/image/annotation-model";
 import { annotatedPictureName, renderAnnotatedImage } from "@/components/image/annotated-image";
+import { loadVersionTree, type VersionRow } from "@/components/image/image-version-tree";
 import type { SendAttachment } from "@/hooks/useNanobotStream";
 import {
   ApiError,
@@ -40,6 +41,7 @@ import {
   isWorkspaceConflict,
   listImageVersions,
   readWorkspaceFile,
+  saveImageVersionToWorkspace,
   saveWorkspaceFile,
   type ImageVersionSummary,
   type WebUIMutationTransport,
@@ -62,9 +64,15 @@ const TOOL_LABELS: Record<ImageTool, string> = {
   pin: "Pin",
 };
 
-/** Where the annotation file sits next to the image: ``banner.v3.png`` → ``banner.v3.annotations.json``. */
+const VERSION_FILE = /\.v\d+\.(png|jpe?g|webp)$/i;
+
+/**
+ * Where the annotation file sits next to the image. A saved version keeps ``<stem>.vN.annotations.json`` for the
+ * request that made it, so an edit of that version is written to ``<stem>.vN.edit.annotations.json``.
+ */
 export function annotationPathFor(imagePath: string): string {
-  return imagePath.replace(/\.[^./\\]+$/, "") + ".annotations.json";
+  const stem = imagePath.replace(/\.[^./\\]+$/, "");
+  return VERSION_FILE.test(imagePath) ? `${stem}.edit.annotations.json` : `${stem}.annotations.json`;
 }
 
 /** The message that asks the agent to act on the annotation file. Instructions are in English. */
@@ -104,6 +112,8 @@ interface ImageReviewPaneProps {
   src: string;
   /** Sends the request message to the chat, with the marked picture attached when it could be drawn. */
   onSend: (content: string, attachments: SendAttachment[]) => void;
+  /** Opens another image of the same family (a version in the tree) in the preview. */
+  onOpenImage?: (path: string) => void;
 }
 
 interface Draft {
@@ -119,7 +129,7 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }: ImageReviewPaneProps) {
+export function ImageReviewPane({ sessionKey, token, client, path, src, onSend, onOpenImage }: ImageReviewPaneProps) {
   const { t } = useTranslation();
   const [history, setHistory] = useState(() => createHistory(emptyDoc()));
   const doc = history.present;
@@ -139,12 +149,30 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   const [versionSrc, setVersionSrc] = useState<string | null>(null);
   const [comparePosition, setComparePosition] = useState(50);
+  const [tree, setTree] = useState<VersionRow[]>([]);
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   // Choosing a version shows the comparison; the user can go back to marking up without losing the version,
   // so the report and the resend still apply while regions are added or changed.
   const [showCompare, setShowCompare] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
   const activeVersion = versions.find((version) => version.id === activeVersionId) ?? null;
+
+  const saveVersion = async () => {
+    if (!activeVersion || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await saveImageVersionToWorkspace(client, sessionKey, activeVersion.id);
+      setSavedAs(saved.path);
+      await refreshTree();
+    } catch {
+      setError(t("image.review.saveFailed", { defaultValue: "The version could not be saved to the workspace." }));
+    } finally {
+      setSaving(false);
+    }
+  };
   const comparing = activeVersion !== null && versionSrc !== null && showCompare;
 
   // Versions the agent made from this image (IM-12). A list failure leaves the editor working without them.
@@ -159,6 +187,15 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
   useEffect(() => {
     void refreshVersions();
   }, [refreshVersions]);
+
+  // The family of this image in its folder: the original and the saved versions (IM-15).
+  const refreshTree = useCallback(async () => {
+    setTree(await loadVersionTree(token, sessionKey, path));
+  }, [path, sessionKey, token]);
+
+  useEffect(() => {
+    void refreshTree();
+  }, [refreshTree]);
 
   useEffect(() => {
     if (!activeVersionId) {
@@ -547,6 +584,14 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
           </select>
         ) : null}
         {activeVersion ? (
+          <button type="button" disabled={saving} onClick={() => void saveVersion()}
+            className="rounded px-2 py-1 text-muted-foreground disabled:opacity-40">
+            {saving
+              ? t("image.review.saving", { defaultValue: "Saving..." })
+              : t("image.review.saveToWorkspace", { defaultValue: "Save to workspace" })}
+          </button>
+        ) : null}
+        {activeVersion ? (
           <button type="button" onClick={() => setShowCompare((value) => !value)}
             className="rounded px-2 py-1 text-muted-foreground">
             {showCompare
@@ -664,6 +709,24 @@ export function ImageReviewPane({ sessionKey, token, client, path, src, onSend }
         </div>
 
         <aside className="flex min-h-0 w-full flex-col gap-2 overflow-auto border-t border-border/50 p-3 lg:w-72 lg:border-l lg:border-t-0">
+          {tree.length > 1 ? (
+            <nav aria-label={t("image.review.tree", { defaultValue: "Versions of this image" })} className="flex flex-col gap-0.5 text-xs">
+              {tree.map((row) => (
+                <button key={row.path} type="button" aria-current={row.path === path ? "true" : undefined}
+                  onClick={() => onOpenImage?.(row.path)} disabled={!onOpenImage}
+                  style={{ paddingLeft: `${0.5 + row.depth * 0.75}rem` }}
+                  className={cn("rounded py-1 pr-2 text-left disabled:opacity-100",
+                    row.path === path ? "bg-muted font-medium" : "text-muted-foreground hover:bg-muted/60")}>
+                  {row.label}
+                </button>
+              ))}
+            </nav>
+          ) : null}
+          {savedAs ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              {t("image.review.savedAs", { defaultValue: "Saved as {{path}}", path: savedAs })}
+            </p>
+          ) : null}
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             {t("image.review.globalNote", { defaultValue: "Note for the whole image" })}
             <textarea className="min-h-[52px] rounded border border-border/60 bg-background p-2 text-sm text-foreground"

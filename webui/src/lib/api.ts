@@ -1580,6 +1580,19 @@ export async function resolveStagedChange(
   });
 }
 
+/** Write a temporary image version into the workspace beside its source (IM-16). */
+export async function saveImageVersionToWorkspace(
+  transport: WebUIMutationTransport,
+  key: string,
+  versionId: string,
+): Promise<{ path: string; annotations: string | null; version: number }> {
+  return mutation<{ path: string; annotations: string | null; version: number }>(
+    transport,
+    "session.image_version.save",
+    { key, version_id: versionId },
+  );
+}
+
 /** Tell the gateway which project files the editor has open (the guard treats them as under review). */
 export async function setWorkspaceOpenTabs(
   transport: WebUIMutationTransport,

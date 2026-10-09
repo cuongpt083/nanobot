@@ -2026,6 +2026,7 @@ export function ThreadShell({
               client={client}
               onAskAgent={handleQuoteSelection}
               onSendImageEdit={sendImageEdit}
+              onOpenImage={openFilePreview}
               loadPreview={filePreviews.load}
               initialPreview={filePreviews.peek(activePreview.value)}
             />

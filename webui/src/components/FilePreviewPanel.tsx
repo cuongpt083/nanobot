@@ -28,6 +28,8 @@ interface FilePreviewPanelProps {
   onAskAgent?: (quote: string) => void;
   /** Sends an image edit request to the chat (Phase 9). When absent, images are only viewed. */
   onSendImageEdit?: (content: string, attachments: SendAttachment[]) => void;
+  /** Opens another image of the family in the preview (the version tree, Phase 9). */
+  onOpenImage?: (path: string) => void;
   loadPreview?: (path: string) => Promise<FilePreviewPayload>;
   initialPreview?: FilePreviewPayload;
 }
@@ -44,6 +46,7 @@ export function FilePreviewPanel({
   client,
   onAskAgent,
   onSendImageEdit,
+  onOpenImage,
   loadPreview,
   initialPreview,
 }: FilePreviewPanelProps) {
@@ -129,6 +132,7 @@ export function FilePreviewPanel({
                 path={state.payload.display_path}
                 src={state.payload.data_url}
                 onSend={onSendImageEdit}
+                onOpenImage={onOpenImage}
               />
             </Suspense>
           ) : editing && client ? (

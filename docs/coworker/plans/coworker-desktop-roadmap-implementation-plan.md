@@ -700,7 +700,7 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 - [x] Tools: `image_annotations_read`, `image_edit`, `image_composite`, `render_text`, `image_version_save` (`nanobot/coworker/image/tools.py`), ẩn khi `coworker.image.enabled` tắt (mặc định tắt). `image_edit` dùng lại tool sinh ảnh hiện có; **chưa kiểm chứng với provider thật**.
 - [x] Kho lưu phiên bản ảnh: thư mục tạm `nanobot-image-versions/<hash phiên>/`, ngoài workspace, dọn theo phiên hoặc TTL 24 giờ; route GET `/api/sessions/{key}/image-versions/{id}` chỉ phục vụ id hợp lệ của đúng phiên. **Lưu ý:** ảnh do `image_edit` sinh ra vẫn nằm trong thư mục artifact của tool sinh ảnh, không phải thư mục tạm; cần quyết định nếu muốn gom vào kho này.
 - [x] Skill `image-region-edit` (`nanobot/skills/image-region-edit/SKILL.md`): 7 bước của đặc tả, báo cáo theo số vùng.
-- [~] IM-12…14: **IM-12** kết quả là phiên bản mới (route liệt kê phiên bản theo ảnh gốc); so sánh trước/sau bằng thanh trượt, và "Mark up" quay lại vẽ mà không mất phiên bản. **IM-13** báo cáo theo vùng do agent gửi kèm `image_composite` / `image_version_save` (đạt, chưa đạt, một phần, kèm lý do), hiện cạnh từng ghi chú. **IM-14** "Gửi lại" chỉ nhắc các vùng chưa đạt; ghi chú vùng đã đạt bị khóa. Vùng đã đạt được khóa cả ghi chú lẫn hình học khi gửi lại (không kéo, không đổi kích thước, không xóa). **Còn thiếu:** lịch sử phiên bản dạng cây (IM-15, IM-16).
+- [x] IM-12…14: **IM-12** kết quả là phiên bản mới (route liệt kê phiên bản theo ảnh gốc); so sánh trước/sau bằng thanh trượt, và "Mark up" quay lại vẽ mà không mất phiên bản. **IM-13** báo cáo theo vùng do agent gửi kèm `image_composite` / `image_version_save` (đạt, chưa đạt, một phần, kèm lý do), hiện cạnh từng ghi chú. **IM-14** "Gửi lại" chỉ nhắc các vùng chưa đạt; ghi chú vùng đã đạt bị khóa. Vùng đã đạt được khóa cả ghi chú lẫn hình học khi gửi lại (không kéo, không đổi kích thước, không xóa). 
 
 ### Test
 
@@ -724,7 +724,9 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 - **Test:** `tests/coworker/test_image_review.py` 28 pass (gồm tẩy); `annotation-model.test.ts` 15 pass; `image-review-pane.test.tsx` 9 pass. Toàn bộ WebUI: 11 lỗi có sẵn, cộng một test theo thời gian (`image-gallery`, `LinearPanel`) chỉ fail khi chạy song song và pass khi chạy riêng. Pytest coworker/webui: 4 lỗi có sẵn.
 - **Chưa kiểm chứng:** trình duyệt thật (vẽ, zoom, gửi); provider sinh ảnh thật với `image_edit`; agent thật làm theo skill; route ảnh phiên bản chưa có test HTTP riêng.
 - **Cờ:** `coworker.image.enabled` tắt mặc định. Pane vẫn gửi được khi cờ tắt, nhưng agent sẽ không có tool để đọc chú thích; cần bật cờ trước khi dùng thật.
-- **Chưa làm:** cây phiên bản (IM-15, IM-16). Route liệt kê phiên bản chưa có test HTTP riêng.
+- **Chưa làm:** kiểm chứng trên trình duyệt; route liệt kê phiên bản chưa có test HTTP riêng.
+- **IM-15 (cây phiên bản):** làm xong. Cây lấy từ các file `<tên>.vN.<ext>` cạnh ảnh gốc; mỗi file có cha là ảnh nguồn của nó, ghi trong `<tên>.vN.annotations.json`. Bấm một nút trên cây thì mở file đó trong preview. Sửa một phiên bản cũ sẽ ghi vào `<tên>.vN.edit.annotations.json` và tạo `vN+1` làm nhánh con của nó.
+- **IM-16 (lưu vào workspace):** làm xong bằng mutation `session.image_version.save`, vì API ghi workspace hiện chỉ nhận text. Phiên bản được ghi thành `<tên>.vN.<ext>` với N lớn hơn mọi số đang có trong thư mục, kèm annotation là chính yêu cầu đã tạo ra nó. Không bao giờ ghi đè file đã có.
 
 G4 (sticky header sequence, version tree đầy đủ, PV-08) **không** nằm trong roadmap lần này. IM-17 đã chuyển vào Phase 10.
 

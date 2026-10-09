@@ -6,6 +6,8 @@ const api = vi.hoisted(() => ({
   saveWorkspaceFile: vi.fn(),
   listImageVersions: vi.fn(),
   fetchImageVersionDataUrl: vi.fn(),
+  saveImageVersionToWorkspace: vi.fn(),
+  listWorkspaceDir: vi.fn(),
 }));
 
 const pointer = vi.hoisted(() => ({ x: 0, y: 0 }));
@@ -96,6 +98,7 @@ beforeEach(() => {
     report: [{ id: 1, status: "done", reason: "logo swapped" }],
   }]);
   api.fetchImageVersionDataUrl.mockResolvedValue("data:image/png;base64,BBBB");
+  api.listWorkspaceDir.mockResolvedValue({ path: "", entries: [], truncated: false });
 });
 
 afterEach(() => {
@@ -218,3 +221,31 @@ describe("resending only the regions not done (IM-14)", () => {
     expect(await screen.findByRole("button", { name: "Resend the regions not done" })).toBeDisabled();
   });
 });
+
+describe("saving a version into the workspace (IM-16)", () => {
+  it("writes the selected version beside its image and says where it went", async () => {
+    api.saveImageVersionToWorkspace.mockResolvedValue({
+      path: "assets/banner.v1.png", annotations: "assets/banner.v1.annotations.json", version: 1,
+    });
+    renderPane();
+    await screen.findByRole("combobox", { name: "Version" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Version" }), { target: { value: VERSION } });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Save to workspace" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved as assets/banner.v1.png");
+    expect(api.saveImageVersionToWorkspace).toHaveBeenCalledWith(client, "websocket:abc", VERSION);
+  });
+
+  it("reports a failed save and keeps the editor usable", async () => {
+    api.saveImageVersionToWorkspace.mockRejectedValue(new ApiError(404, "gone"));
+    renderPane();
+    await screen.findByRole("combobox", { name: "Version" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Version" }), { target: { value: VERSION } });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Save to workspace" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be saved");
+  });
+});
+
