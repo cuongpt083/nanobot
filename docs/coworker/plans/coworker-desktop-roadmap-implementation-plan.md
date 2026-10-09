@@ -13,11 +13,13 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 
 ## Bảng theo dõi
 
+> **Cảnh báo về eval (cập nhật 09/10/2026):** eval coworker hiện không đo được chất lượng. Judge không thấy output của specialist, 10/14 lần judge lỗi parse và bị gán 3.0, room timeout 9/14, và eval chấm câu trả lời cuối của coordinator nên không tách được đóng góp của advisor. Chi tiết: `docs/coworker/tests/eval-baseline-findings.md`. Mọi cổng dựa trên eval LLM được đánh dấu **[chưa xác thực]**: không dùng làm tiêu chí quyết định cho tới khi harness được sửa và có số đo mới. Cổng không dựa trên eval (fixture, unit test, Desktop) vẫn có hiệu lực.
+
 | Phase | Việc | Ước lượng | Trạng thái | Cổng |
 | --- | --- | --- | --- | --- |
-| 0 | Baseline WebView2 + eval | 1–1,5 ngày | một phần (chờ số đo & eval run) | Có số đo ổn định, 2 lần chạy |
+| 0 | Baseline WebView2 + eval | 1–1,5 ngày | một phần (chờ số đo & eval run; eval chưa xác thực) | Có số đo ổn định, 2 lần chạy |
 | 0.5 | Gỡ Pi room guest (Lựa chọn A) + dọn tàn dư agy | 1–1,5 ngày | xong (`abff70c8`) | Toàn bộ room guest chạy AgentRuntime; tests room xanh, 156 coding tests pass |
-| 1 | F3 brief / envelope | 2–3 ngày | chưa | Token guest −40% vs `full`; envelope hợp lệ ≥ 90% |
+| 1 | F3 brief / envelope | 2–3 ngày | chưa | Token guest −40% vs `full`; envelope hợp lệ ≥ 90% **[chưa xác thực]** |
 | 2 | Mermaid P2a (ELK, pan/zoom, viewport) | 2–3 ngày | đã code và test (nhánh `feat/desktop-roadmap-p2-mermaid`); chưa kiểm chứng trên trình duyệt | Sequence 15 participant đọc được; Ctrl+cuộn zoom sơ đồ |
 | 3 | F2 FTS5 (chưa tóm tắt) | 2–3 ngày | chưa | Recall@5 ≥ 0,8; p95 < 200 ms |
 | 4 | F1 draft (CLI `/skills review`) | 2,5–3,5 ngày | chưa | Nháp hợp lệ; không tự active |
@@ -83,7 +85,7 @@ Lý do, không phải quên spec:
 
 ## Mục tiêu đo được
 
-1. Sau khi eval cổng đạt: room guest `brief+user` (tối đa 2 user turn); coordinator và chat chỉ thấy envelope ≤ 1.500 ký tự. **Trước cổng, default config vẫn `full`** để không đổi hành vi đang dùng.
+1. Sau khi eval cổng đạt **[chưa xác thực]**: room guest `brief+user` (tối đa 2 user turn); coordinator và chat chỉ thấy envelope ≤ 1.500 ký tự. **Trước cổng, default config vẫn `full`** để không đổi hành vi đang dùng.
 2. Sequence 15 participant đọc được chữ ở 100% zoom trang; Ctrl+cuộn zoom sơ đồ, cuộn thường cuộn trang.
 3. `search_sessions` xếp hạng BM25+độ mới; p95 không tóm tắt < 200 ms trên ~10.000 tin.
 4. Sau tác vụ ≥ 5 tool call thành công, có skill nháp để duyệt; không tự kích hoạt.
@@ -203,7 +205,7 @@ Ngưỡng Phase 6 (chốt sau khi có số; giá trị dưới là **đề xuấ
 
 `scripts/coworker_eval.py` **đã có**, bao gồm 7 kịch bản trong `tests/coworker/eval/scenarios/` (`crm-followup`, `edutech-course`, `nutritech-plan`, `persona-nutri`, `persona_delegation`, `presale-design`, `script-update`).
 
-- [ ] Chạy cả 7 kịch bản hiện có 2 lần (bao gồm `persona_delegation`), lưu `docs/coworker/plans/archive/eval/coworker-eval-baseline.json` với runner `gemini-3.8-flash-tiered`, advisor `claude-sonnet-5-5`, judge `claude-opus-5-5`.
+- [ ] **[chưa xác thực]** Chạy cả 7 kịch bản hiện có 2 lần (bao gồm `persona_delegation`), lưu `docs/coworker/plans/archive/eval/coworker-eval-baseline.json` với runner `gemini-3.8-flash-tiered`, advisor `claude-sonnet-5-5`, judge `claude-opus-5-5`.
 - [x] Skeleton YAML cho `recall_queries` (F2) và `repeat_tasks` (F1). `persona_delegation` đã được bổ sung vào bộ kịch bản đánh giá baseline.
 - [x] Spike Streamdown (không đoán): `webui/src/components/` không có chữ `mermaid`; diagram đi qua chunk Streamdown. Đọc option mermaid của đúng phiên Streamdown đang ghim; thử `mode=streaming` với khối chưa đóng. Ghi `docs/coworker/plans/mermaid-streamdown-note.md` (commit `7db5ba87`).
 
@@ -249,7 +251,7 @@ Hiện trạng giữ:
 
 Đã thống nhất gỡ Pi khỏi room guest (`_run_guest` không còn phân nhánh `CodingRunner`). Toàn bộ room guest chạy qua `AgentRuntime`, giúp F3 envelope & brief áp dụng đồng bộ cho mọi delegation. Nhánh `SubagentManager.run_inline` giữ raw text. `/code` và `coding_agent` độc lập vẫn giữ nguyên.
 
-### 1.0 – Eval `persona_delegation` trước khi đổi hành vi (chặn)
+### 1.0 – Eval `persona_delegation` trước khi đổi hành vi (chặn) **[chưa xác thực]**
 
 `scripts/coworker_eval.py` default output là `agent-runtime-baseline.json`; 6 scenario hiện có **không** đo brief/envelope.
 
@@ -317,10 +319,10 @@ Hiện trạng giữ:
 
 ### Cổng
 
-- Token đầu vào trung vị lượt guest −40% so với baseline `full` ở 1.0.
-- Envelope hợp lệ lần đầu ≥ 90% trên eval (hoặc fixture nếu eval LLM chưa sẵn).
+- Token đầu vào trung vị lượt guest −40% so với baseline `full` ở 1.0. **[chưa xác thực]**
+- Envelope hợp lệ lần đầu ≥ 90% trên eval (hoặc fixture nếu eval LLM chưa sẵn). Phần fixture (kiểm tra cấu trúc envelope) vẫn có hiệu lực; phần eval chưa xác thực.
 - Có file jsonl transcript từng delegation; `read_delegation` đọc được. Tỉ lệ gọi ≤ 30% chỉ đo khi tool đã bật — theo dõi, không fail cứng lần đầu.
-- Quality không giảm so với `f3-full-baseline.json` và 6 kịch bản hiện có.
+- Quality không giảm so với `f3-full-baseline.json` và 6 kịch bản hiện có. **[chưa xác thực]**
 - Default `context_policy` chỉ lật `brief+user` sau khi cổng token/quality đạt.
 
 ---
@@ -483,7 +485,7 @@ coworker:
 
 ### Cổng
 
-- Có nháp thật sau eval `repeat_tasks` (hoặc 1 phiên thủ công ≥ 5 tool).
+- Có nháp thật sau eval `repeat_tasks` **[chưa xác thực]** (hoặc 1 phiên thủ công ≥ 5 tool).
 - Không skill nào tự `active`.
 - Chi phí phản tư ghi metrics (mục tiêu ≤ 15% token lượt gốc — theo dõi).
 
@@ -526,7 +528,7 @@ Nhánh: `feat/desktop-roadmap-p5-recall-ui`.
 
 ### Cổng
 
-- Tóm tắt p95 cache miss < 6 s (đo thủ công/eval, không CI).
+- Tóm tắt p95 cache miss < 6 s (đo thủ công, không CI; không dùng eval LLM).
 - `read_session` sau search giảm so với baseline (theo dõi ≥ 30%).
 - Duyệt nháp trên Desktop loopback, không chỉ `bun run dev`.
 
@@ -799,7 +801,7 @@ Thêm:
 
 - Phase 1+: `pytest tests/coworker/delegate tests/coworker/room -q` (đường dẫn chỉnh theo layout thật).
 - Phase 2, 7–9: `bun run test` cho component mới + 1 lần chạy Desktop app local (ghi trong PR).
-- Eval LLM không chặn CI; cổng quality chạy tay và lưu JSON cạnh baseline.
+- Eval LLM không chặn CI; cổng quality chạy tay và lưu JSON cạnh baseline. Cổng quality chỉ có hiệu lực sau khi harness được sửa theo `eval-baseline-findings.md` (mục Proposed fix order).
 
 ## Rủi ro
 
