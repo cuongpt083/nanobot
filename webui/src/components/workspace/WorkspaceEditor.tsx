@@ -29,6 +29,9 @@ export const PREVIEW_DEBOUNCE_MS = 300;
 /** How often the editor asks the gateway for pending proposals, so a new one shows without a reload (ED-15). */
 export const CHANGES_POLL_MS = 4_000;
 
+/** How often open files are checked against disk for changes made outside the editor (ED-15). */
+export const DISK_POLL_MS = 4_000;
+
 interface Buffer {
   path: string;
   language: string;
@@ -39,6 +42,8 @@ interface Buffer {
   version: string | null;
   conflict: boolean;
   error: string | null;
+  /** The file changed on disk while this tab was not active (ED-15); cleared when the tab is opened. */
+  changedOnDisk?: boolean;
 }
 
 interface WorkspaceEditorProps {
@@ -96,6 +101,8 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
   // Callbacks registered once (the editor's save command) read the latest buffers through this ref.
   const buffersRef = useRef(buffers);
   buffersRef.current = buffers;
+  // Paths with a save in flight: their version is about to change because of the editor, not the disk.
+  const savingRef = useRef(new Set<string>());
 
   const active = useMemo(
     () => buffers.find((buffer) => buffer.path === activePath) ?? null,
@@ -185,10 +192,47 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
     // Only the file that was requested opens on mount; later opens come from the tree.
   }, [initialPath]);
 
+  // ED-15: a file open in a tab changed on disk. A tab with no unsaved text takes the new text and is marked;
+  // a tab with unsaved text gets the conflict banner, so what the user typed is never replaced silently.
+  const checkDisk = useCallback(async () => {
+    for (const buffer of buffersRef.current) {
+      if (savingRef.current.has(buffer.path) || buffer.version === null) continue;
+      let file;
+      try {
+        file = await readWorkspaceFile(token, sessionKey, buffer.path, base);
+      } catch {
+        continue;
+      }
+      const current = buffersRef.current.find((b) => b.path === buffer.path);
+      if (!current || current.version === file.version || savingRef.current.has(buffer.path)) continue;
+      if (current.text === current.savedText) {
+        patch(buffer.path, {
+          text: file.content, savedText: file.content, version: file.version,
+          conflict: false, changedOnDisk: true,
+        });
+      } else {
+        patch(buffer.path, { conflict: true });
+      }
+    }
+  }, [base, patch, sessionKey, token]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void checkDisk();
+    }, DISK_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [checkDisk]);
+
+  // Opening a tab acknowledges that it changed on disk.
+  useEffect(() => {
+    if (activePath) patch(activePath, { changedOnDisk: false });
+  }, [activePath, patch]);
+
   /** Save the buffer. ``baseVersion`` overrides the loaded version (used after a conflict is resolved). */
   const save = useCallback(async (path: string, baseVersion?: string | null) => {
     const buffer = buffersRef.current.find((b) => b.path === path);
     if (!buffer) return;
+    savingRef.current.add(path);
     try {
       const saved = await saveWorkspaceFile(client, sessionKey, {
         path,
@@ -202,6 +246,8 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
       } else {
         patch(path, { error: error instanceof Error ? error.message : "Save failed" });
       }
+    } finally {
+      savingRef.current.delete(path);
     }
   }, [client, patch, sessionKey]);
 
@@ -302,6 +348,11 @@ export function WorkspaceEditor({ sessionKey, token, client, initialPath, base =
                     className="max-w-[160px] truncate" onClick={() => setActivePath(buffer.path)}>
                     {buffer.path.split("/").pop()}{isDirty ? " •" : ""}
                   </button>
+                  {buffer.changedOnDisk && buffer.path !== activePath ? (
+                    <span role="img" aria-label={t("workspace.changedOnDisk", { defaultValue: "Changed on disk" })}
+                      title={t("workspace.changedOnDisk", { defaultValue: "Changed on disk" })}
+                      className="inline-block h-1.5 w-1.5 rounded-full bg-sky-500" />
+                  ) : null}
                   {changes.some((change) => change.path === buffer.path) ? (
                     <span role="img" aria-label={t("workspace.proposedBadge", { defaultValue: "The agent proposed a change to this file" })}
                       title={t("workspace.proposedBadge", { defaultValue: "The agent proposed a change to this file" })}

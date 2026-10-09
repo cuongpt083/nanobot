@@ -241,6 +241,27 @@ def read_requested_files(root: Path, requested: Iterable[str]) -> str:
     return "\n\n".join(chunks)
 
 
+PENDING_MAX = 5
+PENDING_PREVIEW_CHARS = 800
+
+
+def pending_proposals_section(root: Path) -> str:
+    """Staged writes the user has not decided on. They are NOT on disk, so the advisor must not treat them as done."""
+    from nanobot.coworker.staged.store import list_pending
+
+    pending = list_pending(root)[:PENDING_MAX]
+    if not pending:
+        return ""
+    blocks: list[str] = []
+    for item in pending:
+        preview = str(item.get("content", ""))[:PENDING_PREVIEW_CHARS]
+        note = "changed on disk since it was proposed" if item.get("stale") else "not applied yet"
+        blocks.append(
+            f"#### {item.get('path')} ({note}; proposed by {item.get('by', 'unknown')})\n{preview}"
+        )
+    return "\n\n".join(blocks)
+
+
 def collect_evidence_sync(
     messages: list[dict[str, Any]],
     root: Path | None,
@@ -267,6 +288,10 @@ def collect_evidence_sync(
                 "### Files the executor asked you to read (current content on disk)\n"
                 + read_requested_files(root, requested)
             )
+    if root is not None and root.is_dir():
+        pending = pending_proposals_section(root)
+        if pending:
+            sections.append("### Proposed file changes awaiting the user's decision (not applied)\n" + pending)
     checks = _checks_section(recent_checks(scope))
     if checks:
         sections.append("### Recent verification commands (output tail as seen by the harness)\n" + checks)

@@ -161,10 +161,25 @@ def list_pending(root: Path) -> list[dict[str, Any]]:
     return out
 
 
-def resolve(root: Path, change_id: str, action: str, *, scope: Any) -> dict[str, Any]:
-    """Accept (write the proposed content) or reject a pending proposal."""
+def resolve(
+    root: Path,
+    change_id: str,
+    action: str,
+    *,
+    scope: Any,
+    content: Any = None,
+) -> dict[str, Any]:
+    """Accept or reject a pending proposal.
+
+    content lets the user accept part of a proposal: the text they assembled from the hunks they kept.
+    It is written with the same version check as the whole proposal, and the rest is discarded with it.
+    """
     if action not in {"accept", "reject"}:
         raise ProposalError(400, "action must be accept or reject", {})
+    if content is not None and not isinstance(content, str):
+        raise ProposalError(400, "content must be a string", {})
+    if content is not None and len(content.encode("utf-8")) > 5 * 1024 * 1024:
+        raise ProposalError(413, "content is too large (maximum 5 MiB)", {})
     directory = _staged_dir(root)
     record = next((r for r in _read_records(directory) if r.get("id") == change_id), None)
     if record is None or record.get("status") != PENDING:
@@ -175,10 +190,12 @@ def resolve(root: Path, change_id: str, action: str, *, scope: Any) -> dict[str,
         _write_record(directory, record)
         return {"id": change_id, "status": REJECTED, "path": record["path"]}
 
+    final_content = record["content"] if content is None else content
+    partial = final_content != record["content"]
     try:
         saved = write_file(
             record["path"],
-            record["content"],
+            final_content,
             base_version=record.get("base_version"),
             scope=scope,
         )
@@ -188,5 +205,13 @@ def resolve(root: Path, change_id: str, action: str, *, scope: Any) -> dict[str,
                                 {"current_version": e.details.get("current_version")}) from e
         raise ProposalError(e.status, e.message, {}) from e
     record["status"] = ACCEPTED
+    if partial:
+        record["accepted_content"] = final_content
     _write_record(directory, record)
-    return {"id": change_id, "status": ACCEPTED, "path": record["path"], "version": saved["version"]}
+    return {
+        "id": change_id,
+        "status": ACCEPTED,
+        "path": record["path"],
+        "version": saved["version"],
+        "partial": partial,
+    }

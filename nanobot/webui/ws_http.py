@@ -1349,6 +1349,7 @@ class GatewayHTTPHandler:
                         str(payload.get("id") or ""),
                         str(payload.get("action") or ""),
                         scope=scope,
+                        content=payload.get("content"),
                     )
                 except staged_store.ProposalError as e:
                     return _http_json_response(
