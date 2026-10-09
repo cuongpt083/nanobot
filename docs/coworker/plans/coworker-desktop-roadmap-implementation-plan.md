@@ -743,7 +743,8 @@ Phụ thuộc: **Phase 9 phải xong trước** (9.1, khung Konva). Đây là c�
 
 - [ ] Pane ảnh hiển thị ảnh chụp từ `browser_*` và ảnh chụp màn hình UI, có zoom/pan. Chưa có khung Konva thì tạm dùng `ImageLightbox` (chỉ xem, không khoanh vùng).
 - [ ] Với ảnh chụp, nút gửi tạo **tin góp ý** gồm ảnh, chú thích khoanh vùng (nếu có) và đường dẫn ảnh. Không tạo yêu cầu sửa ảnh.
-- [ ] Ảnh chụp từ BrowserSkill lưu ở đâu (temp như ảnh phiên bản Phase 9, hay trong workspace) chưa quyết. Chốt trước khi làm mục này.
+- [x] **Quyết định (chốt):** ảnh chụp từ BrowserSkill **chỉ xem**, không sửa, không khoanh vùng. Lưu trong thư mục tạm riêng `tempfile.gettempdir()/nanobot-browser-screenshots/<session>/`, tách khỏi kho phiên bản ảnh do người dùng tạo ở Phase 9 (`nanobot-image-versions/`), và **không** vào workspace. Ephemeral: dọn theo session kết thúc, reboot hoặc TTL, giống kho Phase 9.
+- [ ] Giả định cần xác nhận: với ảnh BrowserSkill, pane không có công cụ chỉnh sửa, và nút gửi "góp ý" chỉ áp dụng cho ảnh chụp màn hình UI. Nếu muốn gửi ảnh chụp browser cho agent thì đó là hành động riêng, chưa có trong plan.
 - [ ] Khung hình live không đưa vào context model (đã ghi ở trên); chỉ ảnh được người dùng gửi mới vào tin.
 
 Chi tiết task lấy từ `dac-ta-browserskill-muc-2.md`; khi tới Phase 10, tách plan con nếu file này quá dài.
