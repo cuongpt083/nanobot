@@ -2,7 +2,7 @@
 
 _Cập nhật: 09/10/2026 · Repo: `cuongpt083/nanobot`, nhánh `develop` · Mục tiêu: Desktop app Windows (Tauri webview → gateway `127.0.0.1`)_
 
-Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, xếp theo giá trị dùng thật và rủi ro. Không thiết kế remote use (VPS, SSH, Tailscale, WebUI điện thoại). Ước lượng 22–40 ngày công tùy phase có điều kiện (ảo hóa, time-to-chrome) và BrowserSkill.
+Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, xếp theo giá trị dùng thật và rủi ro. Không thiết kế remote use (VPS, SSH, Tailscale, WebUI điện thoại). Ước lượng 23–42 ngày (đã cộng pane ảnh IM-17 vào Phase 10) công tùy phase có điều kiện (ảo hóa, time-to-chrome) và BrowserSkill.
 
 Đặc tả nguồn:
 
@@ -26,7 +26,7 @@ Kế hoạch này gộp bốn đặc tả đã chỉnh cho **local Desktop**, x�
 | 7 | Editor G1 (đọc/sửa/lưu + preview) | 3–4 ngày | đã code và test (nhánh `feat/desktop-roadmap-p7-editor-g1`); chưa kiểm chứng trên trình duyệt; chưa có watch `fs.changed` | Mở 1 MB < 1 s; không qua Tauri `invoke` |
 | 8 | Editor G2 (staged / diff / hunk) | 3–4 ngày | chưa (UI #4; kèm cập nhật advisor) | File ngoài drafts hoặc tab đang mở đều qua staged review |
 | 9 | Image G3 (Konva + skill) | 4–5 ngày | chưa (UI #4, song song 8) | Sửa nhiều vùng một lần gửi; version ảnh lưu OS tempdir |
-| 10 | BrowserSkill P0–P4 (local-only, no Docker) | 8–12 ngày | cuối | 0 session treo trước khi bật `interact` |
+| 10 | BrowserSkill P0–P4 (local-only, no Docker) + pane ảnh IM-17 | 9–14 ngày | cuối | 0 session treo trước khi bật `interact` |
 
 Đánh dấu `- [x]` trong từng phase khi xong và đã qua cổng. Không sang phase sau nếu cổng fail, trừ khi có quyết định dừng/bỏ rõ ràng.
 
@@ -95,7 +95,6 @@ Lý do, không phải quên spec:
 
 - Remote gateway, tunnel, Tailscale, mở WebUI ra mạng.
 - F1 `mode: auto` (Phase 4 Hermes; chỉ xét sau 4 tuần duyệt nháp ≥ 60%).
-- IM-17 (pane ảnh cho screenshot UI / BrowserSkill).
 - Monaco-as-IDE: LSP, debugger, terminal, marketplace.
 - LLM tự tính tọa độ / mask / ghép ảnh.
 - Browser `interact` trước khi P1 đạt 0 session treo.
@@ -683,7 +682,7 @@ Nhánh: `feat/desktop-roadmap-p8-editor-g2`. **Trạng thái: làm một phần.
 
 Nhánh: `feat/desktop-roadmap-p9-image`. Chốt Q3, Q6 trước.
 
-Không làm IM-17, không LLM mask/coords, không model vẽ chữ Việt.
+Không làm IM-17 (chuyển sang Phase 10, mục P4-ảnh), không LLM mask/coords, không model vẽ chữ Việt.
 
 Phụ thuộc (theo đặc tả, giai đoạn 3): chỉ cần workspace file API của Phase 7.1, nên chạy song song với Phase 8 được.
 Hiện trạng (09/10/2026): chưa cài `konva` / `react-konva`; viewer ảnh hiện có (`ImageLightbox`, `ZoomableImage`) chỉ để xem, chưa có công cụ khoanh vùng;
@@ -716,11 +715,11 @@ Q6 (provider ảnh đầu tiên có nhận mask không) vẫn mở và chặn `i
 - Sửa nhiều vùng một lần gửi trên Desktop local.
 - Agent báo đạt/chưa đạt theo số vùng.
 
-G4 (sticky header sequence, version tree đầy đủ, IM-17, PV-08) **không** nằm trong roadmap lần này.
+G4 (sticky header sequence, version tree đầy đủ, PV-08) **không** nằm trong roadmap lần này. IM-17 đã chuyển vào Phase 10.
 
 ---
 
-## Phase 10 – BrowserSkill Mức 2 (8–12 ngày)
+## Phase 10 – BrowserSkill Mức 2 + pane ảnh IM-17 (9–14 ngày)
 
 Làm **cuối**. Local desktop only. Không Docker/VPS.
 
@@ -737,6 +736,15 @@ Nội bộ vẫn theo cổng đặc tả:
 - [ ] **Cấm** P2 `interact` nếu P1 chưa đạt 0 hung sessions.
 - [ ] Live view loopback only; không đưa frame vào context model.
 - [ ] F2 index log browser: chỉ tên thao tác + nhãn phần tử + domain + thời điểm. Không URL đầy đủ, không giá trị `fill`.
+
+### Pane ảnh (IM-17) – P4
+
+Phụ thuộc: **Phase 9 phải xong trước** (9.1, khung Konva). Đây là cùng một pane với Phase 9; chỉ khác hành động nút gửi.
+
+- [ ] Pane ảnh hiển thị ảnh chụp từ `browser_*` và ảnh chụp màn hình UI, có zoom/pan. Chưa có khung Konva thì tạm dùng `ImageLightbox` (chỉ xem, không khoanh vùng).
+- [ ] Với ảnh chụp, nút gửi tạo **tin góp ý** gồm ảnh, chú thích khoanh vùng (nếu có) và đường dẫn ảnh. Không tạo yêu cầu sửa ảnh.
+- [ ] Ảnh chụp từ BrowserSkill lưu ở đâu (temp như ảnh phiên bản Phase 9, hay trong workspace) chưa quyết. Chốt trước khi làm mục này.
+- [ ] Khung hình live không đưa vào context model (đã ghi ở trên); chỉ ảnh được người dùng gửi mới vào tin.
 
 Chi tiết task lấy từ `dac-ta-browserskill-muc-2.md`; khi tới Phase 10, tách plan con nếu file này quá dài.
 
