@@ -277,11 +277,13 @@ def collect_evidence_sync(
         summary = git_summary(root)
         if summary:
             sections.append(summary)
-            paths = written_paths(scope)
-            if paths:
-                diffs = _written_diffs(root, paths, max_chars // 2)
-                if diffs:
-                    sections.append("### Files the executor wrote this run\n" + diffs)
+        # Outside a git work tree the transcript only carries the first 600 characters of what a write
+        # tool was given, so the file itself is the advisor's only view of what was produced.
+        paths = written_paths(scope)
+        if paths:
+            diffs = _written_diffs(root, paths, max_chars // 2)
+            if diffs:
+                sections.append("### Files the executor wrote this run\n" + diffs)
         requested = list(requested_files)
         if requested:
             sections.append(

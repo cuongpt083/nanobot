@@ -105,6 +105,26 @@ def test_evidence_is_empty_outside_git_and_without_checks(tmp_path: Path) -> Non
     assert evidence.collect_evidence_sync([], tmp_path) == ""
 
 
+def test_files_written_outside_git_are_attached_so_the_advisor_sees_what_was_produced(tmp_path: Path) -> None:
+    # A marketing or CRM workspace is not a git work tree: without this the advisor only has the first
+    # 600 characters of each write call, and answers that it cannot see the document.
+    (tmp_path / "offer.md").write_text("# OFFER BODY " + "x" * 3000, encoding="utf-8")
+    messages = [_assistant(_call("1", "write_file", path="offer.md", content="# OFFER BODY"))]
+    text = evidence.collect_evidence_sync(messages, tmp_path)
+    assert "Files the executor wrote this run" in text
+    assert "offer.md" in text and "OFFER BODY" in text and "new/untracked file" in text
+    assert "git status --short" not in text
+
+
+def test_a_write_outside_the_project_is_named_but_not_read(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    root.mkdir()
+    (tmp_path / "elsewhere.md").write_text("OUTSIDE SECRET", encoding="utf-8")
+    messages = [_assistant(_call("1", "write_file", path="../elsewhere.md"))]
+    text = evidence.collect_evidence_sync(messages, root)
+    assert "outside the project scope" in text and "OUTSIDE SECRET" not in text
+
+
 def test_requested_files_are_read_from_disk_inside_the_project_only(repo: Path, tmp_path: Path) -> None:
     (repo / "plan.md").write_text("# PLAN BODY\n", encoding="utf-8")
     secret = tmp_path / "secret.txt"
