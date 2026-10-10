@@ -902,7 +902,10 @@ class CoworkerHook(AgentHook):
             cfg.advisor.ledger
             and not self._gated
             and eff.mode != advisor_state.MODE_BRAINSTORM
-            and scan.work_total > 0
+            # A coordinator that only delegates, or answers in conversation, does no counted tool work.
+            # A consult in this run still ties the open items to it, so stale items from an earlier
+            # turn do not nag an answer-only run.
+            and (scan.work_total > 0 or scan.consulted)
         ):
             open_ledger = advisor_state.ledger(session)
             gate_dod = cfg.advisor.output_template and cfg.advisor.done_gate_done_when

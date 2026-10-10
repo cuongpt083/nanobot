@@ -603,3 +603,74 @@ async def test_every_tool_result_size_is_recorded(env, monkeypatch) -> None:
     await _run_tool(hook, "r2", "rg", ToolResult("boom", is_error=True), args=["x"])
     assert rows[0] == {"tool": "read_file", "result_chars": 9000, "elided": True, "is_error": False}
     assert rows[1]["tool"] == "rg" and rows[1]["is_error"] is True and rows[1]["elided"] is False
+
+
+# ---------- coordinator compliance and what the advisor can see ----------
+
+def test_done_gate_also_applies_to_a_consulted_run_that_only_delegated(env, monkeypatch) -> None:
+    monkeypatch.setattr("nanobot.coworker.hook.runtime_for_preset", lambda p: SimpleNamespace(model="strong"))
+    hook, session = _hook(env, review_nudge=False)
+    _, parsed = advisor_ledger.parse_ledger(ADVICE)
+    assert parsed is not None
+    advisor_state.apply_ledger(session, parsed)
+    # room_delegate and room_state are bookkeeping, not counted work: the run has no work step at all.
+    delegated = [
+        {"role": "user", "content": "plan the campaign"},
+        _assistant(_call("1", "room_delegate", agent="writer"), _call("2", "advisor")),
+    ]
+    hook._iter_ctx = _iter_context(delegated)
+    assert policy.scan_run(delegated).work_total == 0
+    gate = hook.continuation()
+    assert gate is not None and "OPEN items" in gate
+    assert hook.continuation() is None  # still once per run
+
+
+def test_done_gate_ignores_open_items_from_an_earlier_turn_when_this_run_never_consulted(env, monkeypatch) -> None:
+    monkeypatch.setattr("nanobot.coworker.hook.runtime_for_preset", lambda p: SimpleNamespace(model="strong"))
+    hook, session = _hook(env, review_nudge=False)
+    _, parsed = advisor_ledger.parse_ledger(ADVICE)
+    assert parsed is not None
+    advisor_state.apply_ledger(session, parsed)
+    delegated = [{"role": "user", "content": "plan"}, _assistant(_call("1", "room_delegate", agent="writer"))]
+    hook._iter_ctx = _iter_context(delegated)
+    assert hook.continuation() is None
+
+
+@pytest.mark.asyncio
+async def test_tool_tells_the_coordinator_when_the_advisor_could_not_see_everything(env, monkeypatch, repo) -> None:
+    env.configure(CoworkerConfig(advisor=AdvisorConfig(preset="strong", max_uses=3, refill_steps=0)))
+    advice = "The 12-page brief was elided in the transcript, so I can't see its middle section."
+    provider = SimpleNamespace(chat_with_retry=AsyncMock(return_value=LLMResponse(content=advice, finish_reason="stop")))
+    monkeypatch.setattr("nanobot.coworker.advisor.tool.runtime_for_preset", lambda p: SimpleNamespace(provider=provider, model="strong"))
+    monkeypatch.setattr("nanobot.coworker.advisor.tool.project_root_for", lambda session: repo)
+    env.sessions.get_or_create(KEY)
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "go"},
+        _assistant(_call("1", "write_file", path="a.py")),
+        _tool("1", "write_file", "ok"),
+    ]
+    runtime.remember_live_messages(KEY, messages)
+    with request_context(RequestContext(channel="cli", chat_id="direct", session_key=KEY)):
+        out = str(await AdvisorTool().execute(focus="check"))
+    assert "could not see part of the material" in out and "files=[" in out
+
+    provider.chat_with_retry.return_value = LLMResponse(content="Looks fine.", finish_reason="stop")
+    with request_context(RequestContext(channel="cli", chat_id="direct", session_key=KEY)):
+        quiet = str(await AdvisorTool().execute(focus="check"))
+    assert "could not see part of the material" not in quiet
+
+
+def test_an_untracked_file_is_read_up_to_the_size_the_section_shows(tmp_path: Path) -> None:
+    (tmp_path / "brief.md").write_text("START " + "x" * 7000 + " END-OF-BRIEF", encoding="utf-8")
+    (tmp_path / "long.md").write_text("y" * 20000, encoding="utf-8")
+    messages = [_assistant(_call("1", "write_file", path="brief.md"), _call("2", "write_file", path="long.md"))]
+    text = evidence.collect_evidence_sync(messages, tmp_path)
+    assert "END-OF-BRIEF" in text  # 7 KB used to be cut at 4 KB
+    assert "more chars]" in text  # a longer file still says how much was left out
+
+
+def test_the_nudges_that_ask_for_a_consult_mention_attaching_files() -> None:
+    discussion = policy.review_nudge_text(policy.NudgeDecision("discussion", 0))
+    room = policy.review_nudge_text(policy.NudgeDecision("room_review", 0))
+    assert "files=[" in discussion and "files=[" in room

@@ -209,6 +209,7 @@ class AdvisorTool(CoworkerTool):
                 parsed = advisor_state.apply_ledger(session, parsed)
         uses = advisor_state.count_use(session)
         advisor_state.clear_user_request(session)
+        elided = bool(_ELIDED_ADVICE_RE.search(text))
         advisor_state.record_exchange(
             session,
             model=result.model or eff.preset,
@@ -226,11 +227,16 @@ class AdvisorTool(CoworkerTool):
             work_steps_since_last=scan.gap,
             evidence_pack=result.evidence,
             prompt_chars=result.prompt_chars,
-            elided_advice=bool(_ELIDED_ADVICE_RE.search(text)),
+            elided_advice=elided,
             checkpoint_set=bool((parsed or {}).get("next_checkpoint")),
             after_write=scan.written_total > 0,
         )
         notes: list[str] = []
+        if elided:
+            notes.append(
+                "The advisor says it could not see part of the material. If that part matters, call "
+                "advisor() again with files=[<paths of the long documents you produced>] so it reads them in full."
+            )
         if parsed is not None and parsed.get("next_checkpoint"):
             notes.append(f"Advisor checkpoint: {parsed['next_checkpoint']}")
         remaining = eff.max_uses - uses

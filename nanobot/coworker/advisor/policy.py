@@ -232,7 +232,8 @@ def review_nudge_text(decision: NudgeDecision) -> str:
             "above. Before you post the final consolidated report, call advisor(focus=<the user's goal, what "
             "each teammate delivered, and what you are unsure about>). It reviews the whole room transcript. "
             "Then fold any must-fix point into your report, and say plainly which teammate output you "
-            "rejected or sent back. Do not skip the advisor call."
+            "rejected or sent back. Attach any long deliverable with files=[<paths>] so the advisor reads it "
+            "in full. Do not skip the advisor call."
         )
     if decision.kind == "reconsult":
         return (
@@ -244,7 +245,8 @@ def review_nudge_text(decision: NudgeDecision) -> str:
     if decision.kind == "discussion":
         return (
             f"{ADVISOR_REVIEW_MARKER} Before this answer stands, call advisor(focus=<the user's core "
-            "question, 1 sentence>) — it sees your draft above. Then add a SHORT follow-up (not a rewrite): "
+            "question, 1 sentence>) — it sees your draft above (pass files=[<paths>] for any long document "
+            "you wrote). Then add a SHORT follow-up (not a rewrite): "
             "where it agrees, where it differs, and your final position. If it changes nothing material, "
             "say so in one line."
         )
