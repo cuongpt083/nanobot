@@ -42,6 +42,30 @@ def test_scan_counts_writes_and_resets_the_gap_on_a_consult() -> None:
     assert scan.work_total == 5
 
 
+def test_scan_before_the_current_consult_reports_the_real_gap() -> None:
+    # While the advisor tool runs, the call that started it is already in the transcript.
+    in_flight = _run("write_file", "write_file", "write_file")
+    in_flight.append({
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": "now", "type": "function", "function": {"name": "advisor"}}],
+    })
+    assert policy.scan_run(in_flight).gap == 0  # the plain scan hides the work done before the consult
+    before = policy.scan_before_current_consult(in_flight)
+    assert before.gap == 3 and before.consulted is False and before.written_total == 3
+
+
+def test_scan_before_the_current_consult_keeps_an_earlier_consult() -> None:
+    messages = _run("write_file", "advisor", "write_file", "write_file")
+    messages.append({
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"id": "now", "type": "function", "function": {"name": "advisor"}}],
+    })
+    before = policy.scan_before_current_consult(messages)
+    assert before.consulted is True and before.gap == 2
+
+
 def test_scan_ignores_read_only_tools() -> None:
     scan = policy.scan_run(_run("read_file", "list_dir", "find_files", "rg", "grep", "web_search"))
     assert (scan.consulted, scan.gap, scan.work_total) == (False, 0, 0)

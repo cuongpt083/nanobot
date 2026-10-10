@@ -87,6 +87,21 @@ def scan_run(messages: list[dict[str, Any]]) -> RunScan:
     )
 
 
+def scan_before_current_consult(messages: list[dict[str, Any]]) -> RunScan:
+    """:func:`scan_run` as it stood when the advisor was called.
+
+    While the advisor tool runs, the assistant message that called it is already in the transcript, so a
+    plain scan sees a consult with nothing after it and always reports a gap of 0.
+    """
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.get("role") == "assistant" and any(
+            tool_call_name(call) == ADVISOR_TOOL for call in tool_calls(message)
+        ):
+            return scan_run(messages[:index])
+    return scan_run(messages)
+
+
 def consult_after_last_write(messages: list[dict[str, Any]]) -> bool | None:
     """Whether a *successful* consult happened after the run's last file write.
 

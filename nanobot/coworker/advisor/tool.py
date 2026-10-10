@@ -194,7 +194,7 @@ class AdvisorTool(CoworkerTool):
             )
         from nanobot.coworker.advisor import policy
 
-        scan = policy.scan_run(messages)
+        scan = policy.scan_before_current_consult(messages)
         text = result.text
         parsed: dict[str, Any] | None = None
         reply_shape: dict[str, int] | None = None
